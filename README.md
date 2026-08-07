@@ -53,6 +53,7 @@ $EDITOR .factory/profile.json        # replace every value
 #    .github/workflows/factory-branch-guard.yml
 #    .github/factory-models.json
 #    .github/factory-approvers.json
+#    .github/ISSUE_TEMPLATE/factory-requirement.yml
 #    .claude/settings.json
 
 # 5. Plugin (once per machine; CI does not need it)
@@ -70,7 +71,7 @@ The caller stubs must be on your **default branch** before GitHub will fire
 them. To pilot the factory before merging them there, use the test harness stub
 (`templates/workflows/factory-test.yml`) — it runs from a development branch.
 
-That's the whole footprint: six files, none of them logic. The pipeline body,
+That's the whole footprint: seven files, none of them logic. The pipeline body,
 the role prompts and the hook stay in this repo.
 
 ## Why two channels
