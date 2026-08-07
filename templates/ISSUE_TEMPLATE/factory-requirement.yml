@@ -1,0 +1,53 @@
+name: "Factory requirement"
+description: "File a requirement for the software factory pipeline (agents will analyse, plan, design, implement, test and ship it)"
+title: "[Req] "
+labels: ["factory:intake"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue enters the **Software Factory** (see FACTORY.md).
+        Describe the *problem and outcome*, not the solution — the Intake Analyst
+        will turn this into a structured spec for your approval (gate G1).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / need
+      description: What is broken, missing, or slow today? Who is affected?
+      placeholder: "Sales agents can't see which leads have unpaid follow-ups, so..."
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should be true once this ships? Measurable if possible.
+      placeholder: "A rep opens a lead and immediately sees outstanding payment status..."
+    validations:
+      required: true
+  - type: checkboxes
+    id: repos
+    attributes:
+      # Replace these placeholders with the actual repos in your estate
+      # (one checkbox per repo, plus "Not sure").
+      label: Affected repositories (best guess — the Intake Analyst will verify)
+      options:
+        - label: "<repo-a> (describe its role)"
+        - label: "<repo-b> (describe its role)"
+        - label: Not sure
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints & context (optional)
+      description: Deadlines, compliance concerns, related issues, links to docs or screenshots.
+  - type: dropdown
+    id: size
+    attributes:
+      label: Rough size feeling
+      options:
+        - Small fix (consider factory:fast-track instead)
+        - Feature (single repo)
+        - Feature (multiple repos)
+        - Not sure
+    validations:
+      required: true

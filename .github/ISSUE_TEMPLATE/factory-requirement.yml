@@ -1,0 +1,55 @@
+name: "Factory requirement"
+description: "File a requirement against the software factory itself (agents will analyse, plan, design, implement, test and ship it)"
+title: "[Req] "
+labels: ["factory:intake"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue enters the **Software Factory**'s own pipeline (see FACTORY.md) —
+        this repo consumes the factory to improve itself. Describe the *problem and
+        outcome*, not the solution — the Intake Analyst will turn this into a
+        structured spec for your approval (gate G1).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / need
+      description: What is broken, missing, or slow today in the factory? Who is affected?
+      placeholder: "The Reviewer role misses duplicate-code findings when..."
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What should be true once this ships? Measurable if possible.
+      placeholder: "The Reviewer flags reuse hotspots even when..."
+    validations:
+      required: true
+  - type: checkboxes
+    id: surface
+    attributes:
+      label: Affected surface (best guess — the Intake Analyst will verify)
+      options:
+        - label: Role prompts (commands/)
+        - label: Pipeline / branch-guard / test workflows (.github/workflows/)
+        - label: Protected-branch hook (hooks/)
+        - label: Distributed templates for consuming repos (templates/)
+        - label: Handbook / docs (FACTORY.md, docs/)
+        - label: Not sure
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints & context (optional)
+      description: Deadlines, compliance concerns, related issues, links to docs or screenshots.
+  - type: dropdown
+    id: size
+    attributes:
+      label: Rough size feeling
+      options:
+        - Small fix (consider factory:fast-track instead)
+        - Feature (single repo)
+        - Feature (multiple repos)
+        - Not sure
+    validations:
+      required: true
