@@ -1,0 +1,89 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/genai-jerry/claude-software-factory/templates/profile.schema.json",
+  "title": "Factory repo profile",
+  "description": "Stack knowledge as data. The implementer/reviewer/qa/release/ops roles read .factory/profile.json at Step 0 and treat it as authoritative for this repo. Role prompts stay byte-identical across every repo in an estate; only this file differs. To change how the factory codes in a repo, edit its profile — not the prompts.",
+  "type": "object",
+  "required": ["repo", "stack", "branches", "commands"],
+  "additionalProperties": true,
+  "properties": {
+    "_doc": {
+      "description": "Free-text note for humans. Ignored by the roles.",
+      "type": ["string", "array"]
+    },
+    "repo": {
+      "description": "Repository name, matching GitHub.",
+      "type": "string"
+    },
+    "estate_role": {
+      "description": "One line on where this repo sits among its siblings. The planner and release manager derive cross-repo merge order from these.",
+      "type": "string"
+    },
+    "stack": {
+      "description": "Languages, frameworks and major libraries, as prose.",
+      "type": "string"
+    },
+    "branches": {
+      "description": "Branch policy. Implementers branch from `default`; the release manager merges into `staging` when it exists.",
+      "type": "object",
+      "required": ["default"],
+      "properties": {
+        "default": { "type": "string" },
+        "staging": {
+          "description": "Release-train branch, or null if the repo deploys from default.",
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "commands": {
+      "description": "Shell commands, run from the repo root. null means the repo has no such step — roles skip nulls rather than inventing a command.",
+      "type": "object",
+      "properties": {
+        "test": { "type": ["string", "null"] },
+        "build": { "type": ["string", "null"] },
+        "lint": { "type": ["string", "null"] }
+      }
+    },
+    "conventions": {
+      "description": "How code is written here. The implementer follows these after design.md and before CLAUDE.md/AGENTS.md; the reviewer checks against them.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "review_checklist": {
+      "description": "Repo-specific items the reviewer must check on every PR, beyond the generic correctness/security pass.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "qa_notes": {
+      "description": "How tests are written and run here — frameworks, mocking boundaries, e2e approach.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "gotchas": {
+      "description": "Traps that would otherwise cost an agent a wasted round: pre-existing failures that must not be attributed to the delta, commands that must never be run, invariants that must not be weakened.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "reuse_hotspots": {
+      "description": "Paths the reviewer checks before accepting new code, to catch duplication of something that should have been extended.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "deploy": {
+      "description": "Post-merge verification. The release manager runs health_checks after each merge; the ops monitor runs them again during soak.",
+      "type": "object",
+      "properties": {
+        "health_checks": {
+          "description": "Concrete, runnable checks — URLs to curl, commands to execute. Not descriptions of checks.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": {
+          "description": "Deploy failure modes that must halt a release train.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

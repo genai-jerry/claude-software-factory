@@ -1,0 +1,33 @@
+name: Factory pipeline
+
+# Caller stub. All logic lives in the factory repo; this file owns only the
+# triggers and the version pin. Bump both refs together when upgrading.
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue (or PR) number to run the role against"
+        required: true
+      role:
+        description: "Factory role to run"
+        required: true
+        type: choice
+        options: [intake, planner, architect, dispatch, implementer, reviewer, qa, release, ops]
+
+concurrency:
+  group: factory-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  factory:
+    uses: genai-jerry/claude-software-factory/.github/workflows/factory-pipeline.yml@v1
+    secrets: inherit
+    with:
+      role: ${{ inputs.role }}
+      issue_number: ${{ inputs.issue_number }}
+      factory_ref: v1

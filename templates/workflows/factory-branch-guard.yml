@@ -1,0 +1,12 @@
+name: Factory branch guard
+
+# Caller stub. Flags commits that land on a protected branch without a PR.
+
+on:
+  push:
+    branches: [main, master]
+
+jobs:
+  guard:
+    uses: genai-jerry/claude-software-factory/.github/workflows/factory-branch-guard.yml@v1
+    secrets: inherit

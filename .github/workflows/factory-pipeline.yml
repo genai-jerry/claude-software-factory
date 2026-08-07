@@ -1,0 +1,476 @@
+name: Factory pipeline (reusable)
+
+# Reusable core of the Software Factory (FACTORY.md). Consuming repos keep a
+# ~15-line caller stub that owns the triggers and calls this workflow; see
+# templates/workflows/factory-pipeline.yml.
+#
+# Because this is called with `secrets: inherit`, `github.*` and
+# `context.payload` refer to the CALLER's repository and event throughout — the
+# checkout below is the caller's repo, and .github/factory-{models,approvers}.json
+# are read from it. Role definitions come from this repo, cloned at `factory_ref`
+# into RUNNER_TEMP (never the workspace, so an agent's `git add` cannot sweep
+# them into a PR) and injected into the prompt directly.
+#
+# Behaviour:
+# - Any newly opened issue is auto-labelled factory:intake and the Intake
+#   Analyst runs on it — no boilerplate for the filer.
+# - Human gate approvals (label flips) trigger the next stages:
+#     factory:spec-approved  -> planner (then architect, chained in-run)
+#     factory:design-approved-> dispatch (marks unblocked tasks factory:ready)
+#   (factory:planned is unmapped on purpose - architect re-runs go through
+#    workflow_dispatch; see route job comment.)
+# - A human reply on a factory:blocked issue clears the block and re-runs the
+#   blocked stage (agent comments carry an <!-- factory-agent --> marker so
+#   they never self-trigger).
+# - A comment of exactly "Approved" from the owner/a collaborator on an issue
+#   in factory:spec-ready or factory:design-ready merges that gate's document
+#   PR(s) in that repo, flips the label, and continues the next stage in-run.
+#   G3 (production) is deliberately NOT comment-approvable.
+# Note: labels applied BY these runs do not emit trigger events (GitHub
+# anti-recursion), which is why planner->architect is chained in-run and
+# implement/review/qa runs are started via workflow_dispatch for now.
+
+on:
+  workflow_call:
+    inputs:
+      role:
+        description: "Factory role to run (workflow_dispatch passthrough; empty otherwise)"
+        required: false
+        type: string
+        default: ""
+      issue_number:
+        description: "Issue/PR number (workflow_dispatch passthrough; empty otherwise)"
+        required: false
+        type: string
+        default: ""
+      factory_ref:
+        description: "Tag/branch of the factory repo supplying role definitions. Keep in sync with the `uses:` ref in the caller stub."
+        required: false
+        type: string
+        default: "v1"
+      factory_repo:
+        description: "owner/repo publishing the factory. Defaults to <caller owner>/claude-software-factory."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      role: ${{ steps.route.outputs.role }}
+      issue: ${{ steps.route.outputs.issue }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+      - id: route
+        uses: actions/github-script@v7
+        env:
+          DISPATCH_ROLE: ${{ inputs.role }}
+          DISPATCH_ISSUE: ${{ inputs.issue_number }}
+        with:
+          script: |
+            let role = 'none', issue = '';
+            const ev = context.eventName;
+            const loadApprovers = () => {
+              try { return JSON.parse(require('fs').readFileSync('.github/factory-approvers.json', 'utf8')); }
+              catch (e) { return {}; }
+            };
+            const approverList = (gate) => {
+              const v = loadApprovers()[gate];
+              return Array.isArray(v) ? v.filter(x => typeof x === 'string') : [];
+            };
+            if (ev === 'workflow_dispatch') {
+              role = process.env.DISPATCH_ROLE || 'none';
+              issue = process.env.DISPATCH_ISSUE || '';
+            } else if (ev === 'issue_comment') {
+              const i = context.payload.issue;
+              issue = String(i.number);
+              const body = context.payload.comment.body || '';
+              const author = context.payload.comment.user || {};
+              const labels = i.labels.map(l => l.name);
+              if (i.pull_request) {
+                core.info('PR comment - skipping');
+              } else if (author.type === 'Bot') {
+                core.info('Bot comment - skipping');
+              } else if (body.includes('<!-- factory-agent -->')) {
+                core.info('Factory agent comment (marker present) - skipping');
+              } else if (/^\s*approved\s*[.!]?\s*$/i.test(body) &&
+                         (labels.includes('factory:spec-ready') || labels.includes('factory:design-ready'))) {
+                // Comment-approved gate (G1/G2, document PRs only — G3 stays a human merge click).
+                const spec = labels.includes('factory:spec-ready');
+                const gateKey = spec ? 'spec' : 'design';
+                const list = approverList(gateKey);
+                const sender = context.payload.comment.user.login;
+                const assocOk = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(context.payload.comment.author_association);
+                const authorized = list.length ? list.includes(sender) : assocOk;
+                if (!authorized) {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
+                    body: `@${sender} — this gate requires approval from: ${list.map(u => '@' + u).join(', ')} ` +
+                          `(see .github/factory-approvers.json).\n\n<!-- factory-agent -->`,
+                  });
+                  core.setOutput('role', 'none'); core.setOutput('issue', issue); return;
+                }
+                const headBranch = spec ? `factory/${i.number}-spec` : `factory/${i.number}-design`;
+                const { data: prs } = await github.rest.pulls.list({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  state: 'open', head: `${context.repo.owner}:${headBranch}`,
+                });
+                let allMerged = true;
+                for (const pr of prs) {
+                  try {
+                    await github.rest.pulls.merge({
+                      owner: context.repo.owner, repo: context.repo.repo,
+                      pull_number: pr.number, merge_method: 'squash',
+                    });
+                    core.info(`Merged gate PR #${pr.number}`);
+                  } catch (e) {
+                    allMerged = false;
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
+                      body: `Approval noted, but PR #${pr.number} could not be merged automatically (${e.message}). ` +
+                            `Please merge it manually and apply the next label.\n\n<!-- factory-agent -->`,
+                    });
+                  }
+                }
+                if (prs.length === 0) core.info(`No open gate PR on ${headBranch} (already merged manually?) - proceeding`);
+                if (allMerged) {
+                  const oldL = spec ? 'factory:spec-ready' : 'factory:design-ready';
+                  const newL = spec ? 'factory:spec-approved' : 'factory:design-approved';
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner, repo: context.repo.repo,
+                    issue_number: i.number, name: oldL,
+                  }).catch(() => {});
+                  await github.rest.issues.addLabels({
+                    owner: context.repo.owner, repo: context.repo.repo,
+                    issue_number: i.number, labels: [newL],
+                  });
+                  // Label flips by this token emit no events - continue the next stage in-run.
+                  role = spec ? 'planner' : 'dispatch';
+                  core.info(`Gate approved via comment - continuing with ${role}`);
+                }
+              } else if (!labels.includes('factory:blocked')) {
+                core.info('Issue not factory:blocked - comments only resume blocked stages or approve gates');
+              } else {
+                // resume the stage the issue was blocked in, inferred from its state label
+                const resume = {
+                  'factory:intake': 'intake',
+                  'factory:spec-approved': 'planner',
+                  'factory:planned': 'architect',
+                  'factory:design-approved': 'dispatch',
+                };
+                for (const [l, r] of Object.entries(resume)) {
+                  if (labels.includes(l)) { role = r; break; }
+                }
+                if (role === 'none' &&
+                    labels.filter(n => n.startsWith('factory:')).every(n => n === 'factory:blocked')) {
+                  role = 'intake';
+                }
+                if (role !== 'none') {
+                  core.info(`Human reply on blocked issue - resuming ${role}`);
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner, repo: context.repo.repo,
+                    issue_number: i.number, name: 'factory:blocked',
+                  }).catch(() => {});
+                } else {
+                  core.info('Blocked at a stage without an automatic resume mapping - use Run workflow');
+                }
+              }
+            } else if (ev === 'issues') {
+              const i = context.payload.issue;
+              issue = String(i.number);
+              const labels = i.labels.map(l => l.name);
+              const states = labels.filter(n => n.startsWith('factory:'));
+              if (context.payload.action === 'opened') {
+                if (i.user.type === 'Bot') {
+                  core.info('Bot-authored issue - skipping');
+                } else if (i.title.startsWith('task(')) {
+                  core.info('Factory task sub-issue - skipping');
+                } else if (states.some(n => n !== 'factory:intake')) {
+                  core.info('Issue already carries a factory state - skipping');
+                } else {
+                  if (!labels.includes('factory:intake')) {
+                    await github.rest.issues.addLabels({
+                      owner: context.repo.owner, repo: context.repo.repo,
+                      issue_number: i.number, labels: ['factory:intake'],
+                    });
+                    core.info('Applied factory:intake');
+                  }
+                  role = 'intake';
+                }
+              } else if (context.payload.action === 'labeled') {
+                // factory:planned is intentionally NOT mapped: the architect is
+                // chained in-run after the planner (mapping it would double-run
+                // the architect when PAT label flips emit events).
+                const name = context.payload.label.name;
+                const sender = context.payload.sender.login;
+                const gateOf = { 'factory:spec-approved': 'spec', 'factory:design-approved': 'design' };
+                const map = { 'factory:spec-approved': 'planner', 'factory:design-approved': 'dispatch' };
+                if (gateOf[name]) {
+                  const list = approverList(gateOf[name]);
+                  if (list.length && !list.includes(sender)) {
+                    // Unauthorized gate flip: revert and explain.
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner, repo: context.repo.repo,
+                      issue_number: i.number, name,
+                    }).catch(() => {});
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
+                      body: `\`${name}\` was applied by @${sender}, but this gate requires ` +
+                            `${list.map(u => '@' + u).join(', ')} (see .github/factory-approvers.json). Reverted.\n\n<!-- factory-agent -->`,
+                    });
+                  } else {
+                    role = map[name];
+                  }
+                }
+                // Hand-off labels: notify the responsible approvers (assign + mention).
+                const notifyOf = { 'factory:spec-ready': ['spec', 'Gate G1 (spec approval)'],
+                                   'factory:design-ready': ['design', 'Gate G2 (design approval)'],
+                                   'factory:ready': ['implementation', 'Implementation start'] };
+                if (notifyOf[name]) {
+                  const [gate, what] = notifyOf[name];
+                  const list = approverList(gate);
+                  if (list.length) {
+                    await github.rest.issues.addAssignees({
+                      owner: context.repo.owner, repo: context.repo.repo,
+                      issue_number: i.number, assignees: list,
+                    }).catch(() => {});
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
+                      body: `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ` +
+                            (gate === 'implementation'
+                              ? 'Start it via Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
+                              : 'Review the linked PR, then merge it + apply the approved label, or comment exactly "Approved" here.') +
+                            `\n\n<!-- factory-agent -->`,
+                    });
+                  }
+                }
+              }
+            }
+            core.setOutput('role', role);
+            core.setOutput('issue', issue);
+            core.info(`route: role=${role} issue=${issue}`);
+
+  agent:
+    needs: route
+    if: needs.route.outputs.role != 'none' && needs.route.outputs.role != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Require Anthropic credentials
+        env:
+          HAS_CREDS: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HAS_CREDS" != "true" ]; then
+            echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) to this repo's Actions secrets (Settings -> Secrets and variables -> Actions) to run factory agents."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Load factory role definition
+        id: roledef
+        env:
+          FACTORY_REPO: ${{ inputs.factory_repo || format('{0}/claude-software-factory', github.repository_owner) }}
+          FACTORY_REF: ${{ inputs.factory_ref }}
+          ROLE: ${{ needs.route.outputs.role }}
+        run: |
+          # Cloned outside the workspace on purpose: an agent running `git add -A`
+          # in the repo must not be able to sweep the factory into its PR.
+          git clone --depth 1 --branch "$FACTORY_REF" \
+            "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"
+          ROLE_FILE="$RUNNER_TEMP/factory/commands/$ROLE.md"
+          if [ ! -f "$ROLE_FILE" ]; then
+            echo "::error::No role definition '$ROLE' in $FACTORY_REPO@$FACTORY_REF"
+            exit 1
+          fi
+          {
+            echo 'text<<FACTORY_DEF_EOF'
+            cat "$RUNNER_TEMP/factory/FACTORY.md"
+            printf '\n\n===== ROLE INSTRUCTIONS (%s) =====\n\n' "$ROLE"
+            cat "$ROLE_FILE"
+            echo 'FACTORY_DEF_EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Install Claude Code CLI (model probe)
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Resolve model (first accessible in preference chain)
+        id: model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ROLE: ${{ needs.route.outputs.role }}
+        run: |
+          CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
+          echo "Preference chain for $ROLE: $CHAIN"
+          MODEL=""
+          for m in $CHAIN; do
+            echo "Probing model access: $m"
+            if timeout 120 claude -p "Reply with exactly: OK" --model "$m" --max-turns 1 >/dev/null 2>&1; then
+              MODEL="$m"; echo "Selected model: $m"; break
+            fi
+            echo "::warning::Model $m is not accessible with this credential - trying next in chain"
+          done
+          if [ -z "$MODEL" ]; then
+            echo "::error::No model in the preference chain is accessible - check credentials/plan or edit .github/factory-models.json"
+            exit 1
+          fi
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+      - name: Run factory role
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          OPENSPEC_TELEMETRY: "0"
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are running the "${{ needs.route.outputs.role }}" role of the
+            Software Factory inside GitHub Actions, on repository
+            ${{ github.repository }}.
+
+            The factory handbook and your role instructions follow verbatim
+            below. Execute the role instructions, treating number
+            ${{ needs.route.outputs.issue }} as the issue/PR argument
+            ($ARGUMENTS).
+
+            Repo-specific facts (stack, test/build commands, conventions) live
+            in .factory/profile.json in the checked-out repository — your role
+            instructions tell you when to read it.
+
+            Operating rules:
+            - Use the gh CLI for GitHub operations (labels, comments, PRs); GH_TOKEN is set.
+            - HARD RULES: never push to main or master; never merge a pull request;
+              perform exactly one factory role in this run.
+            - End EVERY comment you post on an issue or PR with a line containing
+              exactly: <!-- factory-agent -->
+              (it stops your own comments from re-triggering the pipeline).
+
+            Cross-repo epics: if the change folder lists other repos in this
+            estate and GH_TOKEN has cross-repo access (FACTORY_CROSS_REPO_TOKEN
+            secret), operate on them with the gh CLI —
+            `gh repo clone ${{ github.repository_owner }}/<repo> /tmp/<repo>` — and
+            create sub-issues, push factory branches and open PRs there as the role
+            requires (never to main/master). If the role needs cross-repo access and the
+            token cannot reach the other repo, comment on the epic that the
+            FACTORY_CROSS_REPO_TOKEN secret is required and apply factory:blocked.
+
+            Note on triggering: with the default workflow token, label changes you make
+            do NOT emit trigger events (GitHub anti-recursion); with the
+            FACTORY_CROSS_REPO_TOKEN PAT they DO. Either way: apply exactly the state
+            labels your role instructions specify — never extra ones — and let the
+            pipeline's own routing decide what runs next.
+
+            ===== FACTORY HANDBOOK =====
+
+            ${{ steps.roledef.outputs.text }}
+          claude_args: |
+            --max-turns 50
+            --model ${{ steps.model.outputs.model }}
+
+  architect-chain:
+    needs: [route, agent]
+    if: needs.agent.result == 'success' && needs.route.outputs.role == 'planner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Verify planner advanced the epic to factory:planned
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/issues/${{ needs.route.outputs.issue }}" --jq '.labels[].name' | grep -qx 'factory:planned'; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Planner did not reach factory:planned (blocked or split) - not chaining architect."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.proceed == 'true'
+        with:
+          fetch-depth: 0
+      - name: Load factory role definition
+        if: steps.gate.outputs.proceed == 'true'
+        id: roledef
+        env:
+          FACTORY_REPO: ${{ inputs.factory_repo || format('{0}/claude-software-factory', github.repository_owner) }}
+          FACTORY_REF: ${{ inputs.factory_ref }}
+        run: |
+          git clone --depth 1 --branch "$FACTORY_REF" \
+            "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"
+          {
+            echo 'text<<FACTORY_DEF_EOF'
+            cat "$RUNNER_TEMP/factory/FACTORY.md"
+            printf '\n\n===== ROLE INSTRUCTIONS (architect) =====\n\n'
+            cat "$RUNNER_TEMP/factory/commands/architect.md"
+            echo 'FACTORY_DEF_EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Install Claude Code CLI (model probe)
+        if: steps.gate.outputs.proceed == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Resolve architect model (first accessible in preference chain)
+        if: steps.gate.outputs.proceed == 'true'
+        id: model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ROLE: architect
+        run: |
+          CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
+          echo "Preference chain for $ROLE: $CHAIN"
+          MODEL=""
+          for m in $CHAIN; do
+            echo "Probing model access: $m"
+            if timeout 120 claude -p "Reply with exactly: OK" --model "$m" --max-turns 1 >/dev/null 2>&1; then
+              MODEL="$m"; echo "Selected model: $m"; break
+            fi
+            echo "::warning::Model $m is not accessible with this credential - trying next in chain"
+          done
+          if [ -z "$MODEL" ]; then
+            echo "::error::No model in the preference chain is accessible - check credentials/plan or edit .github/factory-models.json"
+            exit 1
+          fi
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+      - name: Run architect role
+        if: steps.gate.outputs.proceed == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          OPENSPEC_TELEMETRY: "0"
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are running the "architect" role of the Software Factory inside
+            GitHub Actions (chained after the planner), on repository
+            ${{ github.repository }}.
+
+            The factory handbook and your role instructions follow verbatim
+            below. Execute them, treating number
+            ${{ needs.route.outputs.issue }} as the epic issue argument
+            ($ARGUMENTS).
+
+            Operating rules:
+            - Use the gh CLI for GitHub operations; GH_TOKEN is set.
+            - HARD RULES: never push to main or master; never merge a pull request.
+              End EVERY comment you post with a line containing exactly:
+              <!-- factory-agent -->
+            - Cross-repo epics: clone other affected repos with
+              `gh repo clone ${{ github.repository_owner }}/<repo> /tmp/<repo>` (GH_TOKEN
+              grants access when the FACTORY_CROSS_REPO_TOKEN secret is set) and commit
+              each repo's design.md to its own change folder via a factory branch + PR.
+              If cross-repo access is missing, comment on the epic and apply
+              factory:blocked.
+
+            ===== FACTORY HANDBOOK =====
+
+            ${{ steps.roledef.outputs.text }}
+          claude_args: |
+            --max-turns 50
+            --model ${{ steps.model.outputs.model }}

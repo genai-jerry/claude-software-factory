@@ -1,0 +1,21 @@
+{
+  "name": "factory",
+  "version": "0.1.0",
+  "description": "An agent-driven software factory: GitHub issues carry pipeline state, OpenSpec change folders carry spec content, nine agent roles move work between them behind three human gates.",
+  "author": {
+    "name": "genai-jerry",
+    "url": "https://github.com/genai-jerry"
+  },
+  "homepage": "https://github.com/genai-jerry/claude-software-factory",
+  "repository": "https://github.com/genai-jerry/claude-software-factory",
+  "license": "MIT",
+  "keywords": [
+    "software-factory",
+    "openspec",
+    "github",
+    "pipeline",
+    "agents",
+    "code-review",
+    "release-management"
+  ]
+}

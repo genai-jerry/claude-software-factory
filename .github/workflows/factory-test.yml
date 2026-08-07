@@ -1,0 +1,138 @@
+name: Factory test harness (reusable)
+
+# Branch-scoped test rig: exercises the factory agent machinery from GitHub
+# Actions WITHOUT merging the caller stubs to the default branch. Uses the
+# Claude Code CLI directly because claude-code-action@v1 rejects `push` events,
+# and push is the only event that runs a workflow from a non-default branch.
+#
+# To run a stage: edit .github/factory-test-request.json on the development
+# branch and push. Set role back to "none" afterwards. Remove the caller stub
+# once the factory is live on the default branch.
+
+on:
+  workflow_call:
+    inputs:
+      dev_branch:
+        description: "Branch agents should base their work on during the pilot (NOT the default branch)."
+        required: true
+        type: string
+      factory_ref:
+        description: "Tag/branch of the factory repo supplying role definitions."
+        required: false
+        type: string
+        default: "v1"
+      factory_repo:
+        description: "owner/repo publishing the factory. Defaults to <caller owner>/claude-software-factory."
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      role: ${{ steps.read.outputs.role }}
+      issue: ${{ steps.read.outputs.issue }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        run: |
+          echo "role=$(python3 -c 'import json;print(json.load(open(".github/factory-test-request.json"))["role"])')" >> "$GITHUB_OUTPUT"
+          echo "issue=$(python3 -c 'import json;print(json.load(open(".github/factory-test-request.json"))["issue"])')" >> "$GITHUB_OUTPUT"
+
+  agent:
+    needs: route
+    if: needs.route.outputs.role != 'none' && needs.route.outputs.role != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Require Anthropic credentials
+        env:
+          HAS_CREDS: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HAS_CREDS" != "true" ]; then
+            echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) as a REPOSITORY secret (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Configure git identity
+        run: |
+          git config user.name "Claude Factory Agent"
+          git config user.email "noreply@anthropic.com"
+      - name: Run factory role
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          OPENSPEC_TELEMETRY: "0"
+          ROLE: ${{ needs.route.outputs.role }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+          DEV_BRANCH: ${{ inputs.dev_branch }}
+          FACTORY_REPO: ${{ inputs.factory_repo || format('{0}/claude-software-factory', github.repository_owner) }}
+          FACTORY_REF: ${{ inputs.factory_ref }}
+        run: |
+          # Cloned outside the workspace on purpose: an agent running `git add -A`
+          # in the repo must not be able to sweep the factory into its PR.
+          git clone --depth 1 --branch "$FACTORY_REF" \
+            "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"
+          ROLE_FILE="$RUNNER_TEMP/factory/commands/$ROLE.md"
+          if [ ! -f "$ROLE_FILE" ]; then
+            echo "::error::No role definition '$ROLE' in $FACTORY_REPO@$FACTORY_REF"
+            exit 1
+          fi
+          {
+            cat <<PROMPT
+          You are running the "$ROLE" role of the Software Factory inside GitHub
+          Actions (TEST HARNESS run from the factory development branch, not the
+          default branch), on repository $GITHUB_REPOSITORY.
+
+          The factory handbook and your role instructions follow verbatim below.
+          Execute the role instructions, treating number $ISSUE as the issue/PR
+          argument (\$ARGUMENTS).
+
+          Repo-specific facts (stack, test/build commands, conventions) live in
+          .factory/profile.json in the checked-out repository — your role
+          instructions tell you when to read it.
+
+          Operating rules:
+          - Use the gh CLI for GitHub operations (labels, comments, PRs); GH_TOKEN is set.
+          - Because this is the test harness: base any branches/PRs you create on
+            $DEV_BRANCH, NOT on the default branch.
+          - HARD RULES: never push to main or master; never merge a pull request;
+            perform exactly one factory role in this run.
+          - End EVERY comment you post on an issue or PR with a line containing
+            exactly: <!-- factory-agent -->
+
+          ===== FACTORY HANDBOOK =====
+
+          PROMPT
+            cat "$RUNNER_TEMP/factory/FACTORY.md"
+            printf '\n\n===== ROLE INSTRUCTIONS (%s) =====\n\n' "$ROLE"
+            cat "$ROLE_FILE"
+          } > "$RUNNER_TEMP/prompt.md"
+          CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
+          echo "Preference chain for $ROLE: $CHAIN"
+          MODEL=""
+          for m in $CHAIN; do
+            echo "Probing model access: $m"
+            if timeout 120 claude -p "Reply with exactly: OK" --model "$m" --max-turns 1 >/dev/null 2>&1; then
+              MODEL="$m"; break
+            fi
+            echo "::warning::Model $m not accessible - trying next in chain"
+          done
+          if [ -z "$MODEL" ]; then echo "::error::No model in chain accessible"; exit 1; fi
+          echo "Using model: $MODEL"
+          claude -p "$(cat "$RUNNER_TEMP/prompt.md")" \
+            --model "$MODEL" \
+            --max-turns 50 \
+            --permission-mode acceptEdits \
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,TodoWrite"

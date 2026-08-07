@@ -1,0 +1,20 @@
+{
+  "name": "genai-jerry",
+  "owner": {
+    "name": "genai-jerry",
+    "url": "https://github.com/genai-jerry"
+  },
+  "metadata": {
+    "description": "Claude Code plugins published by genai-jerry.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "factory",
+      "source": "./",
+      "description": "Nine agent roles, three human gates, GitHub as pipeline state and OpenSpec as spec content. Ships the role commands, the protected-branch hook, and the reusable GitHub Actions workflows that drive them.",
+      "version": "0.1.0",
+      "category": "workflow"
+    }
+  ]
+}

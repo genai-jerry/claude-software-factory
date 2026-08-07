@@ -1,0 +1,6 @@
+{
+  "_doc": "Pilot-only trigger for the factory test harness. Edit role/issue on the development branch and push; the harness runs that role once. Set role back to \"none\" afterwards. Bump `attempt` to re-run the same role+issue (the push must change the file). Delete this file with the harness stub once the factory is live on the default branch.",
+  "role": "none",
+  "issue": "0",
+  "attempt": 1
+}

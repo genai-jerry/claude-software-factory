@@ -1,0 +1,49 @@
+{
+  "_doc": "Example .factory/profile.json — a Python API service. Copy to .factory/profile.json in your repo and replace every value. Validate against templates/profile.schema.json. Everything here is a real, checkable fact about the repo: no aspirations, no 'should'. If a role gets something wrong twice, the fix belongs in this file.",
+  "repo": "acme-api",
+  "estate_role": "Owns the HTTP contract and the database schema; acme-web and acme-worker consume it. Cross-repo epics are filed here.",
+  "stack": "Python 3.12, FastAPI + Uvicorn, Pydantic v2, PostgreSQL 16, SQLAlchemy Core, Alembic, Docker",
+  "branches": {
+    "default": "main",
+    "staging": "staging"
+  },
+  "commands": {
+    "test": "python -m pytest tests -q",
+    "build": "docker build -t acme-api:ci .",
+    "lint": "ruff check ."
+  },
+  "conventions": [
+    "Data access lives in store/{domain}_store.py — parameterised SQL only, never string interpolation",
+    "Routes in api/routes_{domain}.py; register the router in main.py under the /api prefix",
+    "Every endpoint declares its auth dependency explicitly — there is no permissive default",
+    "Request/response models are Pydantic v2 classes in schemas/{domain}.py, never bare dicts",
+    "Timestamps are stored UTC and converted at the edge, never in the store layer"
+  ],
+  "review_checklist": [
+    "Authorization present on every new or changed endpoint",
+    "Parameterised SQL only — no f-string or %-format SQL anywhere in the diff",
+    "New tables/columns have an Alembic migration, and it downgrades cleanly",
+    "No secrets in code or logs; config only through the existing env-var mechanism",
+    "Pagination on any endpoint that can return an unbounded collection"
+  ],
+  "qa_notes": [
+    "Tests live in tests/test_{domain}.py with the store layer monkeypatched — no database needed",
+    "Migration tests run against a disposable Postgres via docker compose -f compose.test.yml",
+    "Where design.md calls for it, drive the running container rather than the app object"
+  ],
+  "gotchas": [
+    "tests/test_legacy_import.py fails on a clean checkout — pre-existing, not your delta",
+    "Never source .env in a test command; it overrides the CI database URL",
+    "ruff is configured with a narrow rule set on purpose — do not widen it to fix a finding"
+  ],
+  "reuse_hotspots": ["store/", "core/", "utils/"],
+  "deploy": {
+    "health_checks": [
+      "curl -fsS https://staging.acme.example/api/health",
+      "curl -fsS https://staging.acme.example/api/health/pool"
+    ],
+    "notes": [
+      "The container entrypoint runs `alembic upgrade head` and exits non-zero on failure — a red deploy means the schema did not migrate. Halt the train; do not merge downstream consumers."
+    ]
+  }
+}

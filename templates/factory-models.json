@@ -1,0 +1,12 @@
+{
+  "_comment": "Model preference chain per factory stage: the workflow probes each model in order and uses the first one the repo's credential can access. Missing roles fall back to claude-sonnet-5. Edit and merge to retune.",
+  "intake": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
+  "planner": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
+  "architect": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
+  "reviewer": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
+  "implementer": ["claude-opus-5", "claude-sonnet-5"],
+  "qa": ["claude-opus-5", "claude-sonnet-5"],
+  "release": ["claude-opus-5", "claude-sonnet-5"],
+  "dispatch": ["claude-haiku-4-5-20251001", "claude-sonnet-5"],
+  "ops": ["claude-haiku-4-5-20251001", "claude-sonnet-5"]
+}
