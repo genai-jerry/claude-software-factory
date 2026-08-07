@@ -19,7 +19,8 @@ Nine roles move work between them: intake → planner → architect → dispatch
 implementer → reviewer → qa → release → ops.
 
 **[FACTORY.md](FACTORY.md) is the handbook.** Everything below is how to install
-it.
+it. For a step-by-step walkthrough of every install step, see
+[`docs/setup-guide.md`](docs/setup-guide.md).
 
 ## What is repo-specific, and what isn't
 
