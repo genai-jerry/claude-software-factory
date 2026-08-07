@@ -294,22 +294,27 @@ on and this section becomes defence-in-depth rather than the primary control.
 
 ## 9. One-time setup (per repo)
 
-1. **Labels** — `GITHUB_TOKEN=... bash scripts/setup-labels.sh <owner> <repo...>`
+1. **Issue template** — copy `templates/ISSUE_TEMPLATE/factory-requirement.yml`
+   to `.github/ISSUE_TEMPLATE/factory-requirement.yml`, editing the "Affected
+   repositories" checkboxes to match your estate. This is the intake entry
+   point (§10); the `factory:intake` label it applies only starts the pipeline
+   once the labels step below has run.
+2. **Labels** — `GITHUB_TOKEN=... bash scripts/setup-labels.sh <owner> <repo...>`
    creates the 14 `factory:*` labels (§3). Run it once per repo.
-2. **Secrets** — add `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN` as a
+3. **Secrets** — add `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN` as a
    **repository** secret (Settings → Secrets and variables → Actions).
    Environment secrets do *not* reach jobs that don't declare `environment:`,
    which is a common first-run failure. Add `FACTORY_CROSS_REPO_TOKEN` too if
    the estate has more than one repo (§2a).
-3. **OpenSpec** — `npx -y @fission-ai/openspec@latest init --tools claude`
+4. **OpenSpec** — `npx -y @fission-ai/openspec@latest init --tools claude`
    (needs Node 20.19+). This installs the `/opsx:*` commands and their skills;
    the factory depends on them but does not vendor them.
-4. **Profile** — write `.factory/profile.json` (§2c). Start from
+5. **Profile** — write `.factory/profile.json` (§2c). Start from
    `templates/profile.example.json`; validate against
    `templates/profile.schema.json`. This is the only file whose contents are
    genuinely yours to author.
-5. **Install the factory** — §10.
-6. Protected-branch enforcement is factory-side (§8a) — nothing to configure on
+6. **Install the factory** — §10.
+7. Protected-branch enforcement is factory-side (§8a) — nothing to configure on
    GitHub. If you later move to a plan with branch protection or rulesets, turn
    them on as well: require 1 approval and green CI on `main` (and `staging`).
 
@@ -338,6 +343,7 @@ injects the handbook plus the role prompt into the agent's prompt directly.
 | `.github/workflows/factory-branch-guard.yml` | same |
 | `.github/factory-models.json` | per-repo model tuning; read from the caller's checkout |
 | `.github/factory-approvers.json` | per-repo gate approvers |
+| `.github/ISSUE_TEMPLATE/factory-requirement.yml` | the intake entry point — GitHub only renders issue forms present in the repo being filed against |
 | `.claude/settings.json` | plugin `settings.json` supports only `agent` and `subagentStatusLine` — a **permissions** block cannot ship in a plugin, and the merge deny list is half of §8a |
 
 Templates for all of these are in `templates/`. Nothing else is copied: the
