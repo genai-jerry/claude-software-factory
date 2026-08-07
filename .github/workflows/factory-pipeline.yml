@@ -371,9 +371,16 @@ jobs:
             ===== FACTORY HANDBOOK =====
 
             ${{ steps.roledef.outputs.text }}
+          # Headless runs have no one to answer a permission prompt, so anything
+          # not explicitly allowed here is DENIED. Without this block the role
+          # reads the repo, then silently fails to run `gh`, write files or
+          # commit — the run goes green and the epic sits at its current label.
+          # Keep in sync with the same list in factory-test.yml.
           claude_args: |
             --max-turns 50
             --model ${{ steps.model.outputs.model }}
+            --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
 
   architect-chain:
     needs: [route, agent]
@@ -472,6 +479,13 @@ jobs:
             ===== FACTORY HANDBOOK =====
 
             ${{ steps.roledef.outputs.text }}
+          # Headless runs have no one to answer a permission prompt, so anything
+          # not explicitly allowed here is DENIED. Without this block the role
+          # reads the repo, then silently fails to run `gh`, write files or
+          # commit — the run goes green and the epic sits at its current label.
+          # Keep in sync with the same list in factory-test.yml.
           claude_args: |
             --max-turns 50
             --model ${{ steps.model.outputs.model }}
+            --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"

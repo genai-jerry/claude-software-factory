@@ -135,4 +135,4 @@ jobs:
             --model "$MODEL" \
             --max-turns 50 \
             --permission-mode acceptEdits \
-            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,TodoWrite"
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
