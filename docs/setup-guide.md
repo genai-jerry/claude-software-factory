@@ -177,6 +177,21 @@ claude --plugin-dir /path/to/claude-software-factory
 - Confirm `factory-branch-guard.yml` is enabled — it opens a
   `factory:incident` issue if a commit ever lands on `main` without a PR.
 
+### A stage that "succeeds" but leaves the epic where it was
+
+If a `Factory pipeline` run is green, the `agent` job ran for a minute or two,
+and yet the issue has no new comment, label or PR, the role was almost
+certainly denied its tools. A headless run has no one to answer a permission
+prompt, so every tool that isn't explicitly allowed is refused — the role reads
+the repo, fails to run `gh` or write files, and exits cleanly.
+
+The reusable pipeline passes the allow-list itself
+(`--permission-mode acceptEdits --allowedTools "Bash,Read,Write,..."`), so this
+only bites a fork that trimmed those flags, or a repo whose
+`.claude/settings.json` adds a `permissions.deny` entry covering `Bash`. To
+confirm it, re-run with `show_full_output: true` on the `Run factory role` step
+and look for `permission_denials_count` in the result line.
+
 ## 9. Nothing to configure on GitHub itself
 
 Branch protection needs a paid plan on private repos, so gate G3 (humans
