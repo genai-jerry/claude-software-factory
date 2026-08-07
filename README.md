@@ -53,6 +53,10 @@ $EDITOR .factory/profile.json        # replace every value
 #    .github/factory-models.json
 #    .github/factory-approvers.json
 #    .claude/settings.json
+
+# 5. Plugin (once per machine; CI does not need it)
+claude plugin marketplace add <owner>/claude-software-factory
+claude plugin install factory@<owner>
 ```
 
 Then add `ANTHROPIC_API_KEY` **or** `CLAUDE_CODE_OAUTH_TOKEN` as a
@@ -97,8 +101,12 @@ claude plugin marketplace add genai-jerry/claude-software-factory
 claude plugin install factory@genai-jerry
 ```
 
-Or let `.claude/settings.json` do it for everyone who clones your repo — see
-`templates/settings.json`.
+`templates/settings.json` declares the marketplace and marks the plugin enabled
+so the choice is recorded in the repo, but that is **not** a substitute for the
+install: with only those keys present and no prior install, `/factory:*` does
+not load. Each machine runs the two commands above once.
+
+CI needs neither — the reusable workflows clone this repo directly.
 
 ## Guardrails
 

@@ -343,18 +343,36 @@ injects the handbook plus the role prompt into the agent's prompt directly.
 Templates for all of these are in `templates/`. Nothing else is copied: the
 pipeline body, the role prompts and the hook all stay here.
 
+### Installing the plugin
+
+```bash
+claude plugin marketplace add <owner>/claude-software-factory
+claude plugin install factory@<owner>
+```
+
+Once per machine. The `extraKnownMarketplaces` / `enabledPlugins` keys in
+`.claude/settings.json` declare the marketplace and record the intent, but do
+**not** install on their own — verified: with only those keys and no prior
+install, `/factory:*` does not load. CI needs no install at all; the reusable
+workflows clone this repo directly.
+
 ### Versioning
 
-Consuming repos pin `@v1` in both the `uses:` ref and the `factory_ref` input
-— keep the two in sync, they are next to each other in the stub for exactly
-that reason. Because every repo resolves the same tag, a bad push to a moving
-tag breaks the whole estate at once. Two mitigations, both cheap:
+`v1` is a **branch** that tracks the current stable major version. Consuming
+repos pin it in both the `uses:` ref and the `factory_ref` input — keep the two
+in sync, they sit next to each other in the stub for exactly that reason.
+Releasing means fast-forwarding `v1` to a reviewed commit on `main`.
 
-- Release by moving `v1` only after a canary repo has run the new code.
+Because every repo resolves the same ref, a bad release breaks the whole estate
+at once. Two mitigations, both cheap:
+
+- Advance `v1` only after a canary repo has run the new code.
 - Keep one repo pinned to `@main` as that canary.
 
-Pin to a commit SHA instead of a tag if the estate ever needs a stricter
-supply-chain posture.
+For a stricter supply-chain posture, pin the `uses:` ref to a commit SHA. An
+annotated tag works identically to the `v1` branch if you prefer immutable
+release markers — `git tag v1.2.0 && git push origin v1.2.0`, then point stubs
+at it.
 
 ### Local development
 

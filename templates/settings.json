@@ -1,12 +1,13 @@
 {
   "_doc": [
     "Drop this at .claude/settings.json in a consuming repo (merge if one exists).",
-    "The plugin cannot ship the permissions block itself — plugin settings.json",
-    "supports only `agent` and `subagentStatusLine`, so the deny list must live",
-    "in the project. It is the backstop for the protect-branches hook: the hook",
-    "blocks pushes, the deny list blocks merges.",
-    "The two plugin keys make the factory load automatically for anyone who",
-    "clones this repo and trusts it — no manual `claude plugin install`.",
+    "The permissions block CANNOT ship in the plugin — plugin settings.json supports",
+    "only `agent` and `subagentStatusLine`. It is half of the gate-G3 enforcement:",
+    "the hook blocks pushes, this deny list blocks merges. It must live here.",
+    "The two plugin keys declare the marketplace and record that the factory should",
+    "be enabled. They are NOT sufficient on their own — each machine still needs a",
+    "one-time `claude plugin install factory@genai-jerry` (verified: with only these",
+    "keys present and no prior install, /factory:* commands do not load).",
     "Remove this _doc key before committing if you prefer."
   ],
   "permissions": {
@@ -18,8 +19,8 @@
   "extraKnownMarketplaces": {
     "genai-jerry": {
       "source": {
-        "source": "git",
-        "url": "https://github.com/genai-jerry/claude-software-factory.git"
+        "source": "github",
+        "repo": "genai-jerry/claude-software-factory"
       }
     }
   },
