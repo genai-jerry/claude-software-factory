@@ -6,6 +6,11 @@ on:
   push:
     branches: [main, master]
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
 jobs:
   guard:
     uses: genai-jerry/claude-software-factory/.github/workflows/factory-branch-guard.yml@v1

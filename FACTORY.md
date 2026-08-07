@@ -343,6 +343,12 @@ injects the handbook plus the role prompt into the agent's prompt directly.
 Templates for all of these are in `templates/`. Nothing else is copied: the
 pipeline body, the role prompts and the hook all stay here.
 
+**The stubs must declare `permissions:` themselves.** A called workflow's token
+is capped by the caller's, so a stub that omits the block inherits the repo
+default and the run dies at startup — `startup_failure`, before any job, with
+the reference itself resolving fine. The templates carry the right blocks; keep
+them if you edit a stub.
+
 ### Installing the plugin
 
 ```bash

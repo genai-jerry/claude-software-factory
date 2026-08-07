@@ -23,6 +23,11 @@ concurrency:
   group: factory-${{ github.event.issue.number || inputs.issue_number }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   factory:
     uses: genai-jerry/claude-software-factory/.github/workflows/factory-pipeline.yml@v1

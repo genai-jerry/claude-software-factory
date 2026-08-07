@@ -17,6 +17,11 @@ concurrency:
   group: factory-test
   cancel-in-progress: false
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
 jobs:
   harness:
     uses: genai-jerry/claude-software-factory/.github/workflows/factory-test.yml@v1
