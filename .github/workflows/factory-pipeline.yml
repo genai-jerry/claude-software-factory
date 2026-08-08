@@ -26,9 +26,13 @@ name: Factory pipeline (reusable)
 #   in factory:spec-ready or factory:design-ready merges that gate's document
 #   PR(s) in that repo, flips the label, and continues the next stage in-run.
 #   G3 (production) is deliberately NOT comment-approvable.
+# - The same "Approved" comment on a factory:ready TASK starts its implementer.
+#   That is not a gate — implementation had no trigger of its own, so a ready
+#   task sat until someone ran the workflow by hand. Authorised against the
+#   `implementation` approver list.
 # Note: labels applied BY these runs do not emit trigger events (GitHub
 # anti-recursion), which is why planner->architect is chained in-run and
-# implement/review/qa runs are started via workflow_dispatch for now.
+# review/qa runs are started via workflow_dispatch for now.
 
 on:
   workflow_call:
@@ -102,6 +106,30 @@ jobs:
                 core.info('Bot comment - skipping');
               } else if (body.includes('<!-- factory-agent -->')) {
                 core.info('Factory agent comment (marker present) - skipping');
+              } else if (/^\s*approved\s*[.!]?\s*$/i.test(body) && labels.includes('factory:ready')) {
+                // Implementation start is NOT a gate (the gates are G1 spec, G2 design,
+                // G3 production). It needed Run workflow only because labels applied by
+                // factory runs emit no trigger events, so nothing picked a ready task up.
+                // Accept `Approved` as the equivalent of Run workflow (role: implementer)
+                // so a task can be started from its own thread. Unlike G1/G2 there is no
+                // gate PR to merge, and the implementer flips factory:ready ->
+                // factory:in-review itself, so the router only chooses the role.
+                const list = approverList('implementation');
+                const sender = context.payload.comment.user.login;
+                const assocOk = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(context.payload.comment.author_association);
+                const authorized = list.length ? list.includes(sender) : assocOk;
+                if (!authorized) {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
+                    body: `@${sender} — starting implementation requires ` +
+                          (list.length ? `approval from: ${list.map(u => '@' + u).join(', ')} (see .github/factory-approvers.json).`
+                                       : 'owner, member or collaborator access on this repository.') +
+                          `\n\n<!-- factory-agent -->`,
+                  });
+                  core.setOutput('role', 'none'); core.setOutput('issue', issue); return;
+                }
+                role = 'implementer';
+                core.info('Implementation approved via comment - starting implementer');
               } else if (/^\s*approved\s*[.!]?\s*$/i.test(body) &&
                          (labels.includes('factory:spec-ready') || labels.includes('factory:design-ready'))) {
                 // Comment-approved gate (G1/G2, document PRs only — G3 stays a human merge click).
@@ -247,7 +275,7 @@ jobs:
                       owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
                       body: `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ` +
                             (gate === 'implementation'
-                              ? 'Start it via Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
+                              ? 'Comment exactly "Approved" here to start it, or use Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
                               : 'Review the linked PR, then merge it + apply the approved label, or comment exactly "Approved" here.') +
                             `\n\n<!-- factory-agent -->`,
                     });
