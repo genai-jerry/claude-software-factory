@@ -26,9 +26,19 @@ name: Factory pipeline (reusable)
 #   in factory:spec-ready or factory:design-ready merges that gate's document
 #   PR(s) in that repo, flips the label, and continues the next stage in-run.
 #   G3 (production) is deliberately NOT comment-approvable.
+# - The same "Approved" comment on a factory:ready TASK starts its implementer.
+#   That is not a gate — implementation had no trigger of its own, so a ready
+#   task sat until someone ran the workflow by hand. Authorised against the
+#   `implementation` approver list.
+# - Every agent run must leave a trace on its issue (state label moved or a
+#   comment posted) or the job fails. claude-code-action exits 0 even when all
+#   its tool calls were denied, so without that guard a role that accomplished
+#   nothing is indistinguishable from one that worked.
+# - A comment that plainly asked for something and routed nowhere gets an
+#   explanatory reply, so it never dead-ends in a green run and silence.
 # Note: labels applied BY these runs do not emit trigger events (GitHub
 # anti-recursion), which is why planner->architect is chained in-run and
-# implement/review/qa runs are started via workflow_dispatch for now.
+# review/qa runs are started via workflow_dispatch for now.
 
 on:
   workflow_call:
@@ -96,13 +106,40 @@ jobs:
               const body = context.payload.comment.body || '';
               const author = context.payload.comment.user || {};
               const labels = i.labels.map(l => l.name);
+              const isApproval = /^\s*approved\s*[.!]?\s*$/i.test(body);
+              const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') && n !== 'factory:blocked')
+                                        .join(', ') || 'no factory:* state label';
               if (i.pull_request) {
                 core.info('PR comment - skipping');
               } else if (author.type === 'Bot') {
                 core.info('Bot comment - skipping');
               } else if (body.includes('<!-- factory-agent -->')) {
                 core.info('Factory agent comment (marker present) - skipping');
-              } else if (/^\s*approved\s*[.!]?\s*$/i.test(body) &&
+              } else if (isApproval && labels.includes('factory:ready')) {
+                // Implementation start is NOT a gate (the gates are G1 spec, G2 design,
+                // G3 production). It needed Run workflow only because labels applied by
+                // factory runs emit no trigger events, so nothing picked a ready task up.
+                // Accept `Approved` as the equivalent of Run workflow (role: implementer)
+                // so a task can be started from its own thread. Unlike G1/G2 there is no
+                // gate PR to merge, and the implementer flips factory:ready ->
+                // factory:in-review itself, so the router only chooses the role.
+                const list = approverList('implementation');
+                const sender = context.payload.comment.user.login;
+                const assocOk = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(context.payload.comment.author_association);
+                const authorized = list.length ? list.includes(sender) : assocOk;
+                if (!authorized) {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
+                    body: `@${sender} — starting implementation requires ` +
+                          (list.length ? `approval from: ${list.map(u => '@' + u).join(', ')} (see .github/factory-approvers.json).`
+                                       : 'owner, member or collaborator access on this repository.') +
+                          `\n\n<!-- factory-agent -->`,
+                  });
+                  core.setOutput('role', 'none'); core.setOutput('issue', issue); return;
+                }
+                role = 'implementer';
+                core.info('Implementation approved via comment - starting implementer');
+              } else if (isApproval &&
                          (labels.includes('factory:spec-ready') || labels.includes('factory:design-ready'))) {
                 // Comment-approved gate (G1/G2, document PRs only — G3 stays a human merge click).
                 const spec = labels.includes('factory:spec-ready');
@@ -158,6 +195,21 @@ jobs:
                   core.info(`Gate approved via comment - continuing with ${role}`);
                 }
               } else if (!labels.includes('factory:blocked')) {
+                // Say so when someone plainly asked for something to happen. A green
+                // run that does nothing looks identical to a run that worked, so an
+                // unanswered "Approved" would otherwise just sit there.
+                if (isApproval) {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
+                    body: `"Approved" has no effect while this is at **${stateOf(labels)}** — nothing was started.\n\n` +
+                          `It advances the pipeline from:\n` +
+                          `- \`factory:spec-ready\` — approves gate G1 and starts the planner\n` +
+                          `- \`factory:design-ready\` — approves gate G2 and starts the dispatcher\n` +
+                          `- \`factory:ready\` (a task sub-issue) — starts its implementer\n\n` +
+                          `From any other state, use Actions → "Factory pipeline" → Run workflow with the role you want. ` +
+                          `Gate G3 (production) is deliberately not comment-approvable.\n\n<!-- factory-agent -->`,
+                  });
+                }
                 core.info('Issue not factory:blocked - comments only resume blocked stages or approve gates');
               } else {
                 // resume the stage the issue was blocked in, inferred from its state label
@@ -181,6 +233,12 @@ jobs:
                     issue_number: i.number, name: 'factory:blocked',
                   }).catch(() => {});
                 } else {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
+                    body: `This issue is \`factory:blocked\` at **${stateOf(labels)}**, which has no automatic resume ` +
+                          `step — your reply did not restart anything. Use Actions → "Factory pipeline" → Run workflow ` +
+                          `with the role you want and this issue number.\n\n<!-- factory-agent -->`,
+                  });
                   core.info('Blocked at a stage without an automatic resume mapping - use Run workflow');
                 }
               }
@@ -247,7 +305,7 @@ jobs:
                       owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
                       body: `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ` +
                             (gate === 'implementation'
-                              ? 'Start it via Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
+                              ? 'Comment exactly "Approved" here to start it, or use Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
                               : 'Review the linked PR, then merge it + apply the approved label, or comment exactly "Approved" here.') +
                             `\n\n<!-- factory-agent -->`,
                     });
@@ -299,6 +357,24 @@ jobs:
             cat "$ROLE_FILE"
             echo 'FACTORY_DEF_EOF'
           } >> "$GITHUB_OUTPUT"
+      - name: Snapshot issue state (no-op guard)
+        id: before
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          # Paired with "Verify the role changed something" below. A role that
+          # neither moves the state label nor says anything has done nothing,
+          # and must not report success.
+          if [ -z "$ISSUE" ]; then
+            echo "No issue number for this run - skipping the no-op guard."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          SNAP=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" \
+                   --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:"))] | sort | join(","))"')
+          echo "snap=$SNAP" >> "$GITHUB_OUTPUT"
+          echo "Before: $SNAP"
       - name: Install Claude Code CLI (model probe)
         run: npm install -g @anthropic-ai/claude-code
       - name: Resolve model (first accessible in preference chain)
@@ -381,6 +457,39 @@ jobs:
             --model ${{ steps.model.outputs.model }}
             --permission-mode acceptEdits
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Verify the role changed something (no-op guard)
+        if: steps.before.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+          ROLE: ${{ needs.route.outputs.role }}
+          BEFORE: ${{ steps.before.outputs.snap }}
+        run: |
+          # claude-code-action exits 0 even when every tool call was denied, so a
+          # role that accomplished nothing still reports success and the issue
+          # sits at its label forever. Require a visible trace instead.
+          #
+          # The trace is "state label moved OR a comment was posted" rather than
+          # "label moved": a role may legitimately decline to advance the issue
+          # (intake recommending fast-track, any role applying factory:blocked)
+          # but it always says so on the issue first.
+          AFTER=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" \
+                    --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:"))] | sort | join(","))"')
+          echo "Before: $BEFORE"
+          echo "After:  $AFTER"
+          if [ "$AFTER" != "$BEFORE" ]; then
+            echo "Role '$ROLE' left a trace on #$ISSUE."
+            exit 0
+          fi
+          DENIALS=$(jq -r '[.. | objects | select(has("permission_denials_count")) | .permission_denials_count] | last // 0' \
+                      "$RUNNER_TEMP/claude-execution-output.json" 2>/dev/null || echo 0)
+          [ -n "$DENIALS" ] || DENIALS=0
+          HINT="Check the role's own log above for where it stopped."
+          if [ "$DENIALS" -gt 0 ]; then
+            HINT="$DENIALS tool permission denial(s) were recorded - the --allowedTools list in this workflow is the likely cause."
+          fi
+          echo "::error::Role '$ROLE' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
+          exit 1
 
   architect-chain:
     needs: [route, agent]

@@ -141,7 +141,7 @@ the GitHub usernames responsible for it:
 |---|---|---|---|
 | `spec` | Gate G1 — approve the spec PR | Issue reaches `factory:spec-ready` | Merge the PR + apply the label, or comment `Approved` |
 | `design` | Gate G2 — approve the plan+design PR | Issue reaches `factory:design-ready` | Same |
-| `implementation` | Start implementers on ready tasks | A task reaches `factory:ready` | Run workflow (role: implementer) |
+| `implementation` | Start implementers on ready tasks | A task reaches `factory:ready` | Comment `Approved` on the task, or Run workflow (role: implementer) |
 | `release` | Gate G3 — production go | Release Manager posts the merge list | Merge the staging→main PRs in order |
 
 Mechanics:
