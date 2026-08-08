@@ -8,9 +8,10 @@
 #   bash scripts/publish-wiki.sh [<owner>] [<repo>]
 # Defaults to genai-jerry/claude-software-factory.
 #
-# Auth: the wiki repo is pushed over HTTPS. Either
-#   - export GITHUB_TOKEN=<PAT with repo scope>, or
-#   - have a credential helper already configured for github.com.
+# Auth: a fine-grained PAT will NOT work - GitHub wikis are outside the
+#       fine-grained permission model entirely. Use either
+#   - GITHUB_TOKEN=<CLASSIC PAT with repo scope>, or
+#   - WIKI_REMOTE=git@github.com:OWNER/REPO.wiki.git to push over SSH.
 #
 # The wiki must exist before this can push to it. GitHub creates the wiki repo
 # lazily: open Settings -> Features -> Wikis, then create any one page in the
@@ -26,7 +27,13 @@ if [[ ! -d "$SRC" ]]; then
   exit 1
 fi
 
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+if [[ -n "${WIKI_REMOTE:-}" ]]; then
+  # Explicit override. Use for SSH, which is the simplest way around the
+  # fine-grained-PAT limitation below:
+  #   WIKI_REMOTE=git@github.com:OWNER/REPO.wiki.git bash scripts/publish-wiki.sh
+  REMOTE="$WIKI_REMOTE"
+  SAFE_REMOTE="$WIKI_REMOTE"
+elif [[ -n "${GITHUB_TOKEN:-}" ]]; then
   REMOTE="https://x-access-token:${GITHUB_TOKEN}@github.com/${OWNER}/${REPO}.wiki.git"
   SAFE_REMOTE="https://github.com/${OWNER}/${REPO}.wiki.git"
 else
@@ -88,5 +95,26 @@ for delay in 0 2 4 8; do
 done
 
 sed "s|${GITHUB_TOKEN:-__none__}|***|g" "$WORK/perr" >&2
-echo "Push failed after 4 attempts." >&2
+cat >&2 <<'EOF'
+
+Push failed. If the clone succeeded and only the push was denied with 403,
+the cause is almost certainly the token type, not its permissions:
+
+  Fine-grained PATs cannot write to GitHub wikis. There is no wiki
+  permission in the fine-grained scope list, so granting Contents, Issues
+  and Pull requests read-write changes nothing. Read access can still
+  succeed, which is why the clone works and the push does not.
+
+Either of these works instead:
+
+  1. A classic PAT with the `repo` scope:
+       https://github.com/settings/tokens/new?scopes=repo
+       GITHUB_TOKEN=ghp_xxx bash scripts/publish-wiki.sh
+
+  2. SSH, which sidesteps tokens entirely:
+       WIKI_REMOTE=git@github.com:OWNER/REPO.wiki.git bash scripts/publish-wiki.sh
+
+A 403 on push can also mean the account lacks write access to the repo, or
+the wiki is restricted to collaborators under Settings -> Features -> Wikis.
+EOF
 exit 1
