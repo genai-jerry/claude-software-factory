@@ -136,6 +136,23 @@ docs/case-study/     the original four-repo deployment, written up
 FACTORY.md           the handbook
 ```
 
+## Who built this
+
+The factory is written and maintained by [Jerry Kurian](https://github.com/genai-jerry)
+at [GenAI People](https://genaipeople.com). It began as internal tooling, not as a
+product: the problem was a four-repository estate where Claude Code could write
+good code but nothing could tell you *where* a piece of work was, what it was
+supposed to do, or who had agreed to it. Issues became the state, OpenSpec became
+the content, and the three human gates were what made it safe to leave running.
+
+That original deployment is written up in [`docs/case-study/`](docs/case-study/) —
+what the pipeline does, what each role produces, and how it was ported to a second
+agent runner.
+
+Developed in the open under MIT. Issues and pull requests are welcome; if you
+deploy it somewhere and something breaks, an issue saying so is worth more to the
+next person than a star.
+
 ## License
 
 MIT.
