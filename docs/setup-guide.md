@@ -179,18 +179,40 @@ claude --plugin-dir /path/to/claude-software-factory
 
 ### A stage that "succeeds" but leaves the epic where it was
 
-If a `Factory pipeline` run is green, the `agent` job ran for a minute or two,
-and yet the issue has no new comment, label or PR, the role was almost
-certainly denied its tools. A headless run has no one to answer a permission
-prompt, so every tool that isn't explicitly allowed is refused — the role reads
-the repo, fails to run `gh` or write files, and exits cleanly.
+The `agent` job guards against this itself. It snapshots the issue's comment
+count and `factory:*` state label before running the role and re-reads them
+after; if neither moved, the step fails with
+
+```
+Role 'intake' finished but changed nothing on #16 - no factory:* label change
+and no new comment. 13 tool permission denial(s) were recorded - the
+--allowedTools list in this workflow is the likely cause.
+```
+
+The trace it requires is "label moved **or** a comment was posted", not "label
+moved" — a role may legitimately decline to advance an issue (intake
+recommending `factory:fast-track`, any role applying `factory:blocked`), but it
+always says so on the issue first. A run that says nothing did nothing.
+
+The usual cause is a role denied its tools. A headless run has no one to answer
+a permission prompt, so every tool that isn't explicitly allowed is refused —
+the role reads the repo, fails to run `gh` or write files, and exits cleanly.
+`claude-code-action` still exits 0, which is why the guard exists.
 
 The reusable pipeline passes the allow-list itself
 (`--permission-mode acceptEdits --allowedTools "Bash,Read,Write,..."`), so this
 only bites a fork that trimmed those flags, or a repo whose
-`.claude/settings.json` adds a `permissions.deny` entry covering `Bash`. To
-confirm it, re-run with `show_full_output: true` on the `Run factory role` step
-and look for `permission_denials_count` in the result line.
+`.claude/settings.json` adds a `permissions.deny` entry covering `Bash`. The
+denial count in the error line confirms it; for the full picture re-run with
+`show_full_output: true` on the `Run factory role` step.
+
+### A comment that should have started something, and didn't
+
+Commenting `Approved` only does something in three states — `factory:spec-ready`
+(gate G1), `factory:design-ready` (gate G2) and `factory:ready` (starts a task's
+implementer). From anywhere else the router now replies saying so rather than
+finishing green and silent. Same for a reply on a `factory:blocked` issue whose
+stage has no automatic resume step.
 
 ## 9. Nothing to configure on GitHub itself
 
