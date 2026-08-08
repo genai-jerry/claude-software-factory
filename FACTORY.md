@@ -61,8 +61,10 @@ events, so **filing a plain issue is all a requester does**:
 | Human applies `factory:spec-approved` (gate G1) | **Planner**, then **Architect** chained in the same run |
 | Human applies `factory:design-approved` (gate G2) | **Dispatcher** — marks unblocked tasks `factory:ready` |
 | Owner/collaborator comments exactly `Approved` on an issue in `factory:spec-ready` or `factory:design-ready` | The gate's document PR(s) in this repo are squash-merged, the label flips to the approved state, and the next stage (Planner→Architect, or Dispatcher) runs in the same workflow run. Strict match — "Approved, but..." is just a comment. G3 is deliberately not comment-approvable |
+| Owner/collaborator comments exactly `Approved` on a task sub-issue in `factory:ready` | That task's **Implementer** starts. Not a gate — implementation had no trigger of its own; authorised against the `implementation` approver list |
+| A task sub-issue closes (its PR merged) while its epic is `factory:design-approved` | **Dispatcher** re-runs on the epic, releasing any task the merge just unblocked. Without this, tasks freed by a later merge sit with no `factory:*` label at all |
 | Human replies on a `factory:blocked` issue | `factory:blocked` is cleared and the blocked stage re-runs, re-reading the whole thread (agent comments carry an `<!-- factory-agent -->` marker so they never self-trigger) |
-| Actions → "Factory pipeline" → *Run workflow* | Any role on any issue/PR number (the manual/retry path; used for implementer/reviewer/qa/release/ops until those are event-wired) |
+| Actions → "Factory pipeline" → *Run workflow* | Any role on any issue/PR number (the manual/retry path; used for reviewer/qa/release/ops until those are event-wired) |
 
 Prerequisites (per repo):
 - **Secret** `ANTHROPIC_API_KEY` (or `CLAUDE_CODE_OAUTH_TOKEN` from

@@ -26,6 +26,9 @@ name: Factory pipeline (reusable)
 #   in factory:spec-ready or factory:design-ready merges that gate's document
 #   PR(s) in that repo, flips the label, and continues the next stage in-run.
 #   G3 (production) is deliberately NOT comment-approvable.
+# - Closing a task sub-issue re-dispatches its epic, so tasks the merge just
+#   unblocked get factory:ready without anyone re-running dispatch by hand.
+#   Requires `closed` in the caller stub's `issues.types`.
 # - The same "Approved" comment on a factory:ready TASK starts its implementer.
 #   That is not a gate — implementation had no trigger of its own, so a ready
 #   task sat until someone ran the workflow by hand. Authorised against the
@@ -263,6 +266,33 @@ jobs:
                     core.info('Applied factory:intake');
                   }
                   role = 'intake';
+                }
+              } else if (context.payload.action === 'closed') {
+                // A task closing is what unblocks its dependents, and nothing else
+                // observes that: the dispatcher only ran when the epic reached
+                // factory:design-approved, so tasks freed by a later merge were
+                // never released and sat with no factory:* label at all.
+                // Re-dispatch the parent epic; the dispatcher is a no-op for tasks
+                // whose dependencies are still open, and skips any task that
+                // already carries a state label.
+                const m = /^task\((\d+)\)/.exec(i.title || '');
+                if (!m) {
+                  core.info('Not a factory task sub-issue - nothing to re-dispatch');
+                } else {
+                  const epic = m[1];
+                  // Only while the epic is in its implementation phase. Once it has
+                  // moved on (or never got through G2) a re-dispatch is meaningless.
+                  const { data: parent } = await github.rest.issues.get({
+                    owner: context.repo.owner, repo: context.repo.repo, issue_number: Number(epic),
+                  }).catch(() => ({ data: null })) || {};
+                  const parentLabels = parent ? parent.labels.map(l => l.name || l) : [];
+                  if (!parentLabels.includes('factory:design-approved')) {
+                    core.info(`Epic #${epic} is not factory:design-approved - not re-dispatching`);
+                  } else {
+                    role = 'dispatch';
+                    issue = epic;
+                    core.info(`Task #${i.number} closed - re-dispatching epic #${epic} to release dependents`);
+                  }
                 }
               } else if (context.payload.action === 'labeled') {
                 // factory:planned is intentionally NOT mapped: the architect is
