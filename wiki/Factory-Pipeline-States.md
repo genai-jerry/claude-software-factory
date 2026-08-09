@@ -98,7 +98,7 @@ may approve," which is probably not what you want.
 | State | Role that leaves it | Trigger that moves it |
 |---|---|---|
 | `factory:backlog` | — waits — | Gate G0 on the milestone's release tracker · gating only |
-| `factory:release-planning` | Scrum Master | Owner comments **Plan release** on the tracker |
+| `factory:release-planning` | — waits — | Owner comments **Plan release** on the tracker (nothing runs before that) |
 | `factory:release-ready` | — waits — | Owner comments **Approved** · gate G0 |
 | `factory:release-approved` | — terminal for the tracker — | Its backlog issues move to `factory:intake` in the same run |
 | `factory:intake` | Intake Analyst | Applied automatically on `issues.opened`, or by gate G0 |

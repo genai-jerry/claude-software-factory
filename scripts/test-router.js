@@ -164,6 +164,10 @@ function check(label, cond, extra) {
     check('tracker created', w.state.created.length === 1 && w.state.created[0].title === 'release(7): v0.4 renewals', w.state.log);
     check('tracker labels', ['factory:release', 'factory:release-planning']
       .every(n => w.state.created[0].labels.some(l => l.name === n)), w.state.log);
+    // Nobody is subscribed to a bot-opened issue, so the tracker has to say who
+    // must act and that nothing is running until they do.
+    check('tracker cc\'s the G0 approvers', w.state.created[0].body.includes('@boss'), w.state.created[0].body);
+    check('tracker says nothing is running', /Nothing is running yet/.test(w.state.created[0].body), w.state.created[0].body);
   }
 
   // ---------------------------------------------------------------- scenario 5
@@ -178,6 +182,32 @@ function check(label, cond, extra) {
     check('role=none', out.role === 'none', out);
     check('no new tracker', w.state.created.length === 0, w.state.log);
     check('backlog applied', w.state.issues[5].labels.some(l => l.name === 'factory:backlog'), w.state.log);
+    check('pointed at the tracker', (w.state.comments[5] || []).some(c => c.body.includes('#1')), w.state.log);
+  }
+
+  // --------------------------------------------------------------- scenario 5b
+  console.log('\n5b. issue filed BEFORE its milestone existed, then milestoned — told what it waits on');
+  {
+    // The regression: filing first and creating the milestone later left the
+    // issue already in factory:backlog, so `milestoned` took the "nothing to
+    // do" branch and said nothing at all. Its only guidance stayed the parking
+    // comment telling the reader to add a milestone they had just added.
+    const ms = { number: 7, title: 'v0.4', html_url: 'u' };
+    const w = makeWorld({ files: filesGated, issues: {
+      1: { number: 1, title: 'release(7): v0.4', labels: [{ name: 'factory:release' }, { name: 'factory:release-planning' }], user: { type: 'Bot' }, milestone: ms },
+      5: { number: 5, title: 'Add renewals', labels: [{ name: 'factory:backlog' }], user: { type: 'User' }, milestone: ms },
+    }, comments: { 5: [{ body: 'Parked in `factory:backlog` — this repo runs **release-gated intake**.' }] } });
+    const out = await run(routeSrc, { world: w, context: ctx('issues', { action: 'milestoned', issue: w.state.issues[5], milestone: ms }) });
+    check('role=none', out.role === 'none', out);
+    const notice = (w.state.comments[5] || []).find(c => c.body.includes('factory-queued:1'));
+    check('queued notice posted', !!notice, w.state.log);
+    check('names the tracker and both commands',
+      !!notice && notice.body.includes('#1') && notice.body.includes('Plan release') && notice.body.includes('Approved'),
+      notice && notice.body);
+
+    // Re-milestoning the same issue must not repeat it.
+    await run(routeSrc, { world: w, context: ctx('issues', { action: 'milestoned', issue: w.state.issues[5], milestone: ms }) });
+    check('not repeated', (w.state.comments[5] || []).filter(c => c.body.includes('factory-queued:1')).length === 1, w.state.log);
   }
 
   // ---------------------------------------------------------------- scenario 6
