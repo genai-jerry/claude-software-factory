@@ -193,11 +193,14 @@ belongs to is approved. Approving a release starts *every* issue in it at once.
 1. **Create the milestone.** The pipeline opens a tracker issue titled
    `release(<milestone-number>): <name>`, labelled `factory:release` (a *kind*
    marker, not a state) plus `factory:release-planning`. It is the release's
-   thread: where the plan is posted and where G0 is opened.
+   thread: where the plan is posted and where G0 is opened. The tracker is
+   bot-opened, so nobody is subscribed to it — its body cc's the `release_scope`
+   approvers and says outright that nothing runs until one of them acts.
 2. **File issues against it.** Each is parked in `factory:backlog` with a
-   comment saying which release it is queued in. An issue filed with no
-   milestone is parked too, with no release at all — setting the milestone later
-   queues it.
+   comment naming its release tracker and the two commands that move it
+   (`Plan release`, then `Approved`). An issue filed with no milestone is parked
+   too, with no release at all — setting the milestone later queues it and posts
+   that same pointer, once per tracker.
 3. **`Plan release`.** Comment exactly that on the tracker and the **Scrum
    Master** reads every issue in the milestone and posts one release plan:
    scope table, sequencing between issues, risks, oversized or duplicate items,
@@ -242,7 +245,7 @@ Create them with `scripts/setup-labels.sh`.
 |---|---|---|---|
 | `factory:backlog` | Filed, not yet in an approved release (§2d) | Pipeline, on `issues.opened` | Gate G0 → `factory:intake` |
 | `factory:release` | *Kind:* this issue tracks a release milestone | Pipeline, with the tracker | — (never removed) |
-| `factory:release-planning` | Awaiting a release plan | Pipeline, with the tracker | Scrum Master → `factory:release-ready` |
+| `factory:release-planning` | Awaiting `Plan release` — **nothing is running** | Pipeline, with the tracker | Scrum Master → `factory:release-ready` |
 | `factory:release-ready` | Release plan posted, awaiting **gate G0** | Scrum Master | Human (G0) → `factory:release-approved` |
 | `factory:release-approved` | Released; its issues are in the pipeline | Human (G0), or Scrum Master in agent mode | — (terminal for the tracker) |
 | `factory:intake` | New requirement awaiting analysis | Issue template, pipeline, or gate G0 | Intake → `factory:spec-ready` |

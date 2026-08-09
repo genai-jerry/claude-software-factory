@@ -24,7 +24,7 @@ OWNER="$1"; shift
 LABELS=$(cat <<'EOF'
 factory:backlog|8B949E|Filed, waiting for its release milestone to be approved
 factory:release|24597A|Tracker issue for a release milestone (kind, not a state)
-factory:release-planning|3F5D8A|Scrum Master assessing the milestone's scope
+factory:release-planning|3F5D8A|Awaiting `Plan release` on the tracker (nothing running)
 factory:release-ready|5C7CBF|Release plan posted, awaiting gate G0 approval
 factory:release-approved|246B4A|Release approved (G0); its issues enter intake
 factory:intake|0E5A8A|New requirement awaiting intake analysis

@@ -1,0 +1,4 @@
+# scripts/test-router.js needs js-yaml at runtime (`npm install js-yaml`);
+# nothing in this repo ships as a package, so its install is never committed.
+node_modules/
+package-lock.json

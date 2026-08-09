@@ -50,6 +50,13 @@ labels: factory:release            ← kind marker, not a state
         factory:release-planning   ← the state
 ```
 
+`factory:release-planning` reads like work in progress; it is not. It means
+*awaiting `Plan release`* — no agent is running and the milestone stays put
+until a human comments on the tracker. That is why the tracker body cc's the
+`release_scope` approvers, and why every issue parked behind it gets a comment
+naming the tracker: a release waiting on a human is otherwise indistinguishable
+from a release that is broken.
+
 It is created when the milestone is created, or the first time an issue is added
 to a milestone that hasn't got one — so milestones that predate the install pick
 one up as soon as they are used. The tracker is itself filed against the

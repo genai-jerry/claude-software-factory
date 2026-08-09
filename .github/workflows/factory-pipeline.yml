@@ -158,6 +158,11 @@ jobs:
               const existing = await trackerFor(milestone.number);
               if (existing) return existing;
               if (!autoTracker) return null;
+              // The tracker is bot-opened, so GitHub subscribes nobody to it.
+              // Without an explicit cc the one state that needs a human — a
+              // release nobody has planned yet — is also the one state nobody
+              // is notified about, and the milestone silently stalls.
+              const cc = approverList('release_scope').map(u => '@' + u).join(', ');
               const { data } = await github.rest.issues.create({
                 owner, repo,
                 title: `release(${milestone.number}): ${milestone.title}`,
@@ -166,16 +171,21 @@ jobs:
                 body: [
                   `Release tracker for milestone [${milestone.title}](${milestone.html_url}).`,
                   '',
-                  'Requirement issues filed against this milestone wait in `factory:backlog`.',
-                  'No factory agent touches them until this release is approved (gate G0).',
+                  '**Nothing is running yet — this release is waiting on a human.**',
+                  'Requirement issues filed against this milestone wait in `factory:backlog`',
+                  'and no factory agent touches them until gate G0 is approved here.',
                   '',
-                  '- Comment `Plan release` here to run the **Scrum Master**: it reads every',
-                  '  issue in the milestone and posts a release plan — scope, sequencing,',
-                  '  risks and open questions.',
-                  '- When the plan looks right, an approver comments the single word',
-                  '  `Approved` here. Every backlog issue in the milestone then enters',
-                  '  intake as one batch.',
+                  'To start it:',
                   '',
+                  '1. Comment `Plan release` here to run the **Scrum Master**: it reads every',
+                  '   issue in the milestone and posts a release plan — scope, sequencing,',
+                  '   risks and open questions — then moves this tracker to',
+                  '   `factory:release-ready`.',
+                  '2. When the plan looks right, an approver comments the single word',
+                  '   `Approved` here (gate G0). Every backlog issue in the milestone then',
+                  '   enters intake as one batch.',
+                  '',
+                  ...(cc ? [`cc ${cc} — this release cannot start without one of you.`, ''] : []),
                   'Managed by the Software Factory — see FACTORY.md §2d.',
                   '',
                   '<!-- factory-agent -->',
@@ -183,6 +193,34 @@ jobs:
               });
               core.info(`Created release tracker #${data.number} for milestone ${milestone.number}`);
               return data;
+            };
+
+            // A parked issue must always be able to answer "what is this
+            // waiting on?". Filing an issue and creating its milestone later is
+            // the normal order, and in that order the `milestoned` event landed
+            // on an issue already in factory:backlog and did nothing at all —
+            // leaving the parking comment ("add this issue to a milestone") as
+            // the only guidance on an issue that now has one. Point at the
+            // tracker instead, once per tracker so re-milestoning cannot spam.
+            const queuedMarker = (t) => `<!-- factory-queued:${t} -->`;
+            const queuedNotice = async (n, ms, tracker) => {
+              if (!tracker || !ms) return;
+              if (namesOf(tracker.labels).includes('factory:release-approved')) return;
+              const said = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: n, per_page: 100,
+              }).catch(() => []);
+              if (said.some(c => (c.body || '').includes(queuedMarker(tracker.number)))) return;
+              await say(n, [
+                `Queued for release **${ms.title}** — tracked in #${tracker.number}.`,
+                '',
+                'Nothing runs on this issue yet, and nothing will until that release is',
+                'approved at **gate G0**. To move it along, on #' + tracker.number + ':',
+                '',
+                '1. comment `Plan release` to get the release plan, then',
+                '2. comment `Approved` to release every issue in the milestone into intake.',
+                '',
+                queuedMarker(tracker.number),
+              ].join('\n'));
             };
 
             if (ev === 'workflow_dispatch') {
@@ -390,16 +428,20 @@ jobs:
                       parked = true;
                       await dropLabel(i.number, 'factory:intake');
                       await addLabels(i.number, ['factory:backlog']);
-                      await say(i.number, ms
-                        ? `Queued for release **${ms.title}** — tracked in ${tracker ? '#' + tracker.number : 'that milestone'}.\n\n` +
-                          'Nothing runs on this issue yet. It enters intake when that release is ' +
-                          'approved at gate G0.'
-                        : 'Parked in `factory:backlog` — this repo runs **release-gated intake**.\n\n' +
-                          'Add this issue to a milestone (the milestone *is* the release). The factory ' +
-                          'opens a release tracker for it; comment `Plan release` there to get a release ' +
-                          'plan, and approve it to start every issue in the release at once.\n\n' +
-                          `A small fix does not need a release slot: \`${exemptLabels[0] || 'factory:fast-track'}\` ` +
-                          'keeps an issue out of this queue and on the normal PR flow.');
+                      if (tracker) {
+                        await queuedNotice(i.number, ms, tracker);
+                      } else {
+                        await say(i.number, ms
+                          ? `Queued for release **${ms.title}** — that milestone has no release tracker ` +
+                            '(`auto_create_release_issue` is off), so nothing can approve it yet.\n\n' +
+                            'Open a `release(<milestone>)` tracker issue for it, or approve gate G0 by hand.'
+                          : 'Parked in `factory:backlog` — this repo runs **release-gated intake**.\n\n' +
+                            'Add this issue to a milestone (the milestone *is* the release). The factory ' +
+                            'opens a release tracker for it; comment `Plan release` there to get a release ' +
+                            'plan, and approve it to start every issue in the release at once.\n\n' +
+                            `A small fix does not need a release slot: \`${exemptLabels[0] || 'factory:fast-track'}\` ` +
+                            'keeps an issue out of this queue and on the normal PR flow.');
+                      }
                       core.info('Release gating on - parked in factory:backlog');
                     } else {
                       core.info(`Milestone ${ms.number} is already released - entering intake now`);
@@ -436,8 +478,12 @@ jobs:
                   } else if (!labels.includes('factory:backlog')) {
                     await dropLabel(i.number, 'factory:intake');
                     await addLabels(i.number, ['factory:backlog']);
+                    await queuedNotice(i.number, ms, tracker);
                     core.info(`Queued in milestone ${ms.number} - waiting for gate G0`);
                   } else {
+                    // Already parked, but this is the first time it has a
+                    // release: say which one, and what has to happen next.
+                    await queuedNotice(i.number, ms, tracker);
                     core.info(`Queued in milestone ${ms.number} - already in factory:backlog`);
                   }
                 } else if (!labels.includes('factory:backlog')) {
