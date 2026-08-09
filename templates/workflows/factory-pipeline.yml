@@ -5,9 +5,11 @@ name: Factory pipeline
 
 on:
   issues:
-    types: [opened, labeled, closed]
+    types: [opened, labeled, closed, milestoned, demilestoned]
   issue_comment:
     types: [created]
+  milestone:
+    types: [created, opened]
   workflow_dispatch:
     inputs:
       issue_number:
@@ -17,10 +19,12 @@ on:
         description: "Factory role to run"
         required: true
         type: choice
-        options: [intake, planner, architect, dispatch, implementer, reviewer, qa, release, ops]
+        options: [scrum, intake, planner, architect, dispatch, implementer, reviewer, qa, release, ops]
 
 concurrency:
-  group: factory-${{ github.event.issue.number || inputs.issue_number }}
+  # Milestone events carry no issue number; they get their own lane so a
+  # milestone created while an issue is mid-run does not queue behind it.
+  group: factory-${{ github.event.issue.number || inputs.issue_number || format('ms{0}', github.event.milestone.number) }}
   cancel-in-progress: false
 
 permissions:

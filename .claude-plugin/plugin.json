@@ -1,7 +1,7 @@
 {
   "name": "factory",
-  "version": "0.1.0",
-  "description": "An agent-driven software factory: GitHub issues carry pipeline state, OpenSpec change folders carry spec content, nine agent roles move work between them behind three human gates.",
+  "version": "0.2.0",
+  "description": "An agent-driven software factory: GitHub issues carry pipeline state, OpenSpec change folders carry spec content, ten agent roles move work between them behind four approval gates, with releases gated on GitHub milestones.",
   "author": {
     "name": "genai-jerry",
     "url": "https://github.com/genai-jerry"

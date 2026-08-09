@@ -17,6 +17,9 @@ only covers *doing* the install. Where the two disagree, `FACTORY.md` wins.
     **coordination repo** — the one that owns the shared contract — and plan
     to get `FACTORY_CROSS_REPO_TOKEN` (a fine-grained PAT with Issues +
     Contents + Pull requests on every repo in the estate).
+  - **Should filing an issue start an agent immediately?** If work here is
+    planned in releases, turn on release gating in step 4 — issues then wait in
+    `factory:backlog` until their milestone is approved (FACTORY.md §2d).
 
 Every step below runs from the consuming repo's root unless noted otherwise.
 
@@ -27,8 +30,9 @@ GITHUB_TOKEN=<token> bash scripts/setup-labels.sh <owner> <repo>
 ```
 
 Run from a checkout of **this** repo (`claude-software-factory`), pointed at
-the *consuming* repo via `<owner> <repo>`. It creates (or updates) the 14
-mutually-exclusive state labels listed in FACTORY.md §3. Safe to re-run —
+the *consuming* repo via `<owner> <repo>`. It creates (or updates) the 19
+labels listed in FACTORY.md §3 — the mutually-exclusive states plus
+`factory:release`, the kind marker on release tracker issues. Safe to re-run —
 existing labels are patched in place, not duplicated. Pass multiple `<repo>`
 arguments to label several repos in one estate at once.
 
@@ -71,7 +75,7 @@ Key fields to get right on the first pass:
 
 ## 4. Copy the config and caller-stub files
 
-Six files land in the consuming repo, none of them logic — just triggers,
+Seven files land in the consuming repo, none of them logic — just triggers,
 version pins and per-repo data (FACTORY.md §10). Copy each from `templates/`
 in this repo and adjust as noted.
 
@@ -81,6 +85,7 @@ in this repo and adjust as noted.
 | `.github/workflows/factory-branch-guard.yml` | `templates/workflows/factory-branch-guard.yml` | Same |
 | `.github/factory-models.json` | `templates/factory-models.json` | Optional — retune the model preference chain per role |
 | `.github/factory-approvers.json` | `templates/factory-approvers.json` | Required — replace `genai-jerry` with real GitHub usernames per gate |
+| `.github/factory-release.json` | `templates/factory-release.json` | Optional — release gating. Omit the file and a filed issue goes straight to intake |
 | `.claude/settings.json` | `templates/settings.json` | Merge into an existing file if one is present; keep the `permissions.deny` block — it's half of gate G3 |
 
 ```bash
@@ -89,6 +94,7 @@ cp /path/to/claude-software-factory/templates/workflows/factory-pipeline.yml .gi
 cp /path/to/claude-software-factory/templates/workflows/factory-branch-guard.yml .github/workflows/
 cp /path/to/claude-software-factory/templates/factory-models.json .github/
 cp /path/to/claude-software-factory/templates/factory-approvers.json .github/
+cp /path/to/claude-software-factory/templates/factory-release.json .github/   # optional
 cp /path/to/claude-software-factory/templates/settings.json .claude/
 ```
 
@@ -97,6 +103,12 @@ Notes:
 - `factory-approvers.json` ships with a placeholder username in every gate —
   edit it before merging, or every gate defaults to "any collaborator may
   approve," which is probably not what you want.
+- `factory-release.json` is the release gate (FACTORY.md §2d). With it in
+  place, a filed issue is parked in `factory:backlog` until the milestone it
+  belongs to is approved at gate G0 — so create a milestone and set it on the
+  issue, or nothing will run. Its `release_scope` approvers come from
+  `factory-approvers.json`. Set `"approval": "agent"` to let the Scrum Master's
+  own GO verdict open G0 instead of a person.
 - `.claude/settings.json`'s `_doc` key documents itself; delete it before
   committing if you'd rather not carry commentary in a settings file.
 - **The caller stubs must declare `permissions:` themselves.** A called
@@ -142,7 +154,7 @@ it's pilot-only.
 
 ## 7. Install the plugin (once per machine)
 
-The nine role prompts, the handbook and the protected-branch hook are not
+The ten role prompts, the handbook and the protected-branch hook are not
 delivered by the files above — they come from the Claude Code plugin, and CI
 doesn't need this step at all (the reusable workflows clone the factory repo
 directly). Each **local machine** that will run `/factory:*` commands needs:
@@ -170,7 +182,10 @@ claude --plugin-dir /path/to/claude-software-factory
   are available.
 - File a throwaway issue on the consuming repo and confirm the pipeline
   auto-applies `factory:intake` and the Intake Analyst runs (Actions tab →
-  "Factory pipeline").
+  "Factory pipeline"). With release gating on, expect `factory:backlog`
+  instead: create a milestone, add the issue to it, comment `Plan release` on
+  the `release(...)` tracker the pipeline opened, then `Approved` on it — the
+  issue should move to `factory:intake` and intake should run.
 - Push a commit directly to `main`/`master` in a scratch repo (or check the
   hook's own tests) to confirm `hooks/protect-branches.py` blocks it — see
   FACTORY.md §8a for what's covered.
@@ -208,7 +223,8 @@ denial count in the error line confirms it; for the full picture re-run with
 
 ### A comment that should have started something, and didn't
 
-Commenting `Approved` only does something in three states — `factory:spec-ready`
+Commenting `Approved` only does something in four states —
+`factory:release-ready` (gate G0, on a release tracker), `factory:spec-ready`
 (gate G1), `factory:design-ready` (gate G2) and `factory:ready` (starts a task's
 implementer). From anywhere else the router now replies saying so rather than
 finishing green and silent. Same for a reply on a `factory:blocked` issue whose
@@ -233,9 +249,10 @@ Everything a consuming repo holds, once setup is done:
 .github/workflows/factory-branch-guard.yml    # step 4
 .github/factory-models.json                   # step 4
 .github/factory-approvers.json                # step 4
+.github/factory-release.json                  # step 4 — optional (release gating)
 .claude/settings.json                         # step 4
 ```
 
-Six files, none of them logic. The pipeline body, the nine role prompts and
+Seven files, none of them logic. The pipeline body, the ten role prompts and
 the protected-branch hook all stay in `claude-software-factory` and are
 pulled in at run time.

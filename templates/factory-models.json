@@ -1,5 +1,6 @@
 {
   "_comment": "Model preference chain per factory stage: the workflow probes each model in order and uses the first one the repo's credential can access. Missing roles fall back to claude-sonnet-5. Edit and merge to retune.",
+  "scrum": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "intake": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "planner": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "architect": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],

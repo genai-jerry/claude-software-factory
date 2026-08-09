@@ -1,0 +1,7 @@
+{
+  "_comment": "Release gating (FACTORY.md §2d). A release is a GitHub milestone. gating: 'milestone' parks every newly filed requirement issue in factory:backlog and releases the whole milestone into intake once its release tracker is approved at gate G0; 'none' (the default when this file is absent) keeps the original behaviour where a filed issue goes straight to intake. approval: 'human' = a release_scope approver comments exactly 'Approved' on the tracker; 'agent' = the Scrum Master's own GO verdict releases the milestone. auto_create_release_issue: open a release(<milestone>) tracker automatically when a milestone is created or first used. exempt_labels: issues carrying any of these bypass the release queue entirely.",
+  "gating": "milestone",
+  "approval": "human",
+  "auto_create_release_issue": true,
+  "exempt_labels": ["factory:fast-track"]
+}

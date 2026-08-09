@@ -8,6 +8,7 @@
 2. [[Run Trace Issue 16]]
 3. [[Control Architecture]]
 4. [[Re-dispatch on Task Close]]
+5. [[Release Gating]]
 
 **In the repo**
 

@@ -18,8 +18,15 @@ fi
 
 OWNER="$1"; shift
 
-# name|color|description  (state labels are mutually exclusive; one per issue)
+# name|color|description  (state labels are mutually exclusive; one per issue.
+# factory:release is the one exception: a KIND marker on release tracker issues,
+# which also carry one factory:release-* state.)
 LABELS=$(cat <<'EOF'
+factory:backlog|8B949E|Filed, waiting for its release milestone to be approved
+factory:release|24597A|Tracker issue for a release milestone (kind, not a state)
+factory:release-planning|3F5D8A|Scrum Master assessing the milestone's scope
+factory:release-ready|5C7CBF|Release plan posted, awaiting gate G0 approval
+factory:release-approved|246B4A|Release approved (G0); its issues enter intake
 factory:intake|0E5A8A|New requirement awaiting intake analysis
 factory:spec-ready|4A90D9|Spec PR open, awaiting gate G1 approval
 factory:spec-approved|2E7D4F|Spec approved (G1); released for planning

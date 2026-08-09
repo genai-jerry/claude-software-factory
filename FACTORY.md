@@ -1,8 +1,8 @@
 # The Software Factory
 
 This is the **canonical conventions document** for an agent-driven delivery
-pipeline: requirement issue → spec → tasks → design → code → review → test →
-release → verification, with agents doing the work and humans holding three
+pipeline: release → requirement issue → spec → tasks → design → code → review →
+test → deploy → verification, with agents doing the work and humans holding the
 gates.
 
 It is repo-agnostic. Everything a role needs to know about a *particular*
@@ -10,17 +10,18 @@ codebase lives in that repo's `.factory/profile.json` (§2c) — never in these
 prompts. An estate of N repositories runs N profiles and one copy of this
 document.
 
-**How it reaches your repos:** this file, the nine role prompts, and the
+**How it reaches your repos:** this file, the ten role prompts, and the
 protected-branch hook ship as the `factory` Claude Code plugin; the pipeline
-ships as reusable GitHub Actions workflows. A consuming repo holds five files,
+ships as reusable GitHub Actions workflows. A consuming repo holds eight files,
 none of them logic. See §10.
 
 ---
 
 ## 1. Two foundations, one rule
 
-- **GitHub is the state machine.** Issues, sub-issues, labels and milestones
-  encode *where* every piece of work is. Labels trigger agents.
+- **GitHub is the state machine.** Milestones are releases, issues and
+  sub-issues are the work, labels encode *where* every piece of it is. Labels
+  trigger agents.
 - **OpenSpec is the content.** *What* is being built — proposal, WHEN/THEN
   requirement scenarios, technical design, task checklist — lives in
   `openspec/changes/<epic-issue-number>-<slug>/` in each affected repo.
@@ -33,6 +34,7 @@ body.** This prevents the two-sources-of-truth drift.
 
 | # | Stage | Agent (role prompt) | Produces |
 |---|---|---|---|
+| 0 | Release | `/factory:scrum` | A release plan for one milestone — scope, sequencing, risks — and the gate-G0 hand-off that lets its issues start (§2d) |
 | 1 | Intake | `/factory:intake` | `proposal.md` + `specs/` via `/opsx:explore` + `/opsx:propose`, opened as a PR |
 | 2 | Plan | `/factory:planner` | `tasks.md` (≤ ~10 tasks, one PR each) mirrored into GitHub sub-issues; opens the shared design PR |
 | 3 | Design | `/factory:architect` | `design.md` per affected repo (same branch/PR as `tasks.md` in the epic's repo); shared contract snippet identical across repos |
@@ -42,8 +44,12 @@ body.** This prevents the two-sources-of-truth drift.
 | 7 | Deploy | `/factory:release` | Dependency-ordered merges, staging watch, production promotion |
 | 8 | Verify | `/factory:ops` | Health/smoke checks, soak, `/opsx:archive`, issue closure |
 
+Stage 0 is optional and off by default: with release gating disabled a filed
+issue goes straight to Intake, which is how the factory behaved before §2d
+existed.
+
 Role prompts are supplied by the `factory` plugin, so every repo runs the
-**same nine prompts** — there is no per-repo copy to drift. Stack-specific
+**same ten prompts** — there is no per-repo copy to drift. Stack-specific
 knowledge lives in each repo's `.factory/profile.json` (§2c), which the
 implementer, reviewer, qa, release and ops roles load at the start of every
 run. In a multi-repo estate, nominate one **coordination repo** (the one that
@@ -57,10 +63,14 @@ events, so **filing a plain issue is all a requester does**:
 
 | Trigger | What runs |
 |---|---|
-| Any issue opened (human-authored, not `task(...)`, no factory state yet) | Auto-applies `factory:intake`, then runs the **Intake Analyst** |
+| Any issue opened (human-authored, not `task(...)`, no factory state yet) | Auto-applies `factory:intake`, then runs the **Intake Analyst** — unless release gating is on (§2d), in which case the issue is parked in `factory:backlog` |
+| A milestone is created, or an issue is added to one (release gating on) | A `release(<milestone>)` **tracker issue** is opened if the milestone has none |
+| Owner/collaborator comments exactly `Plan release` on a release tracker | **Scrum Master** — reads the whole milestone and posts the release plan |
+| `factory:release-approved` on a tracker (gate G0) | Every `factory:backlog` issue in that milestone is moved to `factory:intake` and its **Intake Analyst** runs, all in the same run |
 | Human applies `factory:spec-approved` (gate G1) | **Planner**, then **Architect** chained in the same run |
 | Human applies `factory:design-approved` (gate G2) | **Dispatcher** — marks unblocked tasks `factory:ready` |
 | Owner/collaborator comments exactly `Approved` on an issue in `factory:spec-ready` or `factory:design-ready` | The gate's document PR(s) in this repo are squash-merged, the label flips to the approved state, and the next stage (Planner→Architect, or Dispatcher) runs in the same workflow run. Strict match — "Approved, but..." is just a comment. G3 is deliberately not comment-approvable |
+| The same comment on a release tracker in `factory:release-ready` | Gate G0 — the label flips to `factory:release-approved` and the milestone's issues are released (there is no document PR to merge) |
 | Owner/collaborator comments exactly `Approved` on a task sub-issue in `factory:ready` | That task's **Implementer** starts. Not a gate — implementation had no trigger of its own; authorised against the `implementation` approver list |
 | A task sub-issue closes (its PR merged) while its epic is `factory:design-approved` | **Dispatcher** re-runs on the epic, releasing any task the merge just unblocked. Without this, tasks freed by a later merge sit with no `factory:*` label at all |
 | Human replies on a `factory:blocked` issue | `factory:blocked` is cleared and the blocked stage re-runs, re-reading the whole thread (agent comments carry an `<!-- factory-agent -->` marker so they never self-trigger) |
@@ -91,7 +101,7 @@ gracefully instead of failing the run. Missing roles fall back to
 
 | Stages | Preference chain | Why |
 |---|---|---|
-| intake, planner, architect, reviewer | `claude-fable-5` → `claude-opus-5` → `claude-sonnet-5` | Errors here compound downstream: a wrong spec/plan/design or a missed review defect costs far more than the model delta |
+| scrum, intake, planner, architect, reviewer | `claude-fable-5` → `claude-opus-5` → `claude-sonnet-5` | Errors here compound downstream: a wrong release scope, spec, plan or design — or a missed review defect — costs far more than the model delta |
 | implementer, qa, release | `claude-opus-5` → `claude-sonnet-5` | Strong coding/testing quality on the volume stages, guardrailed by the merged design.md and spec scenarios |
 | dispatch, ops | `claude-haiku-4-5-20251001` → `claude-sonnet-5` | Mechanical label routing and health-check verification |
 
@@ -132,7 +142,7 @@ Schema: `templates/profile.schema.json`. Worked example:
 
 To change how the factory codes in a repo, edit its profile — not the prompts.
 This is also what makes the factory portable: pointing it at a new project is
-writing one profile, not rewriting nine prompts.
+writing one profile, not rewriting ten prompts.
 
 ## 2b. Approvers and notifications
 
@@ -158,14 +168,84 @@ Mechanics:
 - Edit the JSON and merge to change who owns a gate; approvers must be
   repo collaborators to be assignable and to act.
 
+## 2d. Releases: milestone gating and gate G0
+
+Without gating, filing an issue starts an agent. That is the right default for a
+repo with a handful of requirements a month and the wrong one for a team that
+plans in releases: work enters one issue at a time, in the order it was typed,
+and nobody ever looks at the set.
+
+**A release is a GitHub milestone.** Turn gating on and a filed requirement is
+parked in `factory:backlog` — no agent touches it — until the milestone it
+belongs to is approved. Approving a release starts *every* issue in it at once.
+
+`.github/factory-release.json` in the consuming repo:
+
+| Key | Values | Meaning |
+|---|---|---|
+| `gating` | `"milestone"` / `"none"` | `"none"` (also: file absent) is the pre-release behaviour — a filed issue goes straight to intake |
+| `approval` | `"human"` / `"agent"` | Who opens gate G0: a `release_scope` approver, or the Scrum Master's own GO verdict |
+| `auto_create_release_issue` | `true` / `false` | Open a `release(<milestone>)` tracker automatically for each milestone |
+| `exempt_labels` | list, default `["factory:fast-track"]` | Issues carrying any of these skip the release queue entirely |
+
+### How a release runs
+
+1. **Create the milestone.** The pipeline opens a tracker issue titled
+   `release(<milestone-number>): <name>`, labelled `factory:release` (a *kind*
+   marker, not a state) plus `factory:release-planning`. It is the release's
+   thread: where the plan is posted and where G0 is opened.
+2. **File issues against it.** Each is parked in `factory:backlog` with a
+   comment saying which release it is queued in. An issue filed with no
+   milestone is parked too, with no release at all — setting the milestone later
+   queues it.
+3. **`Plan release`.** Comment exactly that on the tracker and the **Scrum
+   Master** reads every issue in the milestone and posts one release plan:
+   scope table, sequencing between issues, risks, oversized or duplicate items,
+   what it recommends dropping, and a GO/NO-GO verdict. It moves the tracker to
+   `factory:release-ready`.
+4. **Gate G0.** A `release_scope` approver comments exactly `Approved` on the
+   tracker (or applies `factory:release-approved` by hand). Every
+   `factory:backlog` issue in the milestone flips to `factory:intake` and its
+   Intake Analyst runs — in one workflow run, as a job matrix, four at a time.
+   The tracker gets a receipt comment listing what started and what was left
+   alone. From then on, an issue *added* to that milestone enters intake
+   immediately.
+
+In `"approval": "agent"` mode step 4 has no human in it: the Scrum Master's GO
+applies `factory:release-approved` itself and the same batch release follows in
+that run. A NO-GO applies `factory:blocked` and says what has to change. The
+mode exists because release scope is the one gate whose input — the set of
+issues — the agent can read completely; use it when the cost of a wrong batch is
+low, and leave it on `"human"` when it is not.
+
+### What gating deliberately does not do
+
+- **It does not stop work already in flight.** Removing an issue from a
+  milestone parks it only if it has not passed intake; past that, the release
+  label is bookkeeping and the pipeline carries on.
+- **It does not gate sub-issues.** `task(...)` issues are created by the Planner
+  downstream of G1 and are never parked.
+- **It does not cross repos.** Milestones are per-repo, so a multi-repo epic is
+  gated in the repo where its epic issue is filed; the sub-issues the Planner
+  opens in sibling repos are unaffected.
+- **It is not a deadline.** The milestone's due date and its `closed` state mean
+  nothing to the factory; only the tracker's label does.
+
 ## 3. Label state machine
 
 State labels are mutually exclusive; exactly one `factory:*` state label per
-issue at a time. Create them with `scripts/factory/setup-labels.sh`.
+issue at a time. The single exception is `factory:release`, a *kind* marker
+identifying a release tracker, which also carries one `factory:release-*` state.
+Create them with `scripts/setup-labels.sh`.
 
 | Label | Meaning | Set by | Advanced by |
 |---|---|---|---|
-| `factory:intake` | New requirement awaiting analysis | Issue template | Intake → `factory:spec-ready` |
+| `factory:backlog` | Filed, not yet in an approved release (§2d) | Pipeline, on `issues.opened` | Gate G0 → `factory:intake` |
+| `factory:release` | *Kind:* this issue tracks a release milestone | Pipeline, with the tracker | — (never removed) |
+| `factory:release-planning` | Awaiting a release plan | Pipeline, with the tracker | Scrum Master → `factory:release-ready` |
+| `factory:release-ready` | Release plan posted, awaiting **gate G0** | Scrum Master | Human (G0) → `factory:release-approved` |
+| `factory:release-approved` | Released; its issues are in the pipeline | Human (G0), or Scrum Master in agent mode | — (terminal for the tracker) |
+| `factory:intake` | New requirement awaiting analysis | Issue template, pipeline, or gate G0 | Intake → `factory:spec-ready` |
 | `factory:spec-ready` | Spec PR open, awaiting **gate G1** | Intake | Human merges spec PR → `factory:spec-approved` |
 | `factory:spec-approved` | Released for planning | Human (G1) | Planner → `factory:planned` |
 | `factory:planned` | tasks.md + sub-issues created | Planner | Architect → `factory:design-ready` |
@@ -182,6 +262,11 @@ issue at a time. Create them with `scripts/factory/setup-labels.sh`.
 
 ## 4. Human gates
 
+- **G0 — Release approval (only with gating on, §2d):** read the Scrum Master's
+  release plan on the tracker issue, then comment `Approved` on it (or apply
+  `factory:release-approved`). Every `factory:backlog` issue in the milestone
+  enters intake. This is the one gate that can be delegated to an agent, by
+  setting `"approval": "agent"` in `.github/factory-release.json`.
 - **G1 — Spec approval:** review the `proposal.md` + `specs/` PR, then either
   merge it and apply `factory:spec-approved`, or simply comment `Approved` on
   the epic (the pipeline merges the PR and flips the label for you).
@@ -302,7 +387,7 @@ on and this section becomes defence-in-depth rather than the primary control.
    point (§10); the `factory:intake` label it applies only starts the pipeline
    once the labels step below has run.
 2. **Labels** — `GITHUB_TOKEN=... bash scripts/setup-labels.sh <owner> <repo...>`
-   creates the 14 `factory:*` labels (§3). Run it once per repo.
+   creates the 19 `factory:*` labels (§3). Run it once per repo.
 3. **Secrets** — add `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN` as a
    **repository** secret (Settings → Secrets and variables → Actions).
    Environment secrets do *not* reach jobs that don't declare `environment:`,
@@ -315,8 +400,12 @@ on and this section becomes defence-in-depth rather than the primary control.
    `templates/profile.example.json`; validate against
    `templates/profile.schema.json`. This is the only file whose contents are
    genuinely yours to author.
-6. **Install the factory** — §10.
-7. Protected-branch enforcement is factory-side (§8a) — nothing to configure on
+6. **Releases (optional)** — copy `templates/factory-release.json` to
+   `.github/factory-release.json` to gate intake behind milestones (§2d), and
+   add a `release_scope` list to `.github/factory-approvers.json`. Leave the
+   file out to keep the original behaviour.
+7. **Install the factory** — §10.
+8. Protected-branch enforcement is factory-side (§8a) — nothing to configure on
    GitHub. If you later move to a plan with branch protection or rulesets, turn
    them on as well: require 1 approval and green CI on `main` (and `staging`).
 
@@ -328,7 +417,7 @@ plugin cannot deliver them.
 
 | Channel | Delivers | Mechanism |
 |---|---|---|
-| Claude Code plugin `factory` | the 9 role prompts, this handbook, the protected-branch hook | marketplace install, or `--plugin-dir` for local development |
+| Claude Code plugin `factory` | the 10 role prompts, this handbook, the protected-branch hook | marketplace install, or `--plugin-dir` for local development |
 | Reusable GitHub Actions workflows | the pipeline, the test harness, the branch guard | `uses: <owner>/claude-software-factory/.github/workflows/<file>@v1` |
 
 Both channels serve the same files from the same tagged commit. In CI the
@@ -345,6 +434,7 @@ injects the handbook plus the role prompt into the agent's prompt directly.
 | `.github/workflows/factory-branch-guard.yml` | same |
 | `.github/factory-models.json` | per-repo model tuning; read from the caller's checkout |
 | `.github/factory-approvers.json` | per-repo gate approvers |
+| `.github/factory-release.json` | per-repo release gating (§2d); optional — omit it and intake runs on every filed issue |
 | `.github/ISSUE_TEMPLATE/factory-requirement.yml` | the intake entry point — GitHub only renders issue forms present in the repo being filed against |
 | `.claude/settings.json` | plugin `settings.json` supports only `agent` and `subagentStatusLine` — a **permissions** block cannot ship in a plugin, and the merge deny list is half of §8a |
 
