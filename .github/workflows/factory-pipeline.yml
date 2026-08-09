@@ -6,17 +6,22 @@ name: Factory pipeline (reusable)
 #
 # Because this is called with `secrets: inherit`, `github.*` and
 # `context.payload` refer to the CALLER's repository and event throughout — the
-# checkout below is the caller's repo, and .github/factory-{models,approvers}.json
+# checkout below is the caller's repo, and .github/factory-{models,approvers,release}.json
 # are read from it. Role definitions come from this repo, cloned at `factory_ref`
 # into RUNNER_TEMP (never the workspace, so an agent's `git add` cannot sweep
 # them into a PR) and injected into the prompt directly.
 #
 # Behaviour:
-# - Any newly opened issue is auto-labelled factory:intake and the Intake
-#   Analyst runs on it — no boilerplate for the filer.
+# - Release gating (.github/factory-release.json, FACTORY.md §2d). With
+#   `"gating": "milestone"` a newly opened issue is parked in factory:backlog
+#   until the GitHub milestone it belongs to is approved at gate G0; the
+#   Scrum Master plans the release and the whole milestone enters intake as one
+#   batch. With gating off (the default when the file is absent) a newly opened
+#   issue goes straight to intake, as before.
 # - Human gate approvals (label flips) trigger the next stages:
-#     factory:spec-approved  -> planner (then architect, chained in-run)
-#     factory:design-approved-> dispatch (marks unblocked tasks factory:ready)
+#     factory:release-approved -> the milestone's backlog issues enter intake
+#     factory:spec-approved    -> planner (then architect, chained in-run)
+#     factory:design-approved  -> dispatch (marks unblocked tasks factory:ready)
 #   (factory:planned is unmapped on purpose - architect re-runs go through
 #    workflow_dispatch; see route job comment.)
 # - A human reply on a factory:blocked issue clears the block and re-runs the
@@ -25,6 +30,7 @@ name: Factory pipeline (reusable)
 # - A comment of exactly "Approved" from the owner/a collaborator on an issue
 #   in factory:spec-ready or factory:design-ready merges that gate's document
 #   PR(s) in that repo, flips the label, and continues the next stage in-run.
+#   On a release tracker in factory:release-ready it opens gate G0.
 #   G3 (production) is deliberately NOT comment-approvable.
 # - Closing a task sub-issue re-dispatches its epic, so tasks the merge just
 #   unblocked get factory:ready without anyone re-running dispatch by hand.
@@ -40,8 +46,9 @@ name: Factory pipeline (reusable)
 # - A comment that plainly asked for something and routed nowhere gets an
 #   explanatory reply, so it never dead-ends in a green run and silence.
 # Note: labels applied BY these runs do not emit trigger events (GitHub
-# anti-recursion), which is why planner->architect is chained in-run and
-# review/qa runs are started via workflow_dispatch for now.
+# anti-recursion), which is why planner->architect is chained in-run, the
+# release batch is fanned out through a job matrix, and review/qa runs are
+# started via workflow_dispatch for now.
 
 on:
   workflow_call:
@@ -79,6 +86,12 @@ jobs:
     outputs:
       role: ${{ steps.route.outputs.role }}
       issue: ${{ steps.route.outputs.issue }}
+      # JSON array of issue numbers the chosen role runs against. Normally one
+      # element; a release batch releases many at once (agent job is a matrix).
+      issues: ${{ steps.route.outputs.issues }}
+      # Set when this run may complete a release: the tracker issue number.
+      # The release-chain job picks it up.
+      release_issue: ${{ steps.route.outputs.release_issue }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,27 +103,129 @@ jobs:
           DISPATCH_ISSUE: ${{ inputs.issue_number }}
         with:
           script: |
-            let role = 'none', issue = '';
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            let role = 'none', issue = '', issues = [], releaseIssue = '';
             const ev = context.eventName;
-            const loadApprovers = () => {
-              try { return JSON.parse(require('fs').readFileSync('.github/factory-approvers.json', 'utf8')); }
+
+            // A release tracker carries factory:release (a KIND label, not a
+            // pipeline state) plus one factory:release-* state.
+            const RELEASE_KIND = 'factory:release';
+
+            const loadJson = (p) => {
+              try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
               catch (e) { return {}; }
             };
             const approverList = (gate) => {
-              const v = loadApprovers()[gate];
+              const v = loadJson('.github/factory-approvers.json')[gate];
               return Array.isArray(v) ? v.filter(x => typeof x === 'string') : [];
             };
+            // Release gating is opt-in: no file (or "gating":"none") keeps the
+            // original behaviour where a filed issue goes straight to intake.
+            const releaseCfg = loadJson('.github/factory-release.json');
+            const gating = (releaseCfg.gating || 'none') === 'milestone';
+            const exemptLabels = Array.isArray(releaseCfg.exempt_labels)
+              ? releaseCfg.exempt_labels : ['factory:fast-track'];
+            const autoTracker = releaseCfg.auto_create_release_issue !== false;
+
+            const namesOf = (ls) => (ls || []).map(l => (typeof l === 'string' ? l : l.name));
+            const isTaskTitle = (t) => /^task\(\d+\)/.test(t || '');
+            const say = (n, body) => github.rest.issues.createComment({
+              owner, repo, issue_number: n, body: `${body}\n\n<!-- factory-agent -->`,
+            });
+            const addLabels = (n, labels) => github.rest.issues.addLabels({
+              owner, repo, issue_number: n, labels,
+            });
+            const dropLabel = (n, name) => github.rest.issues.removeLabel({
+              owner, repo, issue_number: n, name,
+            }).catch(() => {});
+            // "Not started" = carries nothing but backlog/intake (blocked is
+            // orthogonal). Only these are safe to park or to release in batch;
+            // anything further along is in flight and must be left alone.
+            const notStarted = (ls) => ls.filter(n => n.startsWith('factory:'))
+              .every(n => ['factory:backlog', 'factory:intake', 'factory:blocked'].includes(n));
+
+            // Release trackers are found by label + title, never by search:
+            // the search index lags behind issue creation by seconds to minutes.
+            const trackerFor = async (ms) => {
+              const found = await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, labels: RELEASE_KIND, state: 'all', per_page: 100,
+              });
+              const re = new RegExp(`^release\\(${ms}\\):`);
+              return found.find(x => !x.pull_request && re.test(x.title || '')) || null;
+            };
+            const ensureTracker = async (milestone) => {
+              const existing = await trackerFor(milestone.number);
+              if (existing) return existing;
+              if (!autoTracker) return null;
+              const { data } = await github.rest.issues.create({
+                owner, repo,
+                title: `release(${milestone.number}): ${milestone.title}`,
+                milestone: milestone.number,
+                labels: [RELEASE_KIND, 'factory:release-planning'],
+                body: [
+                  `Release tracker for milestone [${milestone.title}](${milestone.html_url}).`,
+                  '',
+                  'Requirement issues filed against this milestone wait in `factory:backlog`.',
+                  'No factory agent touches them until this release is approved (gate G0).',
+                  '',
+                  '- Comment `Plan release` here to run the **Scrum Master**: it reads every',
+                  '  issue in the milestone and posts a release plan — scope, sequencing,',
+                  '  risks and open questions.',
+                  '- When the plan looks right, an approver comments the single word',
+                  '  `Approved` here. Every backlog issue in the milestone then enters',
+                  '  intake as one batch.',
+                  '',
+                  'Managed by the Software Factory — see FACTORY.md §2d.',
+                  '',
+                  '<!-- factory-agent -->',
+                ].join('\n'),
+              });
+              core.info(`Created release tracker #${data.number} for milestone ${milestone.number}`);
+              return data;
+            };
+
             if (ev === 'workflow_dispatch') {
               role = process.env.DISPATCH_ROLE || 'none';
               issue = process.env.DISPATCH_ISSUE || '';
+              if (role === 'scrum') releaseIssue = issue;
+            } else if (ev === 'milestone') {
+              // A new milestone is a new release. Give it a tracker issue right
+              // away so there is somewhere to plan it and somewhere to approve
+              // it; the milestone itself carries no state GitHub lets us label.
+              const ms = context.payload.milestone;
+              if (!gating) {
+                core.info('Release gating is off (.github/factory-release.json) - ignoring milestone event');
+              } else if (context.payload.action === 'created' || context.payload.action === 'opened') {
+                const tracker = await ensureTracker(ms);
+                if (tracker) issue = String(tracker.number);
+              } else {
+                core.info(`Milestone ${context.payload.action} - nothing to route`);
+              }
             } else if (ev === 'issue_comment') {
               const i = context.payload.issue;
               issue = String(i.number);
               const body = context.payload.comment.body || '';
               const author = context.payload.comment.user || {};
-              const labels = i.labels.map(l => l.name);
+              const sender = author.login;
+              const labels = namesOf(i.labels);
               const isApproval = /^\s*approved\s*[.!]?\s*$/i.test(body);
-              const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') && n !== 'factory:blocked')
+              const isPlanRelease = /^\s*plan\s+release\s*[.!]?\s*$/i.test(body);
+              const isTracker = labels.includes(RELEASE_KIND);
+              const assocOk = ['OWNER', 'MEMBER', 'COLLABORATOR']
+                .includes(context.payload.comment.author_association);
+              const authorized = (gate) => {
+                const list = approverList(gate);
+                return list.length ? list.includes(sender) : assocOk;
+              };
+              const refuse = (gate, what) => {
+                const list = approverList(gate);
+                return say(i.number, `@${sender} — ${what} requires ` +
+                  (list.length
+                    ? `approval from: ${list.map(u => '@' + u).join(', ')} (see .github/factory-approvers.json).`
+                    : 'owner, member or collaborator access on this repository.'));
+              };
+              const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') && n !== 'factory:blocked' && n !== RELEASE_KIND)
                                         .join(', ') || 'no factory:* state label';
               if (i.pull_request) {
                 core.info('PR comment - skipping');
@@ -118,81 +233,82 @@ jobs:
                 core.info('Bot comment - skipping');
               } else if (body.includes('<!-- factory-agent -->')) {
                 core.info('Factory agent comment (marker present) - skipping');
-              } else if (isApproval && labels.includes('factory:ready')) {
-                // Implementation start is NOT a gate (the gates are G1 spec, G2 design,
-                // G3 production). It needed Run workflow only because labels applied by
-                // factory runs emit no trigger events, so nothing picked a ready task up.
-                // Accept `Approved` as the equivalent of Run workflow (role: implementer)
-                // so a task can be started from its own thread. Unlike G1/G2 there is no
-                // gate PR to merge, and the implementer flips factory:ready ->
-                // factory:in-review itself, so the router only chooses the role.
-                const list = approverList('implementation');
-                const sender = context.payload.comment.user.login;
-                const assocOk = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(context.payload.comment.author_association);
-                const authorized = list.length ? list.includes(sender) : assocOk;
-                if (!authorized) {
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
-                    body: `@${sender} — starting implementation requires ` +
-                          (list.length ? `approval from: ${list.map(u => '@' + u).join(', ')} (see .github/factory-approvers.json).`
-                                       : 'owner, member or collaborator access on this repository.') +
-                          `\n\n<!-- factory-agent -->`,
-                  });
-                  core.setOutput('role', 'none'); core.setOutput('issue', issue); return;
+              } else if (isTracker && isPlanRelease) {
+                // Planning is not a gate — it only produces the release plan.
+                // It is authorised anyway so a drive-by comment cannot spend
+                // agent budget on someone else's milestone.
+                if (!authorized('release_scope')) {
+                  await refuse('release_scope', 'planning a release');
+                } else {
+                  role = 'scrum';
+                  releaseIssue = issue;
+                  core.info('Release planning requested - starting the Scrum Master');
                 }
-                role = 'implementer';
-                core.info('Implementation approved via comment - starting implementer');
+              } else if (isTracker && isApproval) {
+                // Gate G0 — release scope. Unlike G1/G2 there is no document PR
+                // to merge; approving flips the label and the release-chain job
+                // releases every backlog issue in the milestone.
+                if (!labels.includes('factory:release-ready')) {
+                  await say(i.number,
+                    `"Approved" has no effect while this release is at **${stateOf(labels)}**.\n\n` +
+                    'Comment `Plan release` first — the Scrum Master reads the milestone, posts the ' +
+                    'release plan and moves this tracker to `factory:release-ready`, which is gate G0.');
+                } else if (!authorized('release_scope')) {
+                  await refuse('release_scope', 'gate G0 (release approval)');
+                } else {
+                  await dropLabel(i.number, 'factory:release-ready');
+                  await addLabels(i.number, ['factory:release-approved']);
+                  releaseIssue = issue;
+                  core.info('Gate G0 approved via comment - releasing the milestone');
+                }
+              } else if (isApproval && labels.includes('factory:ready')) {
+                // Implementation start is NOT a gate (the gates are G0 release,
+                // G1 spec, G2 design, G3 production). It needed Run workflow only
+                // because labels applied by factory runs emit no trigger events, so
+                // nothing picked a ready task up. Accept `Approved` as the equivalent
+                // of Run workflow (role: implementer) so a task can be started from its
+                // own thread. Unlike the gates there is no PR to merge, and the
+                // implementer flips factory:ready -> factory:in-review itself, so the
+                // router only chooses the role.
+                if (!authorized('implementation')) {
+                  await refuse('implementation', 'starting implementation');
+                } else {
+                  role = 'implementer';
+                  core.info('Implementation approved via comment - starting implementer');
+                }
               } else if (isApproval &&
                          (labels.includes('factory:spec-ready') || labels.includes('factory:design-ready'))) {
                 // Comment-approved gate (G1/G2, document PRs only — G3 stays a human merge click).
                 const spec = labels.includes('factory:spec-ready');
                 const gateKey = spec ? 'spec' : 'design';
-                const list = approverList(gateKey);
-                const sender = context.payload.comment.user.login;
-                const assocOk = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(context.payload.comment.author_association);
-                const authorized = list.length ? list.includes(sender) : assocOk;
-                if (!authorized) {
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
-                    body: `@${sender} — this gate requires approval from: ${list.map(u => '@' + u).join(', ')} ` +
-                          `(see .github/factory-approvers.json).\n\n<!-- factory-agent -->`,
-                  });
-                  core.setOutput('role', 'none'); core.setOutput('issue', issue); return;
+                if (!authorized(gateKey)) {
+                  await refuse(gateKey, `this gate (${spec ? 'G1 spec' : 'G2 design'} approval)`);
+                  core.setOutput('role', 'none'); core.setOutput('issue', issue);
+                  core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
+                  return;
                 }
                 const headBranch = spec ? `factory/${i.number}-spec` : `factory/${i.number}-design`;
                 const { data: prs } = await github.rest.pulls.list({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  state: 'open', head: `${context.repo.owner}:${headBranch}`,
+                  owner, repo, state: 'open', head: `${owner}:${headBranch}`,
                 });
                 let allMerged = true;
                 for (const pr of prs) {
                   try {
                     await github.rest.pulls.merge({
-                      owner: context.repo.owner, repo: context.repo.repo,
-                      pull_number: pr.number, merge_method: 'squash',
+                      owner, repo, pull_number: pr.number, merge_method: 'squash',
                     });
                     core.info(`Merged gate PR #${pr.number}`);
                   } catch (e) {
                     allMerged = false;
-                    await github.rest.issues.createComment({
-                      owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
-                      body: `Approval noted, but PR #${pr.number} could not be merged automatically (${e.message}). ` +
-                            `Please merge it manually and apply the next label.\n\n<!-- factory-agent -->`,
-                    });
+                    await say(i.number,
+                      `Approval noted, but PR #${pr.number} could not be merged automatically (${e.message}). ` +
+                      'Please merge it manually and apply the next label.');
                   }
                 }
                 if (prs.length === 0) core.info(`No open gate PR on ${headBranch} (already merged manually?) - proceeding`);
                 if (allMerged) {
-                  const oldL = spec ? 'factory:spec-ready' : 'factory:design-ready';
-                  const newL = spec ? 'factory:spec-approved' : 'factory:design-approved';
-                  await github.rest.issues.removeLabel({
-                    owner: context.repo.owner, repo: context.repo.repo,
-                    issue_number: i.number, name: oldL,
-                  }).catch(() => {});
-                  await github.rest.issues.addLabels({
-                    owner: context.repo.owner, repo: context.repo.repo,
-                    issue_number: i.number, labels: [newL],
-                  });
+                  await dropLabel(i.number, spec ? 'factory:spec-ready' : 'factory:design-ready');
+                  await addLabels(i.number, [spec ? 'factory:spec-approved' : 'factory:design-approved']);
                   // Label flips by this token emit no events - continue the next stage in-run.
                   role = spec ? 'planner' : 'dispatch';
                   core.info(`Gate approved via comment - continuing with ${role}`);
@@ -202,21 +318,25 @@ jobs:
                 // run that does nothing looks identical to a run that worked, so an
                 // unanswered "Approved" would otherwise just sit there.
                 if (isApproval) {
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
-                    body: `"Approved" has no effect while this is at **${stateOf(labels)}** — nothing was started.\n\n` +
-                          `It advances the pipeline from:\n` +
-                          `- \`factory:spec-ready\` — approves gate G1 and starts the planner\n` +
-                          `- \`factory:design-ready\` — approves gate G2 and starts the dispatcher\n` +
-                          `- \`factory:ready\` (a task sub-issue) — starts its implementer\n\n` +
-                          `From any other state, use Actions → "Factory pipeline" → Run workflow with the role you want. ` +
-                          `Gate G3 (production) is deliberately not comment-approvable.\n\n<!-- factory-agent -->`,
-                  });
+                  await say(i.number,
+                    `"Approved" has no effect while this is at **${stateOf(labels)}** — nothing was started.\n\n` +
+                    'It advances the pipeline from:\n' +
+                    '- `factory:release-ready` (a release tracker) — approves gate G0 and releases the whole milestone\n' +
+                    '- `factory:spec-ready` — approves gate G1 and starts the planner\n' +
+                    '- `factory:design-ready` — approves gate G2 and starts the dispatcher\n' +
+                    '- `factory:ready` (a task sub-issue) — starts its implementer\n\n' +
+                    (labels.includes('factory:backlog')
+                      ? 'This issue is in the backlog: add it to a release milestone, then approve that ' +
+                        'release\'s tracker issue.\n\n'
+                      : '') +
+                    'From any other state, use Actions → "Factory pipeline" → Run workflow with the role you want. ' +
+                    'Gate G3 (production) is deliberately not comment-approvable.');
                 }
                 core.info('Issue not factory:blocked - comments only resume blocked stages or approve gates');
               } else {
                 // resume the stage the issue was blocked in, inferred from its state label
                 const resume = {
+                  'factory:release-planning': 'scrum',
                   'factory:intake': 'intake',
                   'factory:spec-approved': 'planner',
                   'factory:planned': 'architect',
@@ -227,47 +347,105 @@ jobs:
                 }
                 if (role === 'none' &&
                     labels.filter(n => n.startsWith('factory:')).every(n => n === 'factory:blocked')) {
-                  role = 'intake';
+                  role = isTracker ? 'scrum' : 'intake';
                 }
                 if (role !== 'none') {
                   core.info(`Human reply on blocked issue - resuming ${role}`);
-                  await github.rest.issues.removeLabel({
-                    owner: context.repo.owner, repo: context.repo.repo,
-                    issue_number: i.number, name: 'factory:blocked',
-                  }).catch(() => {});
+                  if (role === 'scrum') releaseIssue = issue;
+                  await dropLabel(i.number, 'factory:blocked');
                 } else {
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
-                    body: `This issue is \`factory:blocked\` at **${stateOf(labels)}**, which has no automatic resume ` +
-                          `step — your reply did not restart anything. Use Actions → "Factory pipeline" → Run workflow ` +
-                          `with the role you want and this issue number.\n\n<!-- factory-agent -->`,
-                  });
+                  await say(i.number,
+                    `This issue is \`factory:blocked\` at **${stateOf(labels)}**, which has no automatic resume ` +
+                    'step — your reply did not restart anything. Use Actions → "Factory pipeline" → Run workflow ' +
+                    'with the role you want and this issue number.');
                   core.info('Blocked at a stage without an automatic resume mapping - use Run workflow');
                 }
               }
             } else if (ev === 'issues') {
               const i = context.payload.issue;
               issue = String(i.number);
-              const labels = i.labels.map(l => l.name);
+              const labels = namesOf(i.labels);
               const states = labels.filter(n => n.startsWith('factory:'));
-              if (context.payload.action === 'opened') {
+              const action = context.payload.action;
+              if (action === 'opened') {
                 if (i.user.type === 'Bot') {
                   core.info('Bot-authored issue - skipping');
-                } else if (i.title.startsWith('task(')) {
+                } else if (labels.includes(RELEASE_KIND)) {
+                  core.info('Release tracker issue - skipping');
+                } else if (isTaskTitle(i.title)) {
                   core.info('Factory task sub-issue - skipping');
                 } else if (states.some(n => n !== 'factory:intake')) {
                   core.info('Issue already carries a factory state - skipping');
                 } else {
-                  if (!labels.includes('factory:intake')) {
-                    await github.rest.issues.addLabels({
-                      owner: context.repo.owner, repo: context.repo.repo,
-                      issue_number: i.number, labels: ['factory:intake'],
-                    });
-                    core.info('Applied factory:intake');
+                  // Release gating: a requirement is filed against a release, not
+                  // straight into the machine. Park it until its milestone is
+                  // approved at gate G0 (FACTORY.md §2d).
+                  let parked = false;
+                  if (gating && !labels.some(n => exemptLabels.includes(n))) {
+                    const ms = i.milestone;
+                    const tracker = ms ? await ensureTracker(ms) : null;
+                    const approved = tracker &&
+                      namesOf(tracker.labels).includes('factory:release-approved');
+                    if (!approved) {
+                      parked = true;
+                      await dropLabel(i.number, 'factory:intake');
+                      await addLabels(i.number, ['factory:backlog']);
+                      await say(i.number, ms
+                        ? `Queued for release **${ms.title}** — tracked in ${tracker ? '#' + tracker.number : 'that milestone'}.\n\n` +
+                          'Nothing runs on this issue yet. It enters intake when that release is ' +
+                          'approved at gate G0.'
+                        : 'Parked in `factory:backlog` — this repo runs **release-gated intake**.\n\n' +
+                          'Add this issue to a milestone (the milestone *is* the release). The factory ' +
+                          'opens a release tracker for it; comment `Plan release` there to get a release ' +
+                          'plan, and approve it to start every issue in the release at once.\n\n' +
+                          `A small fix does not need a release slot: \`${exemptLabels[0] || 'factory:fast-track'}\` ` +
+                          'keeps an issue out of this queue and on the normal PR flow.');
+                      core.info('Release gating on - parked in factory:backlog');
+                    } else {
+                      core.info(`Milestone ${ms.number} is already released - entering intake now`);
+                    }
                   }
-                  role = 'intake';
+                  if (!parked) {
+                    if (!labels.includes('factory:intake')) {
+                      await addLabels(i.number, ['factory:intake']);
+                      core.info('Applied factory:intake');
+                    }
+                    role = 'intake';
+                  }
                 }
-              } else if (context.payload.action === 'closed') {
+              } else if (action === 'milestoned' || action === 'demilestoned') {
+                // Moving an issue in or out of a release is the only way a
+                // backlog issue changes hands, so both directions are handled.
+                const ms = context.payload.milestone;
+                if (!gating) {
+                  core.info('Release gating is off - milestone changes are informational only');
+                } else if (i.user.type === 'Bot' || labels.includes(RELEASE_KIND) || isTaskTitle(i.title)) {
+                  core.info('Release tracker or factory sub-issue - skipping');
+                } else if (labels.some(n => exemptLabels.includes(n))) {
+                  core.info('Issue is exempt from release gating - skipping');
+                } else if (!notStarted(labels)) {
+                  core.info(`Issue is already in flight (${states.join(', ')}) - milestone change does not move it`);
+                } else if (action === 'milestoned') {
+                  const tracker = ms ? await ensureTracker(ms) : null;
+                  const approved = tracker && namesOf(tracker.labels).includes('factory:release-approved');
+                  if (approved) {
+                    await dropLabel(i.number, 'factory:backlog');
+                    if (!labels.includes('factory:intake')) await addLabels(i.number, ['factory:intake']);
+                    role = 'intake';
+                    await say(i.number, `Added to **${ms.title}**, which is already approved (${tracker ? '#' + tracker.number : ''}) — entering intake now.`);
+                  } else if (!labels.includes('factory:backlog')) {
+                    await dropLabel(i.number, 'factory:intake');
+                    await addLabels(i.number, ['factory:backlog']);
+                    core.info(`Queued in milestone ${ms.number} - waiting for gate G0`);
+                  } else {
+                    core.info(`Queued in milestone ${ms.number} - already in factory:backlog`);
+                  }
+                } else if (!labels.includes('factory:backlog')) {
+                  await dropLabel(i.number, 'factory:intake');
+                  await addLabels(i.number, ['factory:backlog']);
+                  await say(i.number, `Removed from **${ms ? ms.title : 'its milestone'}** — parked in \`factory:backlog\` until it is part of an approved release.`);
+                }
+              } else if (action === 'closed') {
                 // A task closing is what unblocks its dependents, and nothing else
                 // observes that: the dispatcher only ran when the epic reached
                 // factory:design-approved, so tasks freed by a later merge were
@@ -283,9 +461,9 @@ jobs:
                   // Only while the epic is in its implementation phase. Once it has
                   // moved on (or never got through G2) a re-dispatch is meaningless.
                   const { data: parent } = await github.rest.issues.get({
-                    owner: context.repo.owner, repo: context.repo.repo, issue_number: Number(epic),
+                    owner, repo, issue_number: Number(epic),
                   }).catch(() => ({ data: null })) || {};
-                  const parentLabels = parent ? parent.labels.map(l => l.name || l) : [];
+                  const parentLabels = parent ? namesOf(parent.labels) : [];
                   if (!parentLabels.includes('factory:design-approved')) {
                     core.info(`Epic #${epic} is not factory:design-approved - not re-dispatching`);
                   } else {
@@ -294,33 +472,40 @@ jobs:
                     core.info(`Task #${i.number} closed - re-dispatching epic #${epic} to release dependents`);
                   }
                 }
-              } else if (context.payload.action === 'labeled') {
+              } else if (action === 'labeled') {
                 // factory:planned is intentionally NOT mapped: the architect is
                 // chained in-run after the planner (mapping it would double-run
                 // the architect when PAT label flips emit events).
                 const name = context.payload.label.name;
                 const sender = context.payload.sender.login;
-                const gateOf = { 'factory:spec-approved': 'spec', 'factory:design-approved': 'design' };
+                const gateOf = {
+                  'factory:release-approved': 'release_scope',
+                  'factory:spec-approved': 'spec',
+                  'factory:design-approved': 'design',
+                };
                 const map = { 'factory:spec-approved': 'planner', 'factory:design-approved': 'dispatch' };
                 if (gateOf[name]) {
                   const list = approverList(gateOf[name]);
                   if (list.length && !list.includes(sender)) {
                     // Unauthorized gate flip: revert and explain.
-                    await github.rest.issues.removeLabel({
-                      owner: context.repo.owner, repo: context.repo.repo,
-                      issue_number: i.number, name,
-                    }).catch(() => {});
-                    await github.rest.issues.createComment({
-                      owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
-                      body: `\`${name}\` was applied by @${sender}, but this gate requires ` +
-                            `${list.map(u => '@' + u).join(', ')} (see .github/factory-approvers.json). Reverted.\n\n<!-- factory-agent -->`,
-                    });
+                    await dropLabel(i.number, name);
+                    await say(i.number,
+                      `\`${name}\` was applied by @${sender}, but this gate requires ` +
+                      `${list.map(u => '@' + u).join(', ')} (see .github/factory-approvers.json). Reverted.`);
+                  } else if (name === 'factory:release-approved') {
+                    // Gate G0 flipped by hand (or by the Scrum Master in
+                    // "approval": "agent" mode, when a PAT makes label flips
+                    // emit events). release-chain does the batch release and
+                    // is idempotent, so a duplicate event is harmless.
+                    await dropLabel(i.number, 'factory:release-ready');
+                    releaseIssue = issue;
                   } else {
                     role = map[name];
                   }
                 }
                 // Hand-off labels: notify the responsible approvers (assign + mention).
-                const notifyOf = { 'factory:spec-ready': ['spec', 'Gate G1 (spec approval)'],
+                const notifyOf = { 'factory:release-ready': ['release_scope', 'Gate G0 (release approval)'],
+                                   'factory:spec-ready': ['spec', 'Gate G1 (spec approval)'],
                                    'factory:design-ready': ['design', 'Gate G2 (design approval)'],
                                    'factory:ready': ['implementation', 'Implementation start'] };
                 if (notifyOf[name]) {
@@ -328,30 +513,43 @@ jobs:
                   const list = approverList(gate);
                   if (list.length) {
                     await github.rest.issues.addAssignees({
-                      owner: context.repo.owner, repo: context.repo.repo,
-                      issue_number: i.number, assignees: list,
+                      owner, repo, issue_number: i.number, assignees: list,
                     }).catch(() => {});
-                    await github.rest.issues.createComment({
-                      owner: context.repo.owner, repo: context.repo.repo, issue_number: i.number,
-                      body: `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ` +
-                            (gate === 'implementation'
-                              ? 'Comment exactly "Approved" here to start it, or use Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
-                              : 'Review the linked PR, then merge it + apply the approved label, or comment exactly "Approved" here.') +
-                            `\n\n<!-- factory-agent -->`,
-                    });
+                    const how = gate === 'implementation'
+                      ? 'Comment exactly "Approved" here to start it, or use Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
+                      : gate === 'release_scope'
+                        ? 'Read the release plan above, then comment exactly "Approved" here to release every issue in this milestone into intake.'
+                        : 'Review the linked PR, then merge it + apply the approved label, or comment exactly "Approved" here.';
+                    await say(i.number, `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ${how}`);
                   }
                 }
               }
             }
+            // A matrix with no values is a workflow error, so never claim a role
+            // without at least one issue to run it against.
+            if (role !== 'none' && !issues.length && issue) issues = [issue];
+            if (role !== 'none' && !issues.length) {
+              core.info(`Role ${role} has no issue to run against - dropping it`);
+              role = 'none';
+            }
             core.setOutput('role', role);
             core.setOutput('issue', issue);
-            core.info(`route: role=${role} issue=${issue}`);
+            core.setOutput('issues', JSON.stringify(issues.map(String)));
+            core.setOutput('release_issue', releaseIssue);
+            core.info(`route: role=${role} issue=${issue} issues=${JSON.stringify(issues)} release_issue=${releaseIssue || '-'}`);
 
   agent:
     needs: route
     if: needs.route.outputs.role != 'none' && needs.route.outputs.role != ''
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      # Usually a single issue. A release batch runs the same role over every
+      # issue the milestone released; one failure must not cancel the rest.
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        issue: ${{ fromJSON(needs.route.outputs.issues) }}
     steps:
       - name: Require Anthropic credentials
         env:
@@ -391,7 +589,7 @@ jobs:
         id: before
         env:
           GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
-          ISSUE: ${{ needs.route.outputs.issue }}
+          ISSUE: ${{ matrix.issue }}
         run: |
           # Paired with "Verify the role changed something" below. A role that
           # neither moves the state label nor says anything has done nothing,
@@ -444,7 +642,7 @@ jobs:
 
             The factory handbook and your role instructions follow verbatim
             below. Execute the role instructions, treating number
-            ${{ needs.route.outputs.issue }} as the issue/PR argument
+            ${{ matrix.issue }} as the issue/PR argument
             ($ARGUMENTS).
 
             Repo-specific facts (stack, test/build commands, conventions) live
@@ -491,7 +689,7 @@ jobs:
         if: steps.before.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
-          ISSUE: ${{ needs.route.outputs.issue }}
+          ISSUE: ${{ matrix.issue }}
           ROLE: ${{ needs.route.outputs.role }}
           BEFORE: ${{ steps.before.outputs.snap }}
         run: |
@@ -519,6 +717,236 @@ jobs:
             HINT="$DENIALS tool permission denial(s) were recorded - the --allowedTools list in this workflow is the likely cause."
           fi
           echo "::error::Role '$ROLE' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
+          exit 1
+
+  release-chain:
+    # Gate G0's mechanical half: once a release tracker carries
+    # factory:release-approved, every backlog issue in its milestone is moved to
+    # factory:intake and handed to the release-intake matrix below.
+    #
+    # It runs in two situations, which is why it keys on the label rather than
+    # on how it got there:
+    #   - a human (or the router, after an `Approved` comment) approved the
+    #     release; the agent job never ran
+    #   - "approval": "agent" — the Scrum Master approved its own release plan
+    #     during the run that just finished
+    needs: [route, agent]
+    if: >-
+      always() &&
+      needs.route.outputs.release_issue != '' &&
+      needs.agent.result != 'failure' &&
+      needs.agent.result != 'cancelled'
+    runs-on: ubuntu-latest
+    outputs:
+      issues: ${{ steps.release.outputs.issues }}
+      count: ${{ steps.release.outputs.count }}
+    steps:
+      - id: release
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ISSUE: ${{ needs.route.outputs.release_issue }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const n = Number(process.env.RELEASE_ISSUE);
+            const namesOf = (ls) => (ls || []).map(l => (typeof l === 'string' ? l : l.name));
+            core.setOutput('issues', '[]');
+            core.setOutput('count', '0');
+
+            const { data: tracker } = await github.rest.issues.get({ owner, repo, issue_number: n });
+            if (!namesOf(tracker.labels).includes('factory:release-approved')) {
+              core.info(`Release #${n} is not factory:release-approved - nothing to release.`);
+              return;
+            }
+            // Idempotence marker. Both an approval event and the in-run chain can
+            // land on the same release (a PAT makes agent label flips emit
+            // events); the second one must not start every intake twice.
+            const MARK = '<!-- factory-release-dispatched -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number: n, per_page: 100,
+            });
+            if (comments.some(c => (c.body || '').includes(MARK))) {
+              core.info(`Release #${n} was already dispatched - skipping.`);
+              return;
+            }
+            const m = /^release\((\d+)\):/.exec(tracker.title || '');
+            if (!m) {
+              core.info(`#${n} does not name a milestone in its title - skipping.`);
+              return;
+            }
+            const members = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, milestone: m[1], state: 'open', per_page: 100,
+            });
+            const started = [], skipped = [];
+            for (const it of members) {
+              if (it.pull_request) continue;
+              const ls = namesOf(it.labels);
+              if (ls.includes('factory:release')) continue;          // the tracker itself
+              if (/^task\(\d+\)/.test(it.title || '')) continue;      // factory sub-issues
+              const inflight = ls.filter(x => x.startsWith('factory:') &&
+                !['factory:backlog', 'factory:intake', 'factory:blocked'].includes(x));
+              if (inflight.length) { skipped.push(`#${it.number} — already \`${inflight.join('`, `')}\``); continue; }
+              if (ls.includes('factory:backlog')) {
+                await github.rest.issues.removeLabel({
+                  owner, repo, issue_number: it.number, name: 'factory:backlog',
+                }).catch(() => {});
+              }
+              if (!ls.includes('factory:intake')) {
+                await github.rest.issues.addLabels({
+                  owner, repo, issue_number: it.number, labels: ['factory:intake'],
+                });
+              }
+              started.push(it.number);
+            }
+            const lines = [`**Gate G0 approved** — releasing milestone \`${tracker.title.replace(/^release\(\d+\):\s*/, '')}\`.`, ''];
+            lines.push(started.length
+              ? `${started.length} issue(s) enter intake now:\n` + started.map(x => `- #${x} → \`factory:intake\``).join('\n')
+              : '_No backlog issues in this milestone — nothing to start._');
+            if (skipped.length) {
+              lines.push('', 'Already in flight, left where they are:', ...skipped.map(s => `- ${s}`));
+            }
+            lines.push('', 'Issues added to this milestone from now on enter intake immediately.', '', MARK);
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: n, body: lines.join('\n') + '\n\n<!-- factory-agent -->',
+            });
+            core.setOutput('issues', JSON.stringify(started.map(String)));
+            core.setOutput('count', String(started.length));
+            core.info(`Released ${started.length} issue(s) from milestone ${m[1]}`);
+
+  release-intake:
+    # The release batch. Same steps as the `agent` job with the role fixed to
+    # intake — a called workflow cannot re-enter itself, and labels this run
+    # applies emit no events, so the fan-out has to happen in-run.
+    # Keep in sync with the `agent` job above.
+    needs: [route, release-chain]
+    if: needs.release-chain.outputs.count != '' && needs.release-chain.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        issue: ${{ fromJSON(needs.release-chain.outputs.issues) }}
+    steps:
+      - name: Require Anthropic credentials
+        env:
+          HAS_CREDS: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HAS_CREDS" != "true" ]; then
+            echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) to this repo's Actions secrets (Settings -> Secrets and variables -> Actions) to run factory agents."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Load factory role definition
+        id: roledef
+        env:
+          FACTORY_REPO: ${{ inputs.factory_repo || format('{0}/claude-software-factory', github.repository_owner) }}
+          FACTORY_REF: ${{ inputs.factory_ref }}
+        run: |
+          git clone --depth 1 --branch "$FACTORY_REF" \
+            "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"
+          {
+            echo 'text<<FACTORY_DEF_EOF'
+            cat "$RUNNER_TEMP/factory/FACTORY.md"
+            printf '\n\n===== ROLE INSTRUCTIONS (intake) =====\n\n'
+            cat "$RUNNER_TEMP/factory/commands/intake.md"
+            echo 'FACTORY_DEF_EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Snapshot issue state (no-op guard)
+        id: before
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          ISSUE: ${{ matrix.issue }}
+        run: |
+          SNAP=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" \
+                   --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:"))] | sort | join(","))"')
+          echo "snap=$SNAP" >> "$GITHUB_OUTPUT"
+          echo "Before: $SNAP"
+      - name: Install Claude Code CLI (model probe)
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Resolve model (first accessible in preference chain)
+        id: model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ROLE: intake
+        run: |
+          CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
+          echo "Preference chain for $ROLE: $CHAIN"
+          MODEL=""
+          for m in $CHAIN; do
+            echo "Probing model access: $m"
+            if timeout 120 claude -p "Reply with exactly: OK" --model "$m" --max-turns 1 >/dev/null 2>&1; then
+              MODEL="$m"; echo "Selected model: $m"; break
+            fi
+            echo "::warning::Model $m is not accessible with this credential - trying next in chain"
+          done
+          if [ -z "$MODEL" ]; then
+            echo "::error::No model in the preference chain is accessible - check credentials/plan or edit .github/factory-models.json"
+            exit 1
+          fi
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+      - name: Run intake role
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          OPENSPEC_TELEMETRY: "0"
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are running the "intake" role of the Software Factory inside
+            GitHub Actions, on repository ${{ github.repository }}. This issue
+            was released as part of an approved release milestone (gate G0), so
+            it is one of several intakes running in parallel — stay strictly
+            inside your own issue.
+
+            The factory handbook and your role instructions follow verbatim
+            below. Execute the role instructions, treating number
+            ${{ matrix.issue }} as the issue argument ($ARGUMENTS).
+
+            Repo-specific facts (stack, test/build commands, conventions) live
+            in .factory/profile.json in the checked-out repository.
+
+            Operating rules:
+            - Use the gh CLI for GitHub operations (labels, comments, PRs); GH_TOKEN is set.
+            - HARD RULES: never push to main or master; never merge a pull request;
+              perform exactly one factory role in this run.
+            - End EVERY comment you post on an issue or PR with a line containing
+              exactly: <!-- factory-agent -->
+
+            ===== FACTORY HANDBOOK =====
+
+            ${{ steps.roledef.outputs.text }}
+          claude_args: |
+            --max-turns 50
+            --model ${{ steps.model.outputs.model }}
+            --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Verify the role changed something (no-op guard)
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          ISSUE: ${{ matrix.issue }}
+          BEFORE: ${{ steps.before.outputs.snap }}
+        run: |
+          AFTER=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" \
+                    --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:"))] | sort | join(","))"')
+          echo "Before: $BEFORE"
+          echo "After:  $AFTER"
+          if [ "$AFTER" != "$BEFORE" ]; then
+            echo "Role 'intake' left a trace on #$ISSUE."
+            exit 0
+          fi
+          DENIALS=$(jq -r '[.. | objects | select(has("permission_denials_count")) | .permission_denials_count] | last // 0' \
+                      "$RUNNER_TEMP/claude-execution-output.json" 2>/dev/null || echo 0)
+          [ -n "$DENIALS" ] || DENIALS=0
+          HINT="Check the role's own log above for where it stopped."
+          if [ "$DENIALS" -gt 0 ]; then
+            HINT="$DENIALS tool permission denial(s) were recorded - the --allowedTools list in this workflow is the likely cause."
+          fi
+          echo "::error::Role 'intake' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
           exit 1
 
   architect-chain:

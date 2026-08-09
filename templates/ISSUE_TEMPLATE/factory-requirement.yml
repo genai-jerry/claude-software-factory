@@ -9,6 +9,12 @@ body:
         This issue enters the **Software Factory** (see FACTORY.md).
         Describe the *problem and outcome*, not the solution — the Intake Analyst
         will turn this into a structured spec for your approval (gate G1).
+
+        **Set the milestone** (right-hand sidebar, after you file — issue forms
+        can't do it for you). The milestone *is* the release. If this repo runs
+        release-gated intake, the issue waits in `factory:backlog` until that
+        release is approved at gate G0; without a milestone it waits with no
+        release at all.
   - type: textarea
     id: problem
     attributes:

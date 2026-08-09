@@ -2,29 +2,39 @@
 
 An agent-driven delivery pipeline for Claude Code. A plain GitHub issue goes in;
 a specced, planned, designed, implemented, reviewed, tested and released change
-comes out — with three human approval gates and no ability for an agent to put
+comes out — with human approval gates and no ability for an agent to put
 anything on `main`.
 
 Two foundations, one rule:
 
-- **GitHub is the state machine.** Issues, sub-issues and `factory:*` labels
-  encode *where* work is. Labels trigger agents.
+- **GitHub is the state machine.** Milestones are releases; issues, sub-issues
+  and `factory:*` labels encode *where* work is. Labels trigger agents.
 - **[OpenSpec](https://github.com/Fission-AI/openspec) is the content.** *What*
   is being built — proposal, WHEN/THEN scenarios, design, task list — lives in
   `openspec/changes/<issue>-<slug>/`.
 - **The rule:** issues carry state plus a link, never spec content. That is what
   stops the two sources of truth from drifting.
 
-Nine roles move work between them: intake → planner → architect → dispatch →
-implementer → reviewer → qa → release → ops.
+Ten roles move work between them: scrum → intake → planner → architect →
+dispatch → implementer → reviewer → qa → release → ops.
 
 **[FACTORY.md](FACTORY.md) is the handbook.** Everything below is how to install
 it. For a step-by-step walkthrough of every install step, see
 [`docs/setup-guide.md`](docs/setup-guide.md).
 
+## Releases, not a firehose
+
+By default a filed issue starts an agent immediately. Turn on **release gating**
+(`.github/factory-release.json`) and it doesn't: the issue waits in
+`factory:backlog` until the GitHub milestone it belongs to — the milestone *is*
+the release — is approved at gate G0. A **Scrum Master** role reads the whole
+milestone first and posts a release plan: scope, sequencing between issues,
+duplicates, oversized items, GO or NO-GO. Approving it starts every issue in the
+release at once. Handbook: [FACTORY.md §2d](FACTORY.md).
+
 ## What is repo-specific, and what isn't
 
-The nine role prompts are byte-identical everywhere. Everything a role needs to
+The ten role prompts are byte-identical everywhere. Everything a role needs to
 know about *your* codebase — stack, test/build/lint commands, conventions,
 review checklist, known-failing tests, health checks — lives in one data file,
 `.factory/profile.json`. Pointing the factory at a new project means writing
@@ -53,6 +63,7 @@ $EDITOR .factory/profile.json        # replace every value
 #    .github/workflows/factory-branch-guard.yml
 #    .github/factory-models.json
 #    .github/factory-approvers.json
+#    .github/factory-release.json      # optional — release gating (FACTORY.md §2d)
 #    .claude/settings.json
 
 # 5. Plugin (once per machine; CI does not need it)
@@ -70,7 +81,7 @@ The caller stubs must be on your **default branch** before GitHub will fire
 them. To pilot the factory before merging them there, use the test harness stub
 (`templates/workflows/factory-test.yml`) — it runs from a development branch.
 
-That's the whole footprint: six files, none of them logic. The pipeline body,
+That's the whole footprint: eight files, none of them logic. The pipeline body,
 the role prompts and the hook stay in this repo.
 
 ## Why two channels
@@ -80,7 +91,7 @@ so a Claude Code plugin cannot deliver them. Hence:
 
 | Channel | Delivers |
 |---|---|
-| Claude Code plugin `factory` | 9 role prompts, the handbook, the protected-branch hook |
+| Claude Code plugin `factory` | 10 role prompts, the handbook, the protected-branch hook |
 | Reusable Actions workflows | the pipeline, the branch guard, the pilot harness |
 
 Both serve the same files from the same tagged commit — in CI the runner clones
@@ -93,7 +104,7 @@ agent's prompt directly.
 claude --plugin-dir /path/to/claude-software-factory
 ```
 
-gives you `/factory:intake` … `/factory:ops` and the protected-branch hook in
+gives you `/factory:scrum` … `/factory:ops` and the protected-branch hook in
 that session, without installing anything. To install it properly, the repo is
 its own marketplace:
 
@@ -127,11 +138,11 @@ Controls, not instructions. The hook is tested — see FACTORY.md §8a.
 ## Layout
 
 ```
-commands/            9 role prompts        → /factory:<role>
+commands/            10 role prompts       → /factory:<role>
 hooks/               protect-branches.py + hooks.json
 .github/workflows/   reusable pipeline, harness, branch guard
 templates/           everything a consuming repo copies
-scripts/             setup-labels.sh
+scripts/             setup-labels.sh, publish-wiki.sh, test-router.js
 docs/case-study/     the original four-repo deployment, written up
 FACTORY.md           the handbook
 ```

@@ -12,7 +12,7 @@
     {
       "name": "factory",
       "source": "./",
-      "description": "Nine agent roles, three human gates, GitHub as pipeline state and OpenSpec as spec content. Ships the role commands, the protected-branch hook, and the reusable GitHub Actions workflows that drive them.",
+      "description": "Ten agent roles, four approval gates, GitHub as pipeline state and OpenSpec as spec content. Ships the role commands, the protected-branch hook, and the reusable GitHub Actions workflows that drive them.",
       "version": "0.1.0",
       "category": "workflow"
     }

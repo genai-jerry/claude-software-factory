@@ -1,5 +1,6 @@
 {
-  "_comment": "Gate -> GitHub usernames. spec = G1 approval; design = G2 approval; implementation = who is notified when tasks become factory:ready and may start implementers; release = G3 production go. Empty list = any owner/member/collaborator may approve that gate.",
+  "_comment": "Gate -> GitHub usernames. release_scope = G0 approval (which issues make up a release milestone); spec = G1 approval; design = G2 approval; implementation = who is notified when tasks become factory:ready and may start implementers; release = G3 production go. Empty list = any owner/member/collaborator may approve that gate.",
+  "release_scope": ["genai-jerry"],
   "spec": ["genai-jerry"],
   "design": ["genai-jerry"],
   "implementation": ["genai-jerry"],
