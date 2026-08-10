@@ -865,7 +865,21 @@ jobs:
     # applies emit no events, so the fan-out has to happen in-run.
     # Keep in sync with the `agent` job above.
     needs: [route, release-chain]
-    if: needs.release-chain.outputs.count != '' && needs.release-chain.outputs.count != '0'
+    # A skip propagates down the whole needs chain from the point it happens,
+    # and on a human gate-G0 approval `agent` never runs — the router flips the
+    # label and no role is dispatched, so `agent` is skipped. release-chain
+    # survives that with always(); this job did not, so it inherited the skip
+    # and every human-approved release moved its issues to factory:intake and
+    # then started nothing. It only ever worked in "approval": "agent" mode,
+    # where the Scrum Master's own job succeeds and nothing propagates.
+    #
+    # always() also switches off the implicit "all needs succeeded" check, so
+    # release-chain's result has to be asserted explicitly.
+    if: >-
+      always() &&
+      needs.release-chain.result == 'success' &&
+      needs.release-chain.outputs.count != '' &&
+      needs.release-chain.outputs.count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:

@@ -394,6 +394,44 @@ function check(label, cond, extra) {
       (w.state.comments[1] || [])[0].body.includes('Gate G0'), w.state.log);
   }
 
+  // --------------------------------------------------------------- scenario 15
+  console.log('\n15. skip propagation — every job downstream of an always() job guards its own status');
+  {
+    // A skipped job skips everything after it in the needs chain. A job that
+    // uses always() runs anyway, but the propagation does not stop there: the
+    // next job inherits the skip unless it also carries a status function.
+    // release-intake learned this the hard way — a human-approved release moved
+    // its issues to factory:intake and then started nothing, because `agent` is
+    // skipped on that path. This is invisible in the scenario tests above (they
+    // exercise script bodies, not job conditions), so assert it on the YAML.
+    const STATUS_FN = /\b(always|success|failure|cancelled)\s*\(\s*\)/;
+    const jobs = doc.jobs;
+    const ifOf = (j) => String(jobs[j].if || '');
+    // Ancestors reachable through needs, transitively.
+    const ancestors = (j, seen = new Set()) => {
+      const need = jobs[j].needs;
+      for (const p of (Array.isArray(need) ? need : need ? [need] : [])) {
+        if (seen.has(p)) continue;
+        seen.add(p); ancestors(p, seen);
+      }
+      return seen;
+    };
+    for (const name of Object.keys(jobs)) {
+      const risky = [...ancestors(name)].filter(a => STATUS_FN.test(ifOf(a)));
+      if (!risky.length) continue;
+      check(`${name} guards its status (downstream of ${risky.join(', ')})`,
+        STATUS_FN.test(ifOf(name)), { if: ifOf(name) });
+      // always() disables the implicit needs-succeeded check, so a job using it
+      // has to assert the results it actually depends on.
+      if (/\balways\s*\(\s*\)/.test(ifOf(name))) {
+        const need = jobs[name].needs;
+        const direct = Array.isArray(need) ? need : need ? [need] : [];
+        const asserted = direct.filter(p => ifOf(name).includes(`needs.${p}.result`));
+        check(`${name} asserts an upstream result under always()`, asserted.length > 0, { if: ifOf(name) });
+      }
+    }
+  }
+
   console.log(failures ? `\n${failures} FAILURE(S)` : '\nall scenarios pass');
   process.exit(failures ? 1 : 0);
 })();
