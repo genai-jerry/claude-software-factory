@@ -154,7 +154,7 @@ it's pilot-only.
 
 ## 7. Install the plugin (once per machine)
 
-The ten role prompts, the handbook and the protected-branch hook are not
+The eleven role prompts, the handbook and the protected-branch hook are not
 delivered by the files above — they come from the Claude Code plugin, and CI
 doesn't need this step at all (the reusable workflows clone the factory repo
 directly). Each **local machine** that will run `/factory:*` commands needs:
@@ -253,6 +253,6 @@ Everything a consuming repo holds, once setup is done:
 .claude/settings.json                         # step 4
 ```
 
-Seven files, none of them logic. The pipeline body, the ten role prompts and
+Seven files, none of them logic. The pipeline body, the eleven role prompts and
 the protected-branch hook all stay in `claude-software-factory` and are
 pulled in at run time.

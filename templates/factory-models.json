@@ -6,6 +6,7 @@
   "architect": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "reviewer": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "implementer": ["claude-opus-5", "claude-sonnet-5"],
+  "fasttrack": ["claude-opus-5", "claude-sonnet-5"],
   "qa": ["claude-opus-5", "claude-sonnet-5"],
   "release": ["claude-opus-5", "claude-sonnet-5"],
   "dispatch": ["claude-haiku-4-5-20251001", "claude-sonnet-5"],

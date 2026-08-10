@@ -112,6 +112,16 @@ jobs:
             // pipeline state) plus one factory:release-* state.
             const RELEASE_KIND = 'factory:release';
 
+            // The fast lane. Like factory:release this is a KIND marker rather
+            // than a pipeline state: it says "this change is too small for
+            // OpenSpec ceremony", and the Fast-Track role does the whole thing
+            // in one run — code, tests, PR — for a human to review and merge.
+            // It is matched by name, not through exempt_labels: a repo may add
+            // its own exempt labels (say `hotfix`) that skip the release queue
+            // without wanting an agent to start writing code.
+            const FAST_TRACK = 'factory:fast-track';
+            const FAST_TRACK_DONE = '<!-- factory-fast-track-done -->';
+
             const loadJson = (p) => {
               try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
               catch (e) { return {}; }
@@ -144,6 +154,11 @@ jobs:
             // anything further along is in flight and must be left alone.
             const notStarted = (ls) => ls.filter(n => n.startsWith('factory:'))
               .every(n => ['factory:backlog', 'factory:intake', 'factory:blocked'].includes(n));
+            // Human-readable "where is this issue" for the explanatory replies.
+            // Kind markers and factory:blocked are orthogonal to the state.
+            const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') &&
+                                              n !== 'factory:blocked' && n !== RELEASE_KIND && n !== FAST_TRACK)
+                                      .join(', ') || 'no factory:* state label';
 
             // Release trackers are found by label + title, never by search:
             // the search index lags behind issue creation by seconds to minutes.
@@ -213,6 +228,14 @@ jobs:
               await say(n, `${body}\n\n${marker}`);
               return true;
             };
+            // The Fast-Track role leaves this marker on the issue when it has
+            // produced a PR. Re-applying the label must not open a second one.
+            const fastTrackDone = async (n) => {
+              const said = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: n, per_page: 100,
+              }).catch(() => []);
+              return said.some(c => (c.body || '').includes(FAST_TRACK_DONE));
+            };
             const queuedMarker = (t) => `<!-- factory-queued:${t} -->`;
             const queuedNotice = async (n, ms, tracker) => {
               if (!tracker || !ms) return;
@@ -268,8 +291,6 @@ jobs:
                     ? `approval from: ${list.map(u => '@' + u).join(', ')} (see .github/factory-approvers.json).`
                     : 'owner, member or collaborator access on this repository.'));
               };
-              const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') && n !== 'factory:blocked' && n !== RELEASE_KIND)
-                                        .join(', ') || 'no factory:* state label';
               if (i.pull_request) {
                 core.info('PR comment - skipping');
               } else if (author.type === 'Bot') {
@@ -433,6 +454,11 @@ jobs:
                   core.info('Release tracker issue - skipping');
                 } else if (isTaskTitle(i.title)) {
                   core.info('Factory task sub-issue - skipping');
+                } else if (labels.includes(FAST_TRACK)) {
+                  // Filed straight into the fast lane: no release slot, no
+                  // intake, no gates — the Fast-Track role implements it now.
+                  role = 'fasttrack';
+                  core.info('Filed as factory:fast-track - running the fast lane');
                 } else if (states.some(n => n !== 'factory:intake')) {
                   core.info('Issue already carries a factory state - skipping');
                 } else {
@@ -460,8 +486,8 @@ jobs:
                             'Add this issue to a milestone (the milestone *is* the release). The factory ' +
                             'opens a release tracker for it; comment `Plan release` there to get a release ' +
                             'plan, and approve it to start every issue in the release at once.\n\n' +
-                            `A small fix does not need a release slot: \`${exemptLabels[0] || 'factory:fast-track'}\` ` +
-                            'keeps an issue out of this queue and on the normal PR flow.');
+                            `A small change does not need a release slot: \`${FAST_TRACK}\` skips this ` +
+                            'queue and hands it to the fast lane, which implements it and opens a PR for review.');
                       }
                       core.info('Release gating on - parked in factory:backlog');
                     } else {
@@ -590,19 +616,32 @@ jobs:
                     await say(i.number, `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ${how}`);
                   }
                 }
-                // An exempt label is a deliberate opt-out: no role is dispatched
-                // and no factory:* state is ever applied, so the issue looks
-                // exactly like one the factory forgot. Say that it is on
-                // purpose, and how to put it back in the pipeline.
-                if (exemptLabels.includes(name)) {
-                  await sayOnce(i.number, '<!-- factory-fast-tracked -->',
-                    `Fast-tracked with \`${name}\` — **no factory agent will run on this issue.** That is ` +
-                    'the point of the label, not a stall.\n\n' +
-                    'It takes the normal PR flow instead: a human writes the change, opens a PR, and it ' +
-                    'ships on review + CI. No intake, no spec, no design, no gates — nothing here is ' +
-                    'waiting on the factory.\n\n' +
-                    `Remove \`${name}\` to send it through the pipeline instead` +
-                    (gating ? ', and it will queue in `factory:backlog` until its release is approved.' : '.'));
+                // The fast lane. Skipping OpenSpec ceremony does not mean
+                // skipping the work: the Fast-Track role implements the change
+                // and opens a PR for human review, which is the whole point of
+                // calling something small.
+                if (name === FAST_TRACK) {
+                  // A state past intake means the normal pipeline already
+                  // invested in this issue; the label must not hijack it.
+                  const otherStates = labels.filter(n => n.startsWith('factory:') && n !== FAST_TRACK);
+                  const inFlight = !otherStates.every(n =>
+                    ['factory:backlog', 'factory:intake', 'factory:blocked'].includes(n));
+                  if (inFlight) {
+                    await say(i.number,
+                      `\`${FAST_TRACK}\` was applied, but this issue is already at **${stateOf(labels)}** — ` +
+                      'the fast lane does not take over work the pipeline has started. Remove the label to ' +
+                      'carry on, or close this issue and file the small change separately.');
+                    core.info(`Fast-track on an in-flight issue (${otherStates.join(', ')}) - not running`);
+                  } else if (await fastTrackDone(i.number)) {
+                    core.info('Fast-track already opened a PR for this issue - not running again');
+                  } else {
+                    // It leaves the release queue and the intake queue: the
+                    // fast lane is the whole pipeline for this issue.
+                    await dropLabel(i.number, 'factory:backlog');
+                    await dropLabel(i.number, 'factory:intake');
+                    role = 'fasttrack';
+                    core.info('factory:fast-track applied - running the fast lane');
+                  }
                 }
               }
             }

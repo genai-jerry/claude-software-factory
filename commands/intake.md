@@ -13,8 +13,9 @@ Turn the raw requirement into a structured, testable OpenSpec change proposal.
 1. Read the issue body and all comments via the GitHub tools. Read `FACTORY.md`
    and `openspec/specs/` for existing requirements that overlap.
 2. Search existing issues and the codebase to detect duplicates or conflicts
-   with current behaviour. If this is really a small fix, comment recommending
-   `factory:fast-track` and stop.
+   with current behaviour. If this is really a small change, apply
+   `factory:fast-track`, comment saying why, and stop — the fast lane
+   implements it and opens a PR; it does not need a spec from you.
 3. If the request is ambiguous on anything that changes scope, post ONE comment
    with numbered clarifying questions, apply `factory:blocked`, and stop.
    (A human answers in-thread and re-triggers you.)

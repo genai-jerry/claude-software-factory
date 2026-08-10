@@ -137,13 +137,14 @@ function check(label, cond, extra) {
   // ---------------------------------------------------------------- scenario 3
   console.log('\n3. gating ON, exempt label — never parked in backlog');
   {
-    // factory:fast-track is skipped from intake by a pre-existing rule (it takes
-    // the normal PR flow), so the point here is that gating does not park it.
+    // factory:fast-track bypasses the release queue AND the pipeline: it goes
+    // straight to the fast lane, which implements it and opens a PR.
     const w = makeWorld({ files: filesGated,
       issues: { 5: { number: 5, title: 'Typo', labels: [{ name: 'factory:fast-track' }], user: { type: 'User' }, milestone: null } } });
     const out = await run(routeSrc, { world: w, context: ctx('issues', { action: 'opened', issue: w.state.issues[5] }) });
     check('not parked', !w.state.issues[5].labels.some(l => l.name === 'factory:backlog'), w.state.log);
-    check('no route (fast-track skips intake)', out.role === 'none', out);
+    check('routes to the fast lane', out.role === 'fasttrack', out);
+    check('no intake label', !w.state.issues[5].labels.some(l => l.name === 'factory:intake'), w.state.log);
 
     // and a non-factory exempt label does reach intake
     const files = { ...filesGated, '.github/factory-release.json': JSON.stringify({
@@ -395,27 +396,37 @@ function check(label, cond, extra) {
   }
 
   // --------------------------------------------------------------- scenario 14b
-  console.log('\n14b. factory:fast-track — says the silence is deliberate, once');
+  console.log('\n14b. factory:fast-track applied — the fast lane implements it');
   {
-    // Fast-track dispatches no role and applies no factory:* state, so the
-    // issue is visually identical to one the factory forgot about.
+    const ms = { number: 7, title: 'v0.4', html_url: 'u' };
     const w = makeWorld({ files: filesGated, issues: {
-      5: { number: 5, title: 'Rename a page title', labels: [{ name: 'factory:fast-track' }], user: { type: 'User' }, milestone: null },
+      5: { number: 5, title: 'Rename a page title', labels: [{ name: 'factory:backlog' }, { name: 'factory:fast-track' }], user: { type: 'User' }, milestone: ms },
     } });
     const out = await run(routeSrc, { world: w, context: ctx('issues', {
       action: 'labeled', issue: w.state.issues[5],
       label: { name: 'factory:fast-track' }, sender: { login: 'genai-jerry' } }) });
-    check('role=none', out.role === 'none', out);
-    const note = (w.state.comments[5] || []).find(c => c.body.includes('factory-fast-tracked'));
-    check('explained', !!note, w.state.log);
-    check('says no agent runs, and how to undo', !!note &&
-      /no factory agent will run/i.test(note.body) && note.body.includes('Remove `factory:fast-track`'), note && note.body);
+    check('role=fasttrack', out.role === 'fasttrack', out);
+    check('issues=["5"]', out.issues === '["5"]', out);
+    check('leaves the release queue', !w.state.issues[5].labels.some(l => l.name === 'factory:backlog'), w.state.log);
 
-    // Label churn must not repeat it.
-    await run(routeSrc, { world: w, context: ctx('issues', {
-      action: 'labeled', issue: w.state.issues[5],
+    // Re-labelling after a PR exists must not open a second one.
+    const w2 = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Rename a page title', labels: [{ name: 'factory:fast-track' }], user: { type: 'User' }, milestone: null },
+    }, comments: { 5: [{ body: 'Opened #40.\n\n<!-- factory-fast-track-done -->\n<!-- factory-agent -->' }] } });
+    const out2 = await run(routeSrc, { world: w2, context: ctx('issues', {
+      action: 'labeled', issue: w2.state.issues[5],
       label: { name: 'factory:fast-track' }, sender: { login: 'genai-jerry' } }) });
-    check('not repeated', (w.state.comments[5] || []).filter(c => c.body.includes('factory-fast-tracked')).length === 1, w.state.log);
+    check('already has a PR -> no second run', out2.role === 'none', out2);
+
+    // An issue the pipeline has already invested in is not hijacked.
+    const w3 = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Big thing', labels: [{ name: 'factory:spec-ready' }, { name: 'factory:fast-track' }], user: { type: 'User' }, milestone: null },
+    } });
+    const out3 = await run(routeSrc, { world: w3, context: ctx('issues', {
+      action: 'labeled', issue: w3.state.issues[5],
+      label: { name: 'factory:fast-track' }, sender: { login: 'genai-jerry' } }) });
+    check('in-flight issue not hijacked', out3.role === 'none', out3);
+    check('and it says why', (w3.state.comments[5] || []).some(c => /does not take over/.test(c.body)), w3.state.log);
   }
 
   // --------------------------------------------------------------- scenario 14c
