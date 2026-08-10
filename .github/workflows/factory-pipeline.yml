@@ -202,15 +202,22 @@ jobs:
             // leaving the parking comment ("add this issue to a milestone") as
             // the only guidance on an issue that now has one. Point at the
             // tracker instead, once per tracker so re-milestoning cannot spam.
+            // Notices that answer "why is nothing happening here?" must survive
+            // the event firing twice (a label removed and re-added, an issue
+            // re-milestoned) without repeating themselves.
+            const sayOnce = async (n, marker, body) => {
+              const said = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: n, per_page: 100,
+              }).catch(() => []);
+              if (said.some(c => (c.body || '').includes(marker))) return false;
+              await say(n, `${body}\n\n${marker}`);
+              return true;
+            };
             const queuedMarker = (t) => `<!-- factory-queued:${t} -->`;
             const queuedNotice = async (n, ms, tracker) => {
               if (!tracker || !ms) return;
               if (namesOf(tracker.labels).includes('factory:release-approved')) return;
-              const said = await github.paginate(github.rest.issues.listComments, {
-                owner, repo, issue_number: n, per_page: 100,
-              }).catch(() => []);
-              if (said.some(c => (c.body || '').includes(queuedMarker(tracker.number)))) return;
-              await say(n, [
+              await sayOnce(n, queuedMarker(tracker.number), [
                 `Queued for release **${ms.title}** — tracked in #${tracker.number}.`,
                 '',
                 'Nothing runs on this issue yet, and nothing will until that release is',
@@ -218,8 +225,6 @@ jobs:
                 '',
                 '1. comment `Plan release` to get the release plan, then',
                 '2. comment `Approved` to release every issue in the milestone into intake.',
-                '',
-                queuedMarker(tracker.number),
               ].join('\n'));
             };
 
@@ -369,6 +374,22 @@ jobs:
                       : '') +
                     'From any other state, use Actions → "Factory pipeline" → Run workflow with the role you want. ' +
                     'Gate G3 (production) is deliberately not comment-approvable.');
+                } else if (isPlanRelease) {
+                  // `Plan release` is a tracker command. Typed on a requirement
+                  // issue it routed nowhere and answered nothing, which reads
+                  // as the factory ignoring you.
+                  const pms = i.milestone;
+                  const t = pms ? await trackerFor(pms.number) : null;
+                  await say(i.number,
+                    '`Plan release` only works on a **release tracker** — the issue labelled ' +
+                    '`factory:release` that the factory opens for a milestone. This is a requirement ' +
+                    'issue, so nothing was started.\n\n' +
+                    (t
+                      ? `Its release is tracked in #${t.number} — comment \`Plan release\` there.`
+                      : pms
+                        ? `**${pms.title}** has no release tracker yet; one is opened when the milestone ` +
+                          'is created or first used.'
+                        : 'This issue is not in a milestone, so there is no release to plan.'));
                 }
                 core.info('Issue not factory:blocked - comments only resume blocked stages or approve gates');
               } else {
@@ -568,6 +589,20 @@ jobs:
                         : 'Review the linked PR, then merge it + apply the approved label, or comment exactly "Approved" here.';
                     await say(i.number, `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ${how}`);
                   }
+                }
+                // An exempt label is a deliberate opt-out: no role is dispatched
+                // and no factory:* state is ever applied, so the issue looks
+                // exactly like one the factory forgot. Say that it is on
+                // purpose, and how to put it back in the pipeline.
+                if (exemptLabels.includes(name)) {
+                  await sayOnce(i.number, '<!-- factory-fast-tracked -->',
+                    `Fast-tracked with \`${name}\` — **no factory agent will run on this issue.** That is ` +
+                    'the point of the label, not a stall.\n\n' +
+                    'It takes the normal PR flow instead: a human writes the change, opens a PR, and it ' +
+                    'ships on review + CI. No intake, no spec, no design, no gates — nothing here is ' +
+                    'waiting on the factory.\n\n' +
+                    `Remove \`${name}\` to send it through the pipeline instead` +
+                    (gating ? ', and it will queue in `factory:backlog` until its release is approved.' : '.'));
                 }
               }
             }

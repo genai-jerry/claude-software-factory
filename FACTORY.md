@@ -259,7 +259,7 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:in-test` | QA verifying scenarios | Reviewer | QA → `factory:ready-to-ship` |
 | `factory:ready-to-ship` | Awaiting merge order & **gate G3** | QA | Release → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
-| `factory:fast-track` | Small fix bypassing OpenSpec ceremony | Human triage | Normal PR flow (review + CI only) |
+| `factory:fast-track` | Small fix bypassing OpenSpec ceremony — **no agent ever runs on it**; the pipeline says so on the issue when the label goes on | Human triage | Normal PR flow (review + CI only) |
 | `factory:blocked` | Needs human attention | Any agent | Human |
 | `factory:incident` | Post-deploy regression | Ops Monitor | Human + Release (rollback) |
 
@@ -295,7 +295,9 @@ by doing the work manually and setting the next label.
 - **Scope:** one change per epic, **max ~10 tasks**. The Planner splits larger
   epics into sequential changes.
 - **Fast-track bypass:** bug fixes and trivial tweaks skip OpenSpec entirely —
-  label `factory:fast-track`, normal PR flow.
+  label `factory:fast-track`, normal PR flow. The issue keeps no `factory:*`
+  state and never moves again, which is why the pipeline comments once when the
+  label is applied: an opt-out and a stall look identical otherwise.
 - **Commands (OpenSpec v1.7 core profile):** `/opsx:explore`, `/opsx:propose`,
   `/opsx:apply`, `/opsx:update`, `/opsx:sync`, `/opsx:archive`.
 - **Archive:** only the Ops Monitor archives, and only after production soak

@@ -394,6 +394,57 @@ function check(label, cond, extra) {
       (w.state.comments[1] || [])[0].body.includes('Gate G0'), w.state.log);
   }
 
+  // --------------------------------------------------------------- scenario 14b
+  console.log('\n14b. factory:fast-track — says the silence is deliberate, once');
+  {
+    // Fast-track dispatches no role and applies no factory:* state, so the
+    // issue is visually identical to one the factory forgot about.
+    const w = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Rename a page title', labels: [{ name: 'factory:fast-track' }], user: { type: 'User' }, milestone: null },
+    } });
+    const out = await run(routeSrc, { world: w, context: ctx('issues', {
+      action: 'labeled', issue: w.state.issues[5],
+      label: { name: 'factory:fast-track' }, sender: { login: 'genai-jerry' } }) });
+    check('role=none', out.role === 'none', out);
+    const note = (w.state.comments[5] || []).find(c => c.body.includes('factory-fast-tracked'));
+    check('explained', !!note, w.state.log);
+    check('says no agent runs, and how to undo', !!note &&
+      /no factory agent will run/i.test(note.body) && note.body.includes('Remove `factory:fast-track`'), note && note.body);
+
+    // Label churn must not repeat it.
+    await run(routeSrc, { world: w, context: ctx('issues', {
+      action: 'labeled', issue: w.state.issues[5],
+      label: { name: 'factory:fast-track' }, sender: { login: 'genai-jerry' } }) });
+    check('not repeated', (w.state.comments[5] || []).filter(c => c.body.includes('factory-fast-tracked')).length === 1, w.state.log);
+  }
+
+  // --------------------------------------------------------------- scenario 14c
+  console.log('\n14c. `Plan release` on a requirement issue — answered, not ignored');
+  {
+    const ms = { number: 7, title: 'v0.4', html_url: 'u' };
+    const w = makeWorld({ files: filesGated, issues: {
+      1: { number: 1, title: 'release(7): v0.4', labels: [{ name: 'factory:release' }, { name: 'factory:release-planning' }], user: { type: 'Bot' }, milestone: ms },
+      5: { number: 5, title: 'Add renewals', labels: [{ name: 'factory:backlog' }], user: { type: 'User' }, milestone: ms },
+    } });
+    const out = await run(routeSrc, { world: w, context: ctx('issue_comment', {
+      action: 'created', issue: w.state.issues[5],
+      comment: { body: 'Plan release', user: { login: 'genai-jerry', type: 'User' }, author_association: 'OWNER' } }) });
+    check('role=none', out.role === 'none', out);
+    const reply = (w.state.comments[5] || [])[0];
+    check('replied', !!reply, w.state.log);
+    check('points at the tracker', !!reply && reply.body.includes('#1'), reply && reply.body);
+
+    // No milestone at all — still answered, without inventing a tracker.
+    const w2 = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Add renewals', labels: [{ name: 'factory:backlog' }], user: { type: 'User' }, milestone: null },
+    } });
+    await run(routeSrc, { world: w2, context: ctx('issue_comment', {
+      action: 'created', issue: w2.state.issues[5],
+      comment: { body: 'Plan release', user: { login: 'genai-jerry', type: 'User' }, author_association: 'OWNER' } }) });
+    check('answered with no milestone', (w2.state.comments[5] || []).some(c => /no release to plan/.test(c.body)), w2.state.log);
+    check('no tracker invented', w2.state.created.length === 0, w2.state.log);
+  }
+
   // --------------------------------------------------------------- scenario 15
   console.log('\n15. skip propagation — every job downstream of an always() job guards its own status');
   {
