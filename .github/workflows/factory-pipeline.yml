@@ -39,6 +39,12 @@ name: Factory pipeline (reusable)
 #   That is not a gate — implementation had no trigger of its own, so a ready
 #   task sat until someone ran the workflow by hand. Authorised against the
 #   `implementation` approver list.
+# - While a role is actually running, its issue carries factory:in-progress.
+#   A role takes minutes, and until it finished the issue looked exactly like
+#   one nothing had started on; the marker makes "a GitHub Action is working on
+#   this right now" visible in the issue list. It is a marker, not a state
+#   (like factory:blocked): every factory:* test in the router ignores it, and
+#   each agent job removes it in an always() step whatever the outcome.
 # - Every agent run must leave a trace on its issue (state label moved or a
 #   comment posted) or the job fails. claude-code-action exits 0 even when all
 #   its tool calls were denied, so without that guard a role that accomplished
@@ -122,6 +128,17 @@ jobs:
             const FAST_TRACK = 'factory:fast-track';
             const FAST_TRACK_DONE = '<!-- factory-fast-track-done -->';
 
+            // "A GitHub Action is working on this issue right now." Applied by
+            // the agent jobs when they start and removed when they finish, so
+            // it is a marker like factory:blocked, not a pipeline state — every
+            // factory:* test below ignores it. Anything else and a run would
+            // change the routing of the very issue it is running on: a marked
+            // issue would read as "in flight" to the fast lane, as "already
+            // started" to a release batch, and as its own state in the replies.
+            const IN_PROGRESS = 'factory:in-progress';
+            // Labels that say nothing about where an issue is in the pipeline.
+            const ORTHOGONAL = [IN_PROGRESS, 'factory:blocked'];
+
             const loadJson = (p) => {
               try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
               catch (e) { return {}; }
@@ -149,15 +166,17 @@ jobs:
             const dropLabel = (n, name) => github.rest.issues.removeLabel({
               owner, repo, issue_number: n, name,
             }).catch(() => {});
-            // "Not started" = carries nothing but backlog/intake (blocked is
-            // orthogonal). Only these are safe to park or to release in batch;
-            // anything further along is in flight and must be left alone.
+            // "Not started" = carries nothing but backlog/intake (blocked and
+            // in-progress are orthogonal). Only these are safe to park or to
+            // release in batch; anything further along is in flight and must be
+            // left alone.
             const notStarted = (ls) => ls.filter(n => n.startsWith('factory:'))
-              .every(n => ['factory:backlog', 'factory:intake', 'factory:blocked'].includes(n));
+              .every(n => ['factory:backlog', 'factory:intake', ...ORTHOGONAL].includes(n));
             // Human-readable "where is this issue" for the explanatory replies.
-            // Kind markers and factory:blocked are orthogonal to the state.
+            // Kind markers, factory:blocked and factory:in-progress are
+            // orthogonal to the state.
             const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') &&
-                                              n !== 'factory:blocked' && n !== RELEASE_KIND && n !== FAST_TRACK)
+                                              !ORTHOGONAL.includes(n) && n !== RELEASE_KIND && n !== FAST_TRACK)
                                       .join(', ') || 'no factory:* state label';
 
             // Release trackers are found by label + title, never by search:
@@ -426,7 +445,8 @@ jobs:
                   if (labels.includes(l)) { role = r; break; }
                 }
                 if (role === 'none' &&
-                    labels.filter(n => n.startsWith('factory:')).every(n => n === 'factory:blocked')) {
+                    labels.filter(n => n.startsWith('factory:') && n !== IN_PROGRESS)
+                          .every(n => n === 'factory:blocked')) {
                   role = isTracker ? 'scrum' : 'intake';
                 }
                 if (role !== 'none') {
@@ -445,7 +465,7 @@ jobs:
               const i = context.payload.issue;
               issue = String(i.number);
               const labels = namesOf(i.labels);
-              const states = labels.filter(n => n.startsWith('factory:'));
+              const states = labels.filter(n => n.startsWith('factory:') && n !== IN_PROGRESS);
               const action = context.payload.action;
               if (action === 'opened') {
                 if (i.user.type === 'Bot') {
@@ -571,6 +591,16 @@ jobs:
                 // the architect when PAT label flips emit events).
                 const name = context.payload.label.name;
                 const sender = context.payload.sender.login;
+                if (name === IN_PROGRESS) {
+                  // The pipeline's own "a run is live" marker. It is applied
+                  // with the workflow token, which emits no events — but a repo
+                  // whose FACTORY_CROSS_REPO_TOKEN PAT applies labels does emit
+                  // them, and that event must route nowhere.
+                  core.info(`${IN_PROGRESS} is a run marker applied by this pipeline - nothing to route`);
+                  core.setOutput('role', 'none'); core.setOutput('issue', issue);
+                  core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
+                  return;
+                }
                 const gateOf = {
                   'factory:release-approved': 'release_scope',
                   'factory:spec-approved': 'spec',
@@ -625,7 +655,7 @@ jobs:
                   // invested in this issue; the label must not hijack it.
                   const otherStates = labels.filter(n => n.startsWith('factory:') && n !== FAST_TRACK);
                   const inFlight = !otherStates.every(n =>
-                    ['factory:backlog', 'factory:intake', 'factory:blocked'].includes(n));
+                    ['factory:backlog', 'factory:intake', ...ORTHOGONAL].includes(n));
                   if (inFlight) {
                     await say(i.number,
                       `\`${FAST_TRACK}\` was applied, but this issue is already at **${stateOf(labels)}** — ` +
@@ -679,6 +709,32 @@ jobs:
             echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) to this repo's Actions secrets (Settings -> Secrets and variables -> Actions) to run factory agents."
             exit 1
           fi
+      - name: Mark the issue in progress
+        # Paired with "Clear the in-progress marker" (always()) at the end of
+        # this job. A role runs for minutes; without this the issue looks
+        # identical to one nothing has started on, and the only way to tell was
+        # to go and read the Actions tab.
+        #
+        # Deliberately github.token and not FACTORY_CROSS_REPO_TOKEN: labels
+        # applied by the workflow token emit no events (GitHub anti-recursion),
+        # so a purely cosmetic marker can never trigger another pipeline run.
+        # Failing to label must never fail a run that would otherwise work.
+        if: matrix.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ matrix.issue }}
+          ROLE: ${{ needs.route.outputs.role }}
+        run: |
+          # Self-healing: repos set up before this label existed never re-run
+          # setup-labels.sh, so create it on first use (422 = already there).
+          gh api "repos/$GITHUB_REPOSITORY/labels" \
+            -f name='factory:in-progress' -f color='1F6FEB' \
+            -f description='A factory agent run is live on this issue right now' \
+            >/dev/null 2>&1 || true
+          echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
+          echo "Marked #$ISSUE factory:in-progress for the $ROLE run."
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -714,13 +770,17 @@ jobs:
           # Paired with "Verify the role changed something" below. A role that
           # neither moves the state label nor says anything has done nothing,
           # and must not report success.
+          #
+          # factory:in-progress is filtered out of both snapshots: this job
+          # applies it before the role runs and removes it after, so counting it
+          # would make every run look like it had moved a label.
           if [ -z "$ISSUE" ]; then
             echo "No issue number for this run - skipping the no-op guard."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           SNAP=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" \
-                   --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:"))] | sort | join(","))"')
+                   --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:")) | select(. != "factory:in-progress")] | sort | join(","))"')
           echo "snap=$SNAP" >> "$GITHUB_OUTPUT"
           echo "Before: $SNAP"
       - name: Install Claude Code CLI (model probe)
@@ -776,6 +836,10 @@ jobs:
             - End EVERY comment you post on an issue or PR with a line containing
               exactly: <!-- factory-agent -->
               (it stops your own comments from re-triggering the pipeline).
+            - The pipeline puts `factory:in-progress` on your issue for the
+              lifetime of this run and takes it off when the run ends. It is a
+              marker, not a pipeline state: ignore it when you read the issue's
+              labels, and never add or remove it yourself.
 
             Cross-repo epics: if the change folder lists other repos in this
             estate and GH_TOKEN has cross-repo access (FACTORY_CROSS_REPO_TOKEN
@@ -822,7 +886,7 @@ jobs:
           # (intake recommending fast-track, any role applying factory:blocked)
           # but it always says so on the issue first.
           AFTER=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" \
-                    --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:"))] | sort | join(","))"')
+                    --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:")) | select(. != "factory:in-progress")] | sort | join(","))"')
           echo "Before: $BEFORE"
           echo "After:  $AFTER"
           if [ "$AFTER" != "$BEFORE" ]; then
@@ -838,6 +902,20 @@ jobs:
           fi
           echo "::error::Role '$ROLE' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
           exit 1
+      - name: Clear the in-progress marker
+        # always(), and last: the marker must come off when the role fails, when
+        # the no-op guard fails it, and when the 45-minute timeout cancels the
+        # job — a marker that outlives its run is worse than no marker at all.
+        if: always() && matrix.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ matrix.issue }}
+        run: |
+          gh api -X DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/factory%3Ain-progress" \
+            >/dev/null 2>&1 || true
+          echo "Cleared factory:in-progress from #$ISSUE."
 
   release-chain:
     # Gate G0's mechanical half: once a release tracker carries
@@ -903,8 +981,10 @@ jobs:
               const ls = namesOf(it.labels);
               if (ls.includes('factory:release')) continue;          // the tracker itself
               if (/^task\(\d+\)/.test(it.title || '')) continue;      // factory sub-issues
+              // factory:blocked and factory:in-progress say nothing about where
+              // the issue is in the pipeline, so neither holds it back here.
               const inflight = ls.filter(x => x.startsWith('factory:') &&
-                !['factory:backlog', 'factory:intake', 'factory:blocked'].includes(x));
+                !['factory:backlog', 'factory:intake', 'factory:blocked', 'factory:in-progress'].includes(x));
               if (inflight.length) { skipped.push(`#${it.number} — already \`${inflight.join('`, `')}\``); continue; }
               if (ls.includes('factory:backlog')) {
                 await github.rest.issues.removeLabel({
@@ -970,6 +1050,23 @@ jobs:
             echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) to this repo's Actions secrets (Settings -> Secrets and variables -> Actions) to run factory agents."
             exit 1
           fi
+      - name: Mark the issue in progress
+        # See the same step in the `agent` job. A release batch is exactly where
+        # this matters most: gate G0 starts an intake on every issue in the
+        # milestone at once, four at a time, and nothing on the issues said
+        # which of them were running.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ matrix.issue }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/labels" \
+            -f name='factory:in-progress' -f color='1F6FEB' \
+            -f description='A factory agent run is live on this issue right now' \
+            >/dev/null 2>&1 || true
+          echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
+          echo "Marked #$ISSUE factory:in-progress for the intake run."
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -995,7 +1092,7 @@ jobs:
           ISSUE: ${{ matrix.issue }}
         run: |
           SNAP=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" \
-                   --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:"))] | sort | join(","))"')
+                   --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:")) | select(. != "factory:in-progress")] | sort | join(","))"')
           echo "snap=$SNAP" >> "$GITHUB_OUTPUT"
           echo "Before: $SNAP"
       - name: Install Claude Code CLI (model probe)
@@ -1050,6 +1147,8 @@ jobs:
               perform exactly one factory role in this run.
             - End EVERY comment you post on an issue or PR with a line containing
               exactly: <!-- factory-agent -->
+            - `factory:in-progress` is the pipeline's own "a run is live" marker
+              on your issue. Ignore it, and never add or remove it yourself.
 
             ===== FACTORY HANDBOOK =====
 
@@ -1066,7 +1165,7 @@ jobs:
           BEFORE: ${{ steps.before.outputs.snap }}
         run: |
           AFTER=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" \
-                    --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:"))] | sort | join(","))"')
+                    --jq '"\(.comments)|\([.labels[].name | select(startswith("factory:")) | select(. != "factory:in-progress")] | sort | join(","))"')
           echo "Before: $BEFORE"
           echo "After:  $AFTER"
           if [ "$AFTER" != "$BEFORE" ]; then
@@ -1082,6 +1181,17 @@ jobs:
           fi
           echo "::error::Role 'intake' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
           exit 1
+      - name: Clear the in-progress marker
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ matrix.issue }}
+        run: |
+          gh api -X DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/factory%3Ain-progress" \
+            >/dev/null 2>&1 || true
+          echo "Cleared factory:in-progress from #$ISSUE."
 
   architect-chain:
     needs: [route, agent]
@@ -1100,6 +1210,23 @@ jobs:
             echo "Planner did not reach factory:planned (blocked or split) - not chaining architect."
             echo "proceed=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Mark the epic in progress
+        # See the same step in the `agent` job. The planner's run cleared the
+        # marker on its way out; the architect is a second role on the same
+        # epic, so it re-marks it for the duration of its own run.
+        if: steps.gate.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/labels" \
+            -f name='factory:in-progress' -f color='1F6FEB' \
+            -f description='A factory agent run is live on this issue right now' \
+            >/dev/null 2>&1 || true
+          echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
+          echo "Marked #$ISSUE factory:in-progress for the architect run."
       - uses: actions/checkout@v4
         if: steps.gate.outputs.proceed == 'true'
         with:
@@ -1170,6 +1297,8 @@ jobs:
             - HARD RULES: never push to main or master; never merge a pull request.
               End EVERY comment you post with a line containing exactly:
               <!-- factory-agent -->
+            - `factory:in-progress` is the pipeline's own "a run is live" marker
+              on the epic. Ignore it, and never add or remove it yourself.
             - Cross-repo epics: clone other affected repos with
               `gh repo clone ${{ github.repository_owner }}/<repo> /tmp/<repo>` (GH_TOKEN
               grants access when the FACTORY_CROSS_REPO_TOKEN secret is set) and commit
@@ -1190,3 +1319,14 @@ jobs:
             --model ${{ steps.model.outputs.model }}
             --permission-mode acceptEdits
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Clear the in-progress marker
+        if: always() && needs.route.outputs.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          gh api -X DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/factory%3Ain-progress" \
+            >/dev/null 2>&1 || true
+          echo "Cleared factory:in-progress from #$ISSUE."

@@ -83,6 +83,16 @@ events, so **filing a plain issue is all a requester does**:
 | Human replies on a `factory:blocked` issue | `factory:blocked` is cleared and the blocked stage re-runs, re-reading the whole thread (agent comments carry an `<!-- factory-agent -->` marker so they never self-trigger) |
 | Actions → "Factory pipeline" → *Run workflow* | Any role on any issue/PR number (the manual/retry path; used for reviewer/qa/release/ops until those are event-wired) |
 
+While any of those runs is actually executing a role, its issue carries
+`factory:in-progress` — the pipeline applies it when the agent job starts and
+removes it when the job ends, whatever the outcome. A role takes minutes, and
+without the marker an issue being worked on right now looks exactly like one
+nothing has started on; the only way to tell them apart was to open the Actions
+tab. It is a marker, not a state: it sits alongside whatever `factory:*` state
+the issue is in, every routing decision ignores it, and no role should ever add
+or remove it. If a runner dies hard enough that the cleanup step never runs, a
+stale marker is cosmetic only — remove the label by hand.
+
 Prerequisites (per repo):
 - **Secret** `ANTHROPIC_API_KEY` (or `CLAUDE_CODE_OAUTH_TOKEN` from
   `claude setup-token` for Claude subscription billing) in Settings → Secrets
@@ -244,8 +254,10 @@ low, and leave it on `"human"` when it is not.
 ## 3. Label state machine
 
 State labels are mutually exclusive; exactly one `factory:*` state label per
-issue at a time. The single exception is `factory:release`, a *kind* marker
-identifying a release tracker, which also carries one `factory:release-*` state.
+issue at a time. Three labels are not states and sit alongside one:
+`factory:release` (a *kind* marker identifying a release tracker, which also
+carries one `factory:release-*` state), `factory:in-progress` (a run is live on
+this issue right now) and `factory:blocked` (halted, whatever the state).
 Create them with `scripts/setup-labels.sh`.
 
 | Label | Meaning | Set by | Advanced by |
@@ -267,6 +279,7 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:ready-to-ship` | Awaiting merge order & **gate G3** | QA | Release → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
 | `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
+| `factory:in-progress` | *Marker:* a factory agent run is live on this issue right now | Pipeline, when an agent job starts | Pipeline, when that job ends (always, including failure and timeout) |
 | `factory:blocked` | Needs human attention | Any agent | Human |
 | `factory:incident` | Post-deploy regression | Ops Monitor | Human + Release (rollback) |
 

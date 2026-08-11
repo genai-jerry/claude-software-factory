@@ -20,7 +20,9 @@ OWNER="$1"; shift
 
 # name|color|description  (state labels are mutually exclusive; one per issue.
 # factory:release is the one exception: a KIND marker on release tracker issues,
-# which also carry one factory:release-* state.)
+# which also carry one factory:release-* state. factory:in-progress is likewise
+# not a state — the pipeline puts it on an issue for the duration of an agent
+# run and takes it off again, alongside whatever state the issue is in.)
 LABELS=$(cat <<'EOF'
 factory:backlog|8B949E|Filed, waiting for its release milestone to be approved
 factory:release|24597A|Tracker issue for a release milestone (kind, not a state)
@@ -39,6 +41,7 @@ factory:in-test|D4A017|QA verifying WHEN/THEN scenarios
 factory:ready-to-ship|6AA84F|Green + approved; awaiting merge order and gate G3
 factory:deployed|0B8043|In production; soak in progress
 factory:fast-track|8C8C8C|Small change: Fast-Track implements it and opens a PR
+factory:in-progress|1F6FEB|A factory agent run is live on this issue right now
 factory:blocked|A63D40|Factory flow needs human attention
 factory:incident|7A1F1F|Post-deploy regression under investigation
 EOF
