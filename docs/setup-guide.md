@@ -30,11 +30,17 @@ GITHUB_TOKEN=<token> bash scripts/setup-labels.sh <owner> <repo>
 ```
 
 Run from a checkout of **this** repo (`claude-software-factory`), pointed at
-the *consuming* repo via `<owner> <repo>`. It creates (or updates) the 19
-labels listed in FACTORY.md §3 — the mutually-exclusive states plus
-`factory:release`, the kind marker on release tracker issues. Safe to re-run —
-existing labels are patched in place, not duplicated. Pass multiple `<repo>`
-arguments to label several repos in one estate at once.
+the *consuming* repo via `<owner> <repo>`. It creates (or updates) the 20
+labels listed in FACTORY.md §3 — the mutually-exclusive states plus the two
+markers that sit alongside them: `factory:release` on release tracker issues,
+and `factory:in-progress`, which the pipeline puts on an issue for as long as
+an agent run is executing against it. Safe to re-run — existing labels are
+patched in place, not duplicated. Pass multiple `<repo>` arguments to label
+several repos in one estate at once.
+
+(An estate labelled before `factory:in-progress` existed does not have to
+re-run this: the pipeline creates that one label on first use if it is
+missing.)
 
 ## 2. Install OpenSpec
 
@@ -182,7 +188,10 @@ claude --plugin-dir /path/to/claude-software-factory
   are available.
 - File a throwaway issue on the consuming repo and confirm the pipeline
   auto-applies `factory:intake` and the Intake Analyst runs (Actions tab →
-  "Factory pipeline"). With release gating on, expect `factory:backlog`
+  "Factory pipeline"). While the role is running the issue also carries
+  `factory:in-progress` — that marker appearing and then disappearing is the
+  quickest confirmation from the issue list alone that an agent really ran.
+  With release gating on, expect `factory:backlog`
   instead: create a milestone, add the issue to it, comment `Plan release` on
   the `release(...)` tracker the pipeline opened, then `Approved` on it — the
   issue should move to `factory:intake` and intake should run.

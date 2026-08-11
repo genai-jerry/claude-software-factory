@@ -113,11 +113,24 @@ may approve," which is probably not what you want.
 | `factory:ready-to-ship` | — waits — | Human merges the PR · gate G3 |
 | `factory:deployed` | Release / Ops | Terminal for the epic |
 | `factory:blocked` | — halted — | Any role may apply it; resume is manual |
+| `factory:in-progress` | — a run is live — | Applied when an agent job starts, removed when it ends |
 
 The labels are mutually exclusive and are created by
 `scripts/setup-labels.sh <owner> <repo>`. Re-running it patches existing labels
-rather than duplicating them. One label is not a state: `factory:release` marks
-an issue as a release tracker, and sits alongside its `factory:release-*` state.
+rather than duplicating them. Two labels are not states: `factory:release` marks
+an issue as a release tracker and sits alongside its `factory:release-*` state,
+and `factory:in-progress` says a GitHub Actions run is executing a role on this
+issue *right now*.
+
+**Why the in-progress marker exists.** A role runs for minutes. Until it
+finished, an issue being worked on looked exactly like an issue nothing had
+started on — the same state label, no new comment yet — and the only way to
+tell was to open the Actions tab and read the matrix. The pipeline therefore
+marks the issue on the way in and clears it on the way out, from an `always()`
+step so the marker also comes off on a failure, a no-op-guard failure or the
+45-minute timeout. Routing looks straight through it: a marked issue is still
+"not started" to a release batch, still eligible for the fast lane, and the
+router's explanatory replies name the real state, never the marker.
 
 ## Two things worth saying out loud
 

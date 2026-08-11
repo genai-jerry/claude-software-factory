@@ -494,6 +494,96 @@ function check(label, cond, extra) {
     }
   }
 
+  // --------------------------------------------------------------- scenario 16
+  console.log('\n16. factory:in-progress is a marker, not a state — routing ignores it');
+  {
+    // The agent jobs put it on an issue for the length of a run. Every
+    // factory:* test in the router therefore has to look straight through it,
+    // or a run would change the routing of the issue it is running on.
+    const IP = { name: 'factory:in-progress' };
+
+    // (a) the label event the marker itself raises (only with a PAT) routes nowhere
+    const w = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Add renewals', labels: [{ name: 'factory:intake' }, IP], user: { type: 'User' } },
+    } });
+    const out = await run(routeSrc, { world: w, context: ctx('issues', {
+      action: 'labeled', issue: w.state.issues[5],
+      label: { name: 'factory:in-progress' }, sender: { login: 'github-actions' } }) });
+    check('marker label event -> role=none', out.role === 'none', out);
+    check('and it changes nothing',
+      !w.state.log.some(l => !l.startsWith('info:')) && !(w.state.comments[5] || []).length, w.state.log);
+
+    // (b) still "not started": milestoned into an approved release enters intake
+    const ms = { number: 7, title: 'v0.4', html_url: 'u' };
+    const w2 = makeWorld({ files: filesGated, issues: {
+      1: { number: 1, title: 'release(7): v0.4', labels: [{ name: 'factory:release' }, { name: 'factory:release-approved' }], user: { type: 'Bot' }, milestone: ms },
+      5: { number: 5, title: 'Late addition', labels: [{ name: 'factory:backlog' }, IP], user: { type: 'User' }, milestone: ms },
+    } });
+    const out2 = await run(routeSrc, { world: w2, context: ctx('issues',
+      { action: 'milestoned', issue: w2.state.issues[5], milestone: ms }) });
+    check('marked issue still counts as not started', out2.role === 'intake', out2);
+
+    // (c) the fast lane does not read it as work already in flight
+    const w3 = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Rename a page title', labels: [{ name: 'factory:intake' }, IP, { name: 'factory:fast-track' }], user: { type: 'User' } },
+    } });
+    const out3 = await run(routeSrc, { world: w3, context: ctx('issues', {
+      action: 'labeled', issue: w3.state.issues[5],
+      label: { name: 'factory:fast-track' }, sender: { login: 'boss' } }) });
+    check('fast lane not blocked by the marker', out3.role === 'fasttrack', out3);
+
+    // (d) a blocked issue with nothing but the marker beside it still resumes
+    const w4 = makeWorld({ files: filesOpen, issues: {
+      5: { number: 5, title: 'Epic', labels: [{ name: 'factory:blocked' }, IP], user: { type: 'User' } },
+    } });
+    const out4 = await run(routeSrc, { world: w4, context: ctx('issue_comment', {
+      action: 'created', issue: w4.state.issues[5],
+      comment: { body: 'here is the answer', user: { login: 'boss', type: 'User' }, author_association: 'OWNER' } }) });
+    check('blocked resume -> intake', out4.role === 'intake', out4);
+
+    // (e) the explanatory replies report the state, not the marker
+    const w5 = makeWorld({ files: filesOpen, issues: {
+      5: { number: 5, title: 'Epic', labels: [{ name: 'factory:planned' }, IP], user: { type: 'User' } },
+    } });
+    await run(routeSrc, { world: w5, context: ctx('issue_comment', {
+      action: 'created', issue: w5.state.issues[5],
+      comment: { body: 'Approved', user: { login: 'boss', type: 'User' }, author_association: 'OWNER' } }) });
+    const reply = (w5.state.comments[5] || [])[0];
+    check('reply names the state only', !!reply &&
+      reply.body.includes('**factory:planned**') && !reply.body.includes('**factory:planned, factory:in-progress**'),
+      reply && reply.body);
+
+    // (f) a release batch still releases an issue that a run is marking
+    const w6 = makeWorld({ files: filesGated, issues: {
+      1: { number: 1, title: 'release(7): v0.4', labels: [{ name: 'factory:release' }, { name: 'factory:release-approved' }], user: { type: 'Bot' }, milestone: ms },
+      5: { number: 5, title: 'Add renewals', labels: [{ name: 'factory:backlog' }, IP], user: { type: 'User' }, milestone: ms },
+    } });
+    const out6 = await run(relSrc, { world: w6, context: { ...ctx('x', {}), __env: { RELEASE_ISSUE: '1' } } });
+    check('release batch includes the marked issue', out6.issues === '["5"]', out6);
+  }
+
+  // --------------------------------------------------------------- scenario 17
+  console.log('\n17. every agent job marks its issue in progress and clears it whatever happens');
+  {
+    // The marker is only honest if it comes off on failure, on a no-op-guard
+    // failure and on a timeout — i.e. from an always() step that is the last
+    // one in the job. Assert it on the YAML rather than trusting the review.
+    const MARK = /issues\/\$ISSUE\/labels/;
+    const CLEAR = /-X DELETE[\s\S]*labels\/factory%3Ain-progress/;
+    for (const [name, job] of Object.entries(doc.jobs)) {
+      const steps = job.steps || [];
+      if (!steps.some(s => /claude-code-action|claude -p /.test(`${s.uses || ''}${s.run || ''}`))) continue;
+      const mark = steps.find(s => MARK.test(s.run || ''));
+      const clear = steps[steps.length - 1];
+      check(`${name} marks the issue in progress`, !!mark, steps.map(s => s.name));
+      check(`${name} clears the marker in its last step`, CLEAR.test(clear.run || ''), clear.name);
+      check(`${name} clears it under always()`, /\balways\s*\(\s*\)/.test(String(clear.if || '')), clear.if);
+      // A cosmetic label must never be able to fail a run that otherwise worked.
+      check(`${name} never fails on the marker`,
+        mark.continue_on_error === true || mark['continue-on-error'] === true, mark);
+    }
+  }
+
   console.log(failures ? `\n${failures} FAILURE(S)` : '\nall scenarios pass');
   process.exit(failures ? 1 : 0);
 })();

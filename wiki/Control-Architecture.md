@@ -163,9 +163,27 @@ checklist, known-failing tests, health checks — lives in `.factory/profile.jso
 A missing or unparseable profile hard-blocks the per-repo roles rather than
 letting them guess.
 
-## Three guards
+## Four guards
 
 Each of these was a real stall before it was a guard.
+
+### The invisible run
+
+**Symptom.** An issue sits at `factory:intake` and nobody can tell whether an
+agent is working on it or whether the pipeline dropped it. The honest answer
+was in the Actions tab, one repository away from where the question is asked.
+
+**Cause.** Roles run for minutes and post nothing until they finish, so a live
+run and a stalled issue look identical on the issue itself.
+
+**Guard.** Each agent job applies `factory:in-progress` to its issue before the
+role starts and removes it in an `always()` step when the job ends — so it also
+comes off on a failure, on a no-op-guard failure and on the 45-minute timeout.
+The marker is applied with the workflow token, whose label changes emit no
+events, so a cosmetic label can never trigger another run. Everywhere the
+router reads `factory:*` labels it ignores this one: a marked issue is still
+"not started" to a release batch, still eligible for the fast lane, and the
+explanatory replies still name the real state.
 
 ### The silent green
 

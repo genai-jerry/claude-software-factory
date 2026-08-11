@@ -59,6 +59,23 @@ jobs:
             echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) as a REPOSITORY secret (Settings -> Secrets and variables -> Actions)."
             exit 1
           fi
+      - name: Mark the issue in progress
+        # Same marker the real pipeline applies: while this harness has a role
+        # running, the issue says so. Cleared by the always() step at the end.
+        if: needs.route.outputs.issue != '' && needs.route.outputs.issue != '0'
+        continue-on-error: true
+        env:
+          # github.token, not the PAT: labels applied by the workflow token emit
+          # no events, so a cosmetic marker cannot wake another workflow.
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/labels" \
+            -f name='factory:in-progress' -f color='1F6FEB' \
+            -f description='A factory agent run is live on this issue right now' \
+            >/dev/null 2>&1 || true
+          echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -136,3 +153,13 @@ jobs:
             --max-turns 50 \
             --permission-mode acceptEdits \
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Clear the in-progress marker
+        if: always() && needs.route.outputs.issue != '' && needs.route.outputs.issue != '0'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          gh api -X DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/factory%3Ain-progress" \
+            >/dev/null 2>&1 || true
