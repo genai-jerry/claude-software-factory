@@ -93,6 +93,30 @@ the issue is in, every routing decision ignores it, and no role should ever add
 or remove it. If a runner dies hard enough that the cleanup step never runs, a
 stale marker is cosmetic only — remove the label by hand.
 
+### Events the factory itself raises
+
+Some of that work reaches the factory wearing the factory's own name. A role
+that hits a defect too big to fix inside its own issue files the fix as a
+separate `factory:fast-track` issue; release trackers are opened by the
+pipeline. Those are human-initiated requests — a person asked for them, an
+agent typed them — so the triggering actor is the factory's GitHub App rather
+than a person.
+
+`claude-code-action` refuses to run for a non-human actor unless that bot is
+listed in its `allowed_bots` input, so the reusable workflow passes one:
+**`allowed_bots`, defaulting to `claude`** — the factory's own App and nothing
+else. Override it in the caller stub only if your factory runs under a
+differently-named App. `*` allows every bot; on a public repo that hands any
+App able to label an issue a prompt-controlled agent run, so do not.
+
+Authorship is not what keeps the pipeline safe, and the router never relied on
+it: a bot-authored issue still does not enter intake when it is opened, agent
+comments carry `<!-- factory-agent -->` so they cannot self-trigger, and a gate
+flip is checked against `.github/factory-approvers.json` no matter who sends
+it. What the actor check added on top of that was a run that died at
+`Workflow initiated by non-human actor` — the request stranded on a red run,
+with nothing on the issue to say why.
+
 Prerequisites (per repo):
 - **Secret** `ANTHROPIC_API_KEY` (or `CLAUDE_CODE_OAUTH_TOKEN` from
   `claude setup-token` for Claude subscription billing) in Settings → Secrets
