@@ -1,7 +1,7 @@
 # Control Architecture
 
 A consuming repo holds seven files and none of them are logic. Everything that
-decides — the router, the ten role prompts, the guards — lives in
+decides — the router, the eleven role prompts, the guards — lives in
 `claude-software-factory` and is pulled in at run time.
 
 ## Control path
@@ -157,7 +157,7 @@ keys on.
 | 08 | Release | Stages the bundle and runs the health checks. Cannot merge to `main` — that is gate G3 | `factory:deployed` |
 | 09 | Ops | Watches production, opens incidents, drives rollback when a deploy misbehaves | `factory:incident` |
 
-The ten prompts are **byte-identical in every repo**. Everything a role needs to
+The eleven prompts are **byte-identical in every repo**. Everything a role needs to
 know about your codebase — stack, test/build/lint commands, conventions, review
 checklist, known-failing tests, health checks — lives in `.factory/profile.json`.
 A missing or unparseable profile hard-blocks the per-repo roles rather than

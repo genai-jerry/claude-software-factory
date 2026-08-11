@@ -137,13 +137,14 @@ function check(label, cond, extra) {
   // ---------------------------------------------------------------- scenario 3
   console.log('\n3. gating ON, exempt label — never parked in backlog');
   {
-    // factory:fast-track is skipped from intake by a pre-existing rule (it takes
-    // the normal PR flow), so the point here is that gating does not park it.
+    // factory:fast-track bypasses the release queue AND the pipeline: it goes
+    // straight to the fast lane, which implements it and opens a PR.
     const w = makeWorld({ files: filesGated,
       issues: { 5: { number: 5, title: 'Typo', labels: [{ name: 'factory:fast-track' }], user: { type: 'User' }, milestone: null } } });
     const out = await run(routeSrc, { world: w, context: ctx('issues', { action: 'opened', issue: w.state.issues[5] }) });
     check('not parked', !w.state.issues[5].labels.some(l => l.name === 'factory:backlog'), w.state.log);
-    check('no route (fast-track skips intake)', out.role === 'none', out);
+    check('routes to the fast lane', out.role === 'fasttrack', out);
+    check('no intake label', !w.state.issues[5].labels.some(l => l.name === 'factory:intake'), w.state.log);
 
     // and a non-factory exempt label does reach intake
     const files = { ...filesGated, '.github/factory-release.json': JSON.stringify({
@@ -392,6 +393,105 @@ function check(label, cond, extra) {
       label: { name: 'factory:release-ready' }, sender: { login: 'scrumbot' } }) });
     check('assigned + mentioned', w.state.log.some(l => l.startsWith('assign #1')) &&
       (w.state.comments[1] || [])[0].body.includes('Gate G0'), w.state.log);
+  }
+
+  // --------------------------------------------------------------- scenario 14b
+  console.log('\n14b. factory:fast-track applied — the fast lane implements it');
+  {
+    const ms = { number: 7, title: 'v0.4', html_url: 'u' };
+    const w = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Rename a page title', labels: [{ name: 'factory:backlog' }, { name: 'factory:fast-track' }], user: { type: 'User' }, milestone: ms },
+    } });
+    const out = await run(routeSrc, { world: w, context: ctx('issues', {
+      action: 'labeled', issue: w.state.issues[5],
+      label: { name: 'factory:fast-track' }, sender: { login: 'genai-jerry' } }) });
+    check('role=fasttrack', out.role === 'fasttrack', out);
+    check('issues=["5"]', out.issues === '["5"]', out);
+    check('leaves the release queue', !w.state.issues[5].labels.some(l => l.name === 'factory:backlog'), w.state.log);
+
+    // Re-labelling after a PR exists must not open a second one.
+    const w2 = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Rename a page title', labels: [{ name: 'factory:fast-track' }], user: { type: 'User' }, milestone: null },
+    }, comments: { 5: [{ body: 'Opened #40.\n\n<!-- factory-fast-track-done -->\n<!-- factory-agent -->' }] } });
+    const out2 = await run(routeSrc, { world: w2, context: ctx('issues', {
+      action: 'labeled', issue: w2.state.issues[5],
+      label: { name: 'factory:fast-track' }, sender: { login: 'genai-jerry' } }) });
+    check('already has a PR -> no second run', out2.role === 'none', out2);
+
+    // An issue the pipeline has already invested in is not hijacked.
+    const w3 = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Big thing', labels: [{ name: 'factory:spec-ready' }, { name: 'factory:fast-track' }], user: { type: 'User' }, milestone: null },
+    } });
+    const out3 = await run(routeSrc, { world: w3, context: ctx('issues', {
+      action: 'labeled', issue: w3.state.issues[5],
+      label: { name: 'factory:fast-track' }, sender: { login: 'genai-jerry' } }) });
+    check('in-flight issue not hijacked', out3.role === 'none', out3);
+    check('and it says why', (w3.state.comments[5] || []).some(c => /does not take over/.test(c.body)), w3.state.log);
+  }
+
+  // --------------------------------------------------------------- scenario 14c
+  console.log('\n14c. `Plan release` on a requirement issue — answered, not ignored');
+  {
+    const ms = { number: 7, title: 'v0.4', html_url: 'u' };
+    const w = makeWorld({ files: filesGated, issues: {
+      1: { number: 1, title: 'release(7): v0.4', labels: [{ name: 'factory:release' }, { name: 'factory:release-planning' }], user: { type: 'Bot' }, milestone: ms },
+      5: { number: 5, title: 'Add renewals', labels: [{ name: 'factory:backlog' }], user: { type: 'User' }, milestone: ms },
+    } });
+    const out = await run(routeSrc, { world: w, context: ctx('issue_comment', {
+      action: 'created', issue: w.state.issues[5],
+      comment: { body: 'Plan release', user: { login: 'genai-jerry', type: 'User' }, author_association: 'OWNER' } }) });
+    check('role=none', out.role === 'none', out);
+    const reply = (w.state.comments[5] || [])[0];
+    check('replied', !!reply, w.state.log);
+    check('points at the tracker', !!reply && reply.body.includes('#1'), reply && reply.body);
+
+    // No milestone at all — still answered, without inventing a tracker.
+    const w2 = makeWorld({ files: filesGated, issues: {
+      5: { number: 5, title: 'Add renewals', labels: [{ name: 'factory:backlog' }], user: { type: 'User' }, milestone: null },
+    } });
+    await run(routeSrc, { world: w2, context: ctx('issue_comment', {
+      action: 'created', issue: w2.state.issues[5],
+      comment: { body: 'Plan release', user: { login: 'genai-jerry', type: 'User' }, author_association: 'OWNER' } }) });
+    check('answered with no milestone', (w2.state.comments[5] || []).some(c => /no release to plan/.test(c.body)), w2.state.log);
+    check('no tracker invented', w2.state.created.length === 0, w2.state.log);
+  }
+
+  // --------------------------------------------------------------- scenario 15
+  console.log('\n15. skip propagation — every job downstream of an always() job guards its own status');
+  {
+    // A skipped job skips everything after it in the needs chain. A job that
+    // uses always() runs anyway, but the propagation does not stop there: the
+    // next job inherits the skip unless it also carries a status function.
+    // release-intake learned this the hard way — a human-approved release moved
+    // its issues to factory:intake and then started nothing, because `agent` is
+    // skipped on that path. This is invisible in the scenario tests above (they
+    // exercise script bodies, not job conditions), so assert it on the YAML.
+    const STATUS_FN = /\b(always|success|failure|cancelled)\s*\(\s*\)/;
+    const jobs = doc.jobs;
+    const ifOf = (j) => String(jobs[j].if || '');
+    // Ancestors reachable through needs, transitively.
+    const ancestors = (j, seen = new Set()) => {
+      const need = jobs[j].needs;
+      for (const p of (Array.isArray(need) ? need : need ? [need] : [])) {
+        if (seen.has(p)) continue;
+        seen.add(p); ancestors(p, seen);
+      }
+      return seen;
+    };
+    for (const name of Object.keys(jobs)) {
+      const risky = [...ancestors(name)].filter(a => STATUS_FN.test(ifOf(a)));
+      if (!risky.length) continue;
+      check(`${name} guards its status (downstream of ${risky.join(', ')})`,
+        STATUS_FN.test(ifOf(name)), { if: ifOf(name) });
+      // always() disables the implicit needs-succeeded check, so a job using it
+      // has to assert the results it actually depends on.
+      if (/\balways\s*\(\s*\)/.test(ifOf(name))) {
+        const need = jobs[name].needs;
+        const direct = Array.isArray(need) ? need : need ? [need] : [];
+        const asserted = direct.filter(p => ifOf(name).includes(`needs.${p}.result`));
+        check(`${name} asserts an upstream result under always()`, asserted.length > 0, { if: ifOf(name) });
+      }
+    }
   }
 
   console.log(failures ? `\n${failures} FAILURE(S)` : '\nall scenarios pass');

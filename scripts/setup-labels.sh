@@ -38,7 +38,7 @@ factory:in-review|C98A1B|Draft PR under agent review
 factory:in-test|D4A017|QA verifying WHEN/THEN scenarios
 factory:ready-to-ship|6AA84F|Green + approved; awaiting merge order and gate G3
 factory:deployed|0B8043|In production; soak in progress
-factory:fast-track|8C8C8C|Small fix bypassing OpenSpec ceremony
+factory:fast-track|8C8C8C|Small change: Fast-Track implements it and opens a PR
 factory:blocked|A63D40|Factory flow needs human attention
 factory:incident|7A1F1F|Post-deploy regression under investigation
 EOF

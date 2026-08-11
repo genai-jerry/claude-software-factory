@@ -112,6 +112,16 @@ jobs:
             // pipeline state) plus one factory:release-* state.
             const RELEASE_KIND = 'factory:release';
 
+            // The fast lane. Like factory:release this is a KIND marker rather
+            // than a pipeline state: it says "this change is too small for
+            // OpenSpec ceremony", and the Fast-Track role does the whole thing
+            // in one run — code, tests, PR — for a human to review and merge.
+            // It is matched by name, not through exempt_labels: a repo may add
+            // its own exempt labels (say `hotfix`) that skip the release queue
+            // without wanting an agent to start writing code.
+            const FAST_TRACK = 'factory:fast-track';
+            const FAST_TRACK_DONE = '<!-- factory-fast-track-done -->';
+
             const loadJson = (p) => {
               try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
               catch (e) { return {}; }
@@ -144,6 +154,11 @@ jobs:
             // anything further along is in flight and must be left alone.
             const notStarted = (ls) => ls.filter(n => n.startsWith('factory:'))
               .every(n => ['factory:backlog', 'factory:intake', 'factory:blocked'].includes(n));
+            // Human-readable "where is this issue" for the explanatory replies.
+            // Kind markers and factory:blocked are orthogonal to the state.
+            const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') &&
+                                              n !== 'factory:blocked' && n !== RELEASE_KIND && n !== FAST_TRACK)
+                                      .join(', ') || 'no factory:* state label';
 
             // Release trackers are found by label + title, never by search:
             // the search index lags behind issue creation by seconds to minutes.
@@ -202,15 +217,30 @@ jobs:
             // leaving the parking comment ("add this issue to a milestone") as
             // the only guidance on an issue that now has one. Point at the
             // tracker instead, once per tracker so re-milestoning cannot spam.
+            // Notices that answer "why is nothing happening here?" must survive
+            // the event firing twice (a label removed and re-added, an issue
+            // re-milestoned) without repeating themselves.
+            const sayOnce = async (n, marker, body) => {
+              const said = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: n, per_page: 100,
+              }).catch(() => []);
+              if (said.some(c => (c.body || '').includes(marker))) return false;
+              await say(n, `${body}\n\n${marker}`);
+              return true;
+            };
+            // The Fast-Track role leaves this marker on the issue when it has
+            // produced a PR. Re-applying the label must not open a second one.
+            const fastTrackDone = async (n) => {
+              const said = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: n, per_page: 100,
+              }).catch(() => []);
+              return said.some(c => (c.body || '').includes(FAST_TRACK_DONE));
+            };
             const queuedMarker = (t) => `<!-- factory-queued:${t} -->`;
             const queuedNotice = async (n, ms, tracker) => {
               if (!tracker || !ms) return;
               if (namesOf(tracker.labels).includes('factory:release-approved')) return;
-              const said = await github.paginate(github.rest.issues.listComments, {
-                owner, repo, issue_number: n, per_page: 100,
-              }).catch(() => []);
-              if (said.some(c => (c.body || '').includes(queuedMarker(tracker.number)))) return;
-              await say(n, [
+              await sayOnce(n, queuedMarker(tracker.number), [
                 `Queued for release **${ms.title}** — tracked in #${tracker.number}.`,
                 '',
                 'Nothing runs on this issue yet, and nothing will until that release is',
@@ -218,8 +248,6 @@ jobs:
                 '',
                 '1. comment `Plan release` to get the release plan, then',
                 '2. comment `Approved` to release every issue in the milestone into intake.',
-                '',
-                queuedMarker(tracker.number),
               ].join('\n'));
             };
 
@@ -263,8 +291,6 @@ jobs:
                     ? `approval from: ${list.map(u => '@' + u).join(', ')} (see .github/factory-approvers.json).`
                     : 'owner, member or collaborator access on this repository.'));
               };
-              const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') && n !== 'factory:blocked' && n !== RELEASE_KIND)
-                                        .join(', ') || 'no factory:* state label';
               if (i.pull_request) {
                 core.info('PR comment - skipping');
               } else if (author.type === 'Bot') {
@@ -369,6 +395,22 @@ jobs:
                       : '') +
                     'From any other state, use Actions → "Factory pipeline" → Run workflow with the role you want. ' +
                     'Gate G3 (production) is deliberately not comment-approvable.');
+                } else if (isPlanRelease) {
+                  // `Plan release` is a tracker command. Typed on a requirement
+                  // issue it routed nowhere and answered nothing, which reads
+                  // as the factory ignoring you.
+                  const pms = i.milestone;
+                  const t = pms ? await trackerFor(pms.number) : null;
+                  await say(i.number,
+                    '`Plan release` only works on a **release tracker** — the issue labelled ' +
+                    '`factory:release` that the factory opens for a milestone. This is a requirement ' +
+                    'issue, so nothing was started.\n\n' +
+                    (t
+                      ? `Its release is tracked in #${t.number} — comment \`Plan release\` there.`
+                      : pms
+                        ? `**${pms.title}** has no release tracker yet; one is opened when the milestone ` +
+                          'is created or first used.'
+                        : 'This issue is not in a milestone, so there is no release to plan.'));
                 }
                 core.info('Issue not factory:blocked - comments only resume blocked stages or approve gates');
               } else {
@@ -412,6 +454,11 @@ jobs:
                   core.info('Release tracker issue - skipping');
                 } else if (isTaskTitle(i.title)) {
                   core.info('Factory task sub-issue - skipping');
+                } else if (labels.includes(FAST_TRACK)) {
+                  // Filed straight into the fast lane: no release slot, no
+                  // intake, no gates — the Fast-Track role implements it now.
+                  role = 'fasttrack';
+                  core.info('Filed as factory:fast-track - running the fast lane');
                 } else if (states.some(n => n !== 'factory:intake')) {
                   core.info('Issue already carries a factory state - skipping');
                 } else {
@@ -439,8 +486,8 @@ jobs:
                             'Add this issue to a milestone (the milestone *is* the release). The factory ' +
                             'opens a release tracker for it; comment `Plan release` there to get a release ' +
                             'plan, and approve it to start every issue in the release at once.\n\n' +
-                            `A small fix does not need a release slot: \`${exemptLabels[0] || 'factory:fast-track'}\` ` +
-                            'keeps an issue out of this queue and on the normal PR flow.');
+                            `A small change does not need a release slot: \`${FAST_TRACK}\` skips this ` +
+                            'queue and hands it to the fast lane, which implements it and opens a PR for review.');
                       }
                       core.info('Release gating on - parked in factory:backlog');
                     } else {
@@ -567,6 +614,33 @@ jobs:
                         ? 'Read the release plan above, then comment exactly "Approved" here to release every issue in this milestone into intake.'
                         : 'Review the linked PR, then merge it + apply the approved label, or comment exactly "Approved" here.';
                     await say(i.number, `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ${how}`);
+                  }
+                }
+                // The fast lane. Skipping OpenSpec ceremony does not mean
+                // skipping the work: the Fast-Track role implements the change
+                // and opens a PR for human review, which is the whole point of
+                // calling something small.
+                if (name === FAST_TRACK) {
+                  // A state past intake means the normal pipeline already
+                  // invested in this issue; the label must not hijack it.
+                  const otherStates = labels.filter(n => n.startsWith('factory:') && n !== FAST_TRACK);
+                  const inFlight = !otherStates.every(n =>
+                    ['factory:backlog', 'factory:intake', 'factory:blocked'].includes(n));
+                  if (inFlight) {
+                    await say(i.number,
+                      `\`${FAST_TRACK}\` was applied, but this issue is already at **${stateOf(labels)}** — ` +
+                      'the fast lane does not take over work the pipeline has started. Remove the label to ' +
+                      'carry on, or close this issue and file the small change separately.');
+                    core.info(`Fast-track on an in-flight issue (${otherStates.join(', ')}) - not running`);
+                  } else if (await fastTrackDone(i.number)) {
+                    core.info('Fast-track already opened a PR for this issue - not running again');
+                  } else {
+                    // It leaves the release queue and the intake queue: the
+                    // fast lane is the whole pipeline for this issue.
+                    await dropLabel(i.number, 'factory:backlog');
+                    await dropLabel(i.number, 'factory:intake');
+                    role = 'fasttrack';
+                    core.info('factory:fast-track applied - running the fast lane');
                   }
                 }
               }
@@ -865,7 +939,21 @@ jobs:
     # applies emit no events, so the fan-out has to happen in-run.
     # Keep in sync with the `agent` job above.
     needs: [route, release-chain]
-    if: needs.release-chain.outputs.count != '' && needs.release-chain.outputs.count != '0'
+    # A skip propagates down the whole needs chain from the point it happens,
+    # and on a human gate-G0 approval `agent` never runs — the router flips the
+    # label and no role is dispatched, so `agent` is skipped. release-chain
+    # survives that with always(); this job did not, so it inherited the skip
+    # and every human-approved release moved its issues to factory:intake and
+    # then started nothing. It only ever worked in "approval": "agent" mode,
+    # where the Scrum Master's own job succeeds and nothing propagates.
+    #
+    # always() also switches off the implicit "all needs succeeded" check, so
+    # release-chain's result has to be asserted explicitly.
+    if: >-
+      always() &&
+      needs.release-chain.result == 'success' &&
+      needs.release-chain.outputs.count != '' &&
+      needs.release-chain.outputs.count != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:

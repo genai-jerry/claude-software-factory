@@ -42,8 +42,10 @@ catch here or not at all.
      order *tasks within* an epic; only you see the order *between* epics.
    - **Size** — an issue that is obviously several releases' worth of work
      should be split before it enters, not after intake writes a spec for it.
-   - **Fast-track candidates** — a small fix does not need a release slot;
-     recommend `factory:fast-track` and removal from the milestone.
+   - **Fast-track candidates** — a small change does not need a release slot;
+     recommend `factory:fast-track` and removal from the milestone. That is not
+     a recommendation to shelve it: the fast lane implements it and opens a PR
+     for review, off the release's critical path.
 5. Post ONE release plan comment on the tracker:
    - **Scope** — a table of the issues in the release: number, one-line intent,
      sequence position, any concern.

@@ -10,7 +10,7 @@ codebase lives in that repo's `.factory/profile.json` (§2c) — never in these
 prompts. An estate of N repositories runs N profiles and one copy of this
 document.
 
-**How it reaches your repos:** this file, the ten role prompts, and the
+**How it reaches your repos:** this file, the eleven role prompts, and the
 protected-branch hook ship as the `factory` Claude Code plugin; the pipeline
 ships as reusable GitHub Actions workflows. A consuming repo holds eight files,
 none of them logic. See §10.
@@ -48,8 +48,14 @@ Stage 0 is optional and off by default: with release gating disabled a filed
 issue goes straight to Intake, which is how the factory behaved before §2d
 existed.
 
+Beside these stages runs one **fast lane**: `/factory:fasttrack` takes an issue
+labelled `factory:fast-track` and produces a branch, a test and a
+ready-for-review PR in a single run — no proposal, no `tasks.md`, no `design.md`
+and no gate but G3, the human merge. It is the whole pipeline for changes too
+small to be worth the ceremony (§5).
+
 Role prompts are supplied by the `factory` plugin, so every repo runs the
-**same ten prompts** — there is no per-repo copy to drift. Stack-specific
+**same eleven prompts** — there is no per-repo copy to drift. Stack-specific
 knowledge lives in each repo's `.factory/profile.json` (§2c), which the
 implementer, reviewer, qa, release and ops roles load at the start of every
 run. In a multi-repo estate, nominate one **coordination repo** (the one that
@@ -65,6 +71,7 @@ events, so **filing a plain issue is all a requester does**:
 |---|---|
 | Any issue opened (human-authored, not `task(...)`, no factory state yet) | Auto-applies `factory:intake`, then runs the **Intake Analyst** — unless release gating is on (§2d), in which case the issue is parked in `factory:backlog` |
 | A milestone is created, or an issue is added to one (release gating on) | A `release(<milestone>)` **tracker issue** is opened if the milestone has none |
+| `factory:fast-track` applied (or an issue filed with it) | **Fast-Track** — implements the change, runs the repo's tests, and opens a PR for human review. No intake, spec, design or gates |
 | Owner/collaborator comments exactly `Plan release` on a release tracker | **Scrum Master** — reads the whole milestone and posts the release plan |
 | `factory:release-approved` on a tracker (gate G0) | Every `factory:backlog` issue in that milestone is moved to `factory:intake` and its **Intake Analyst** runs, all in the same run |
 | Human applies `factory:spec-approved` (gate G1) | **Planner**, then **Architect** chained in the same run |
@@ -142,7 +149,7 @@ Schema: `templates/profile.schema.json`. Worked example:
 
 To change how the factory codes in a repo, edit its profile — not the prompts.
 This is also what makes the factory portable: pointing it at a new project is
-writing one profile, not rewriting ten prompts.
+writing one profile, not rewriting eleven prompts.
 
 ## 2b. Approvers and notifications
 
@@ -259,7 +266,7 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:in-test` | QA verifying scenarios | Reviewer | QA → `factory:ready-to-ship` |
 | `factory:ready-to-ship` | Awaiting merge order & **gate G3** | QA | Release → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
-| `factory:fast-track` | Small fix bypassing OpenSpec ceremony | Human triage | Normal PR flow (review + CI only) |
+| `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
 | `factory:blocked` | Needs human attention | Any agent | Human |
 | `factory:incident` | Post-deploy regression | Ops Monitor | Human + Release (rollback) |
 
@@ -295,7 +302,13 @@ by doing the work manually and setting the next label.
 - **Scope:** one change per epic, **max ~10 tasks**. The Planner splits larger
   epics into sequential changes.
 - **Fast-track bypass:** bug fixes and trivial tweaks skip OpenSpec entirely —
-  label `factory:fast-track`, normal PR flow.
+  label `factory:fast-track` and the **Fast-Track** role implements the change,
+  runs the repo's test and build commands, and opens a ready-for-review PR in
+  one run. No change folder, no sub-issues, no G1/G2; the human merge (G3) is
+  the only gate left. The role sizes the issue before writing any code and
+  hands it back to the normal pipeline — removing the label, saying why — when
+  it needs a migration, a new dependency, a new public contract, or a design
+  decision worth arguing separately.
 - **Commands (OpenSpec v1.7 core profile):** `/opsx:explore`, `/opsx:propose`,
   `/opsx:apply`, `/opsx:update`, `/opsx:sync`, `/opsx:archive`.
 - **Archive:** only the Ops Monitor archives, and only after production soak
@@ -420,7 +433,7 @@ plugin cannot deliver them.
 
 | Channel | Delivers | Mechanism |
 |---|---|---|
-| Claude Code plugin `factory` | the 10 role prompts, this handbook, the protected-branch hook | marketplace install, or `--plugin-dir` for local development |
+| Claude Code plugin `factory` | the 11 role prompts, this handbook, the protected-branch hook | marketplace install, or `--plugin-dir` for local development |
 | Reusable GitHub Actions workflows | the pipeline, the test harness, the branch guard | `uses: <owner>/claude-software-factory/.github/workflows/<file>@v1` |
 
 Both channels serve the same files from the same tagged commit. In CI the
