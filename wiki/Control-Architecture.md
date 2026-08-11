@@ -126,7 +126,7 @@ jobs:
       factory_ref: v1
 ```
 
-Two things bite people here:
+Three things bite people here:
 
 - **The stub must declare `permissions:` itself.** A called workflow's token is
   capped by the caller's, so a stub missing that block inherits the repo default
@@ -135,6 +135,13 @@ Two things bite people here:
   thing a consuming repo genuinely owns — which is why enabling a new trigger,
   like `closed` or `milestoned`, is a change to the stub and not to the pipeline
   body. A stub missing the milestone triggers silently loses release gating.
+- **The factory raises events too**, and `claude-code-action` refuses a
+  non-human actor unless the bot is named. The pipeline passes `allowed_bots`,
+  defaulting to `claude` — its own App — so an issue the factory filed on a
+  human's behalf still gets a run. Override it in the stub only if your factory
+  runs under a differently-named App; `*` allows every bot and is unsafe on a
+  public repo. What decides whether an event deserves a run is the router, not
+  the author of the issue.
 
 Bump both `@v1` refs together when upgrading.
 

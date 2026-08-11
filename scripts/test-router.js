@@ -584,6 +584,30 @@ function check(label, cond, extra) {
     }
   }
 
+  // --------------------------------------------------------------- scenario 18
+  console.log('\n18. the factory may act on events it raised itself');
+  {
+    // The factory files its own issues on a human's behalf (a fast-track fix
+    // split out of the issue a role was working on, a release tracker), so the
+    // triggering actor is its App. claude-code-action refuses a non-human actor
+    // unless it is in allowed_bots, and an omitted input is not a softer
+    // setting — it is a hard failure before the prompt is read, which stranded
+    // the request on a red run. The router is what decides whether an event is
+    // worth a run; this only stops the actor check from overriding it.
+    const input = (doc.on || doc[true]).workflow_call.inputs.allowed_bots;
+    check('the workflow takes an allowed_bots input', !!input, Object.keys((doc.on || doc[true]).workflow_call.inputs));
+    check('it defaults to the factory App alone, not to every bot',
+      input && input.default === 'claude', input && input.default);
+    for (const [name, job] of Object.entries(doc.jobs)) {
+      for (const step of job.steps || []) {
+        if (!/claude-code-action/.test(step.uses || '')) continue;
+        check(`${name} passes allowed_bots to ${step.name}`,
+          (step.with || {}).allowed_bots === '${{ inputs.allowed_bots }}',
+          (step.with || {}).allowed_bots);
+      }
+    }
+  }
+
   console.log(failures ? `\n${failures} FAILURE(S)` : '\nall scenarios pass');
   process.exit(failures ? 1 : 0);
 })();

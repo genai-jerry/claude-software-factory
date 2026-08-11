@@ -51,6 +51,17 @@ name: Factory pipeline (reusable)
 #   nothing is indistinguishable from one that worked.
 # - A comment that plainly asked for something and routed nowhere gets an
 #   explanatory reply, so it never dead-ends in a green run and silence.
+# - Events raised by the factory's own App (`allowed_bots`, default `claude`)
+#   start roles like anyone else's. The factory files issues on a human's
+#   behalf — a fast-track fix split out of the issue a role was working on, a
+#   release tracker — and those are human-initiated work wearing the bot's
+#   name; refusing them stranded the request with a red run and no explanation.
+#   Authorship is not the safety property here and never was: the router below
+#   is, and it decides per event (bot-authored issues do not enter intake on
+#   `opened`; agent comments carry <!-- factory-agent --> so they never
+#   self-trigger; gate flips are checked against factory-approvers.json
+#   whoever sends them). Widening this to `*` hands any App that can label an
+#   issue a prompt-controlled agent run, which on a public repo is a hole.
 # Note: labels applied BY these runs do not emit trigger events (GitHub
 # anti-recursion), which is why planner->architect is chained in-run, the
 # release batch is fanned out through a job matrix, and review/qa runs are
@@ -79,6 +90,11 @@ on:
         required: false
         type: string
         default: ""
+      allowed_bots:
+        description: "Bot actors whose events may start a role (claude-code-action `allowed_bots`). Defaults to the factory's own App; `*` allows every bot and is unsafe on a public repo."
+        required: false
+        type: string
+        default: "claude"
 
 permissions:
   contents: write
@@ -815,6 +831,13 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The factory files its own issues (a fast-track fix a role split out
+          # of the issue it was working on, a release tracker), and the router
+          # decides whether one is worth a run. claude-code-action refuses any
+          # non-human actor unless it is listed here, so without this the
+          # router's decision never reached the agent: the job died at
+          # "Workflow initiated by non-human actor". See the routing note above.
+          allowed_bots: ${{ inputs.allowed_bots }}
           prompt: |
             You are running the "${{ needs.route.outputs.role }}" role of the
             Software Factory inside GitHub Actions, on repository
@@ -1127,6 +1150,8 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Events the factory itself raised reach a role - see the agent job.
+          allowed_bots: ${{ inputs.allowed_bots }}
           prompt: |
             You are running the "intake" role of the Software Factory inside
             GitHub Actions, on repository ${{ github.repository }}. This issue
@@ -1282,6 +1307,8 @@ jobs:
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Events the factory itself raised reach a role - see the agent job.
+          allowed_bots: ${{ inputs.allowed_bots }}
           prompt: |
             You are running the "architect" role of the Software Factory inside
             GitHub Actions (chained after the planner), on repository
