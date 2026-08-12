@@ -53,6 +53,12 @@ This installs the `/opsx:*` commands and skills the factory's intake,
 implementer and ops roles depend on. OpenSpec is not vendored in this repo —
 it's a separate dependency, installed once per consuming repo.
 
+Using the [Factory Console](https://github.com/genai-jerry/software-factory-view)?
+Its onboarding page has an **Install** button for this step: the Console's
+worker runs the same pinned CLI and pushes the scaffold onto the enablement
+branch, so it lands in the same human-merged PR as the workflow stubs — no
+local checkout needed.
+
 ## 3. Write the repo profile
 
 ```bash
