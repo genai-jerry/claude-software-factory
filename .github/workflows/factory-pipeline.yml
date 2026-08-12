@@ -144,6 +144,16 @@ jobs:
             const FAST_TRACK = 'factory:fast-track';
             const FAST_TRACK_DONE = '<!-- factory-fast-track-done -->';
 
+            // The repo profile (§2c). Another KIND marker: it says "this issue
+            // is the home of this repo's .factory/profile.json", not a place in
+            // the pipeline. Its issue is a singleton — one per repo, reused —
+            // because the Profiler is maintenance, not a piece of work: every
+            // draft and every drift check belongs in the same thread, where the
+            // history of what the factory believes about this repo can be read
+            // in one place.
+            const PROFILE_KIND = 'factory:profile';
+            const PROFILE_TITLE = 'Factory: repo profile';
+
             // "A GitHub Action is working on this issue right now." Applied by
             // the agent jobs when they start and removed when they finish, so
             // it is a marker like factory:blocked, not a pipeline state — every
@@ -192,7 +202,8 @@ jobs:
             // Kind markers, factory:blocked and factory:in-progress are
             // orthogonal to the state.
             const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') &&
-                                              !ORTHOGONAL.includes(n) && n !== RELEASE_KIND && n !== FAST_TRACK)
+                                              !ORTHOGONAL.includes(n) && n !== RELEASE_KIND && n !== FAST_TRACK &&
+                                              n !== PROFILE_KIND)
                                       .join(', ') || 'no factory:* state label';
 
             // Release trackers are found by label + title, never by search:
@@ -242,6 +253,46 @@ jobs:
                 ].join('\n'),
               });
               core.info(`Created release tracker #${data.number} for milestone ${milestone.number}`);
+              return data;
+            };
+
+            // The profile issue, found the same way and for the same reason as
+            // a release tracker: by label, never by search.
+            const profileIssue = async () => {
+              const found = await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, labels: PROFILE_KIND, state: 'all', per_page: 100,
+              });
+              return found.find(x => !x.pull_request) || null;
+            };
+            const ensureProfileIssue = async () => {
+              const existing = await profileIssue();
+              if (existing) {
+                // Reopen rather than file a second one: this thread is where
+                // the previous drafts and their evidence live.
+                if (existing.state === 'closed') {
+                  await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'open' })
+                    .catch(() => {});
+                }
+                return existing;
+              }
+              const { data } = await github.rest.issues.create({
+                owner, repo,
+                title: PROFILE_TITLE,
+                labels: [PROFILE_KIND],
+                body: [
+                  'Home of this repository\'s `.factory/profile.json` (FACTORY.md §2c) — the stack facts',
+                  'every factory role treats as authoritative for this repo.',
+                  '',
+                  'The **Profiler** posts here whenever it drafts or re-checks the profile, and opens a PR',
+                  'when something it verified disagrees with the file. Nothing is applied without that PR',
+                  'being merged by a human.',
+                  '',
+                  `To re-run it: remove and re-apply the \`${PROFILE_KIND}\` label on this issue.`,
+                  '',
+                  '<!-- factory-agent -->',
+                ].join('\n'),
+              });
+              core.info(`Created the profile issue #${data.number}`);
               return data;
             };
 
@@ -495,6 +546,13 @@ jobs:
                   // intake, no gates — the Fast-Track role implements it now.
                   role = 'fasttrack';
                   core.info('Filed as factory:fast-track - running the fast lane');
+                } else if (labels.includes(PROFILE_KIND)) {
+                  // Filed with the profile label — this is the Console's setup
+                  // step, or a human asking for a profile by hand. Routing it
+                  // here means one API call files it and starts the Profiler;
+                  // labels set at creation emit no `labeled` event of their own.
+                  role = 'profiler';
+                  core.info('Filed as factory:profile - drafting the repo profile');
                 } else if (states.some(n => n !== 'factory:intake')) {
                   core.info('Issue already carries a factory state - skipping');
                 } else {
@@ -662,6 +720,14 @@ jobs:
                     await say(i.number, `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ${how}`);
                   }
                 }
+                // Re-applying the profile label is how a redraft is asked for
+                // (FACTORY.md §2c) — the Profiler removes it when it finishes,
+                // so this is a plain add rather than the remove-then-add dance
+                // the state labels need.
+                if (name === PROFILE_KIND) {
+                  role = 'profiler';
+                  core.info('factory:profile applied - running the Profiler');
+                }
                 // The fast lane. Skipping OpenSpec ceremony does not mean
                 // skipping the work: the Fast-Track role implements the change
                 // and opens a PR for human review, which is the whole point of
@@ -689,6 +755,23 @@ jobs:
                     core.info('factory:fast-track applied - running the fast lane');
                   }
                 }
+              }
+            } else if (ev === 'push') {
+              // Stack drift (§2c). The caller stub fires this only when a
+              // manifest, lockfile, CI workflow or tool config changed — the
+              // places a profile goes stale from — and only the default branch
+              // counts, since that is what every role checks out. The Profiler
+              // re-verifies and opens a PR only where it disagrees with the
+              // file, so a check that finds nothing costs one comment.
+              const ref = context.payload.ref || '';
+              const def = 'refs/heads/' + ((context.payload.repository || {}).default_branch || '');
+              if (!def || ref !== def) {
+                core.info(`Push to ${ref || '(unknown ref)'} - profile drift is only checked on the default branch`);
+              } else {
+                const prof = await ensureProfileIssue();
+                issue = String(prof.number);
+                role = 'profiler';
+                core.info(`Profile-relevant paths changed on ${ref} - re-checking on #${prof.number}`);
               }
             }
             // A matrix with no values is a workflow error, so never claim a role

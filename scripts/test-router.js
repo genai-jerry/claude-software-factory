@@ -608,6 +608,52 @@ function check(label, cond, extra) {
     }
   }
 
+  // --------------------------------------------------------------- scenario 19
+  console.log('\n19. the repo profile — drafted, re-run, and drift-checked');
+  {
+    // Filed with the label: one API call files the issue and starts the
+    // Profiler. Labels set at creation emit no `labeled` event of their own,
+    // so routing this on `opened` is what makes the single call work.
+    const w = makeWorld({ files: filesOpen,
+      issues: { 7: { number: 7, title: 'Factory: repo profile', labels: [{ name: 'factory:profile' }],
+                     user: { type: 'User' }, milestone: null } } });
+    const out = await run(routeSrc, { world: w, context: ctx('issues', { action: 'opened', issue: w.state.issues[7] }) });
+    check('role=profiler', out.role === 'profiler', out);
+    check('never enters intake', !w.state.issues[7].labels.some(l => l.name === 'factory:intake'), w.state.log);
+
+    // Re-applying the label is how a redraft is asked for.
+    const w2 = makeWorld({ files: filesOpen,
+      issues: { 7: { number: 7, title: 'Factory: repo profile', labels: [{ name: 'factory:profile' }],
+                     user: { type: 'User' }, milestone: null } } });
+    const out2 = await run(routeSrc, { world: w2, context: ctx('issues',
+      { action: 'labeled', issue: w2.state.issues[7], label: { name: 'factory:profile' }, sender: { login: 'dev' } }) });
+    check('re-applying the label re-runs it', out2.role === 'profiler', out2);
+
+    // Drift: a manifest changed on the default branch. The push carries no
+    // issue, so the router finds or files the singleton profile issue — the
+    // agent job's matrix would be empty otherwise and the role would drop.
+    const w3 = makeWorld({ files: filesOpen, issues: {} });
+    const out3 = await run(routeSrc, { world: w3, context: ctx('push',
+      { ref: 'refs/heads/main', repository: { default_branch: 'main' } }) });
+    check('role=profiler', out3.role === 'profiler', out3);
+    check('files the profile issue to run against', out3.issues === '["1"]', { out: out3, log: w3.state.log });
+    check('labels it factory:profile', (w3.state.created[0] || {}).labels.some(l => l.name === 'factory:profile'),
+      w3.state.created);
+
+    // ...and reuses it next time rather than filing a second.
+    const out4 = await run(routeSrc, { world: w3, context: ctx('push',
+      { ref: 'refs/heads/main', repository: { default_branch: 'main' } }) });
+    check('reuses the same issue', out4.issues === '["1"]', out4);
+    check('filed exactly one', w3.state.created.length === 1, w3.state.created.map(i => i.number));
+
+    // A push to any other branch is not the code the roles check out.
+    const w5 = makeWorld({ files: filesOpen, issues: {} });
+    const out5 = await run(routeSrc, { world: w5, context: ctx('push',
+      { ref: 'refs/heads/feature-x', repository: { default_branch: 'main' } }) });
+    check('non-default branch routes nowhere', out5.role === 'none', out5);
+    check('and files nothing', w5.state.created.length === 0, w5.state.created);
+  }
+
   console.log(failures ? `\n${failures} FAILURE(S)` : '\nall scenarios pass');
   process.exit(failures ? 1 : 0);
 })();

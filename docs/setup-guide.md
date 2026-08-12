@@ -30,11 +30,12 @@ GITHUB_TOKEN=<token> bash scripts/setup-labels.sh <owner> <repo>
 ```
 
 Run from a checkout of **this** repo (`claude-software-factory`), pointed at
-the *consuming* repo via `<owner> <repo>`. It creates (or updates) the 20
-labels listed in FACTORY.md §3 — the mutually-exclusive states plus the two
-markers that sit alongside them: `factory:release` on release tracker issues,
-and `factory:in-progress`, which the pipeline puts on an issue for as long as
-an agent run is executing against it. Safe to re-run — existing labels are
+the *consuming* repo via `<owner> <repo>`. It creates (or updates) the 21
+labels listed in FACTORY.md §3 — the mutually-exclusive states plus the markers
+that sit alongside them: `factory:release` on release tracker issues,
+`factory:profile` on the repo's profile issue, and `factory:in-progress`, which
+the pipeline puts on an issue for as long as an agent run is executing against
+it. Safe to re-run — existing labels are
 patched in place, not duplicated. Pass multiple `<repo>` arguments to label
 several repos in one estate at once.
 
@@ -60,6 +61,18 @@ branch, so it lands in the same human-merged PR as the workflow stubs — no
 local checkout needed.
 
 ## 3. Write the repo profile
+
+Two ways in. **Let the Profiler draft it** — file an issue labelled
+`factory:profile` (the [Factory Console](https://github.com/genai-jerry/software-factory-view)
+has a button for it on the onboarding page) and the role runs in *your* Actions,
+reads the code, runs your test/build/lint commands to check they work, and opens
+a PR with its evidence field by field. You review and merge. Nothing outside
+your repo reads the source to do it, and after that a push touching a manifest,
+lockfile, CI workflow or tool config re-checks the profile against the new
+commit. This needs steps 1, 2 and 4 done first — the stub has to be on the
+default branch before any workflow can fire.
+
+**Or write it by hand:**
 
 ```bash
 mkdir -p .factory
@@ -259,7 +272,7 @@ controls then become defence-in-depth rather than the primary enforcement.
 Everything a consuming repo holds, once setup is done:
 
 ```
-.factory/profile.json                        # step 3 — the only genuinely-yours file
+.factory/profile.json                        # step 3 — the only genuinely-yours file (Profiler drafts it)
 .github/workflows/factory-pipeline.yml        # step 4
 .github/workflows/factory-branch-guard.yml    # step 4
 .github/factory-models.json                   # step 4
