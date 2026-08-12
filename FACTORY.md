@@ -10,7 +10,7 @@ codebase lives in that repo's `.factory/profile.json` (§2c) — never in these
 prompts. An estate of N repositories runs N profiles and one copy of this
 document.
 
-**How it reaches your repos:** this file, the eleven role prompts, and the
+**How it reaches your repos:** this file, the twelve role prompts, and the
 protected-branch hook ship as the `factory` Claude Code plugin; the pipeline
 ships as reusable GitHub Actions workflows. A consuming repo holds eight files,
 none of them logic. See §10.
@@ -54,8 +54,12 @@ ready-for-review PR in a single run — no proposal, no `tasks.md`, no `design.m
 and no gate but G3, the human merge. It is the whole pipeline for changes too
 small to be worth the ceremony (§5).
 
+One more role sits outside the pipeline entirely: `/factory:profiler` writes and
+maintains `.factory/profile.json` (§2c), the file the stage roles above depend
+on. It is setup and upkeep, not delivery — it never touches an epic.
+
 Role prompts are supplied by the `factory` plugin, so every repo runs the
-**same eleven prompts** — there is no per-repo copy to drift. Stack-specific
+**same twelve prompts** — there is no per-repo copy to drift. Stack-specific
 knowledge lives in each repo's `.factory/profile.json` (§2c), which the
 implementer, reviewer, qa, release and ops roles load at the start of every
 run. In a multi-repo estate, nominate one **coordination repo** (the one that
@@ -72,6 +76,8 @@ events, so **filing a plain issue is all a requester does**:
 | Any issue opened (human-authored, not `task(...)`, no factory state yet) | Auto-applies `factory:intake`, then runs the **Intake Analyst** — unless release gating is on (§2d), in which case the issue is parked in `factory:backlog` |
 | A milestone is created, or an issue is added to one (release gating on) | A `release(<milestone>)` **tracker issue** is opened if the milestone has none |
 | `factory:fast-track` applied (or an issue filed with it) | **Fast-Track** — implements the change, runs the repo's tests, and opens a PR for human review. No intake, spec, design or gates |
+| An issue filed with `factory:profile`, or that label applied | **Profiler** — drafts or corrects `.factory/profile.json` from the code in your own runner and opens a PR (§2c) |
+| A push to the default branch touching a manifest, lockfile, CI workflow or tool config | **Profiler** — re-verifies the profile against the new commit, opening a PR only where it disagrees (§2c) |
 | Owner/collaborator comments exactly `Plan release` on a release tracker | **Scrum Master** — reads the whole milestone and posts the release plan |
 | `factory:release-approved` on a tracker (gate G0) | Every `factory:backlog` issue in that milestone is moved to `factory:intake` and its **Intake Analyst** runs, all in the same run |
 | Human applies `factory:spec-approved` (gate G1) | **Planner**, then **Architect** chained in the same run |
@@ -145,6 +151,7 @@ gracefully instead of failing the run. Missing roles fall back to
 | scrum, intake, planner, architect, reviewer | `claude-fable-5` → `claude-opus-5` → `claude-sonnet-5` | Errors here compound downstream: a wrong release scope, spec, plan or design — or a missed review defect — costs far more than the model delta |
 | implementer, qa, release | `claude-opus-5` → `claude-sonnet-5` | Strong coding/testing quality on the volume stages, guardrailed by the merged design.md and spec scenarios |
 | dispatch, ops | `claude-haiku-4-5-20251001` → `claude-sonnet-5` | Mechanical label routing and health-check verification |
+| profiler | `claude-opus-5` → `claude-sonnet-5` | Reads a whole unfamiliar codebase and writes what every other role then treats as true |
 
 To retune: edit the JSON, merge — next runs pick it up. A `::warning::` line
 in the run log shows every fallback taken; if the whole chain is inaccessible
@@ -183,7 +190,31 @@ Schema: `templates/profile.schema.json`. Worked example:
 
 To change how the factory codes in a repo, edit its profile — not the prompts.
 This is also what makes the factory portable: pointing it at a new project is
-writing one profile, not rewriting eleven prompts.
+writing one profile, not rewriting twelve prompts.
+
+### Who writes it
+
+The **Profiler** (`commands/profiler.md`), on an issue labelled
+`factory:profile`. It is the only role that does not read the profile first —
+it is the one that writes it. It runs in the repo's own Actions runner, where
+the code already is, so nothing outside the repo has to read the source to
+produce a profile.
+
+It records only what it verified in that run: every command in `commands` is a
+command it executed, a suite that fails on a clean checkout becomes a `gotcha`
+rather than a silence, and the PR body cites the evidence field by field. It
+proposes; a human merges. That merge is where the repo's owner agrees to what
+the factory will treat as true from then on.
+
+| Trigger | What it does |
+|---|---|
+| An issue filed with `factory:profile` (the Factory Console's profile step files it for you), or the label re-applied | Draft the profile, or correct the one that is there |
+| A push to the default branch touching a manifest, lockfile, CI workflow or tool config — the `paths:` list in the caller stub | Re-verify it against the new commit |
+
+Both land on the same singleton issue, so what the factory believes about this
+repo — and how that changed — reads in one thread. A run that finds nothing to
+change says so in one comment and opens no PR: a maintenance check that PRs on
+every push gets muted, and then it protects nothing.
 
 ## 2b. Approvers and notifications
 
@@ -278,10 +309,11 @@ low, and leave it on `"human"` when it is not.
 ## 3. Label state machine
 
 State labels are mutually exclusive; exactly one `factory:*` state label per
-issue at a time. Three labels are not states and sit alongside one:
+issue at a time. Four labels are not states and sit alongside one:
 `factory:release` (a *kind* marker identifying a release tracker, which also
-carries one `factory:release-*` state), `factory:in-progress` (a run is live on
-this issue right now) and `factory:blocked` (halted, whatever the state).
+carries one `factory:release-*` state), `factory:profile` (a *kind* marker
+identifying the repo's profile issue, §2c), `factory:in-progress` (a run is live
+on this issue right now) and `factory:blocked` (halted, whatever the state).
 Create them with `scripts/setup-labels.sh`.
 
 | Label | Meaning | Set by | Advanced by |
@@ -303,6 +335,7 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:ready-to-ship` | Awaiting merge order & **gate G3** | QA | Release → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
 | `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
+| `factory:profile` | *Kind:* this issue is the home of `.factory/profile.json` (§2c) | Factory Console's profile step, or a human | Profiler removes it when it finishes; re-apply to re-run |
 | `factory:in-progress` | *Marker:* a factory agent run is live on this issue right now | Pipeline, when an agent job starts | Pipeline, when that job ends (always, including failure and timeout) |
 | `factory:blocked` | Needs human attention | Any agent | Human |
 | `factory:incident` | Post-deploy regression | Ops Monitor | Human + Release (rollback) |
@@ -440,7 +473,7 @@ on and this section becomes defence-in-depth rather than the primary control.
    point (§10); the `factory:intake` label it applies only starts the pipeline
    once the labels step below has run.
 2. **Labels** — `GITHUB_TOKEN=... bash scripts/setup-labels.sh <owner> <repo...>`
-   creates the 19 `factory:*` labels (§3). Run it once per repo.
+   creates the 21 `factory:*` labels (§3). Run it once per repo.
 3. **Secrets** — add `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN` as a
    **repository** secret (Settings → Secrets and variables → Actions).
    Environment secrets do *not* reach jobs that don't declare `environment:`,
@@ -449,10 +482,13 @@ on and this section becomes defence-in-depth rather than the primary control.
 4. **OpenSpec** — `npx -y @fission-ai/openspec@latest init --tools claude`
    (needs Node 20.19+). This installs the `/opsx:*` commands and their skills;
    the factory depends on them but does not vendor them.
-5. **Profile** — write `.factory/profile.json` (§2c). Start from
-   `templates/profile.example.json`; validate against
-   `templates/profile.schema.json`. This is the only file whose contents are
-   genuinely yours to author.
+5. **Profile** — `.factory/profile.json` (§2c). Easiest path: file an issue
+   labelled `factory:profile` (the Factory Console does this for you) and the
+   **Profiler** drafts it from the code in your own runner, then opens a PR for
+   you to check and merge. To write it by hand instead, start from
+   `templates/profile.example.json` and validate against
+   `templates/profile.schema.json`. Either way the contents are yours: the
+   Profiler proposes, a human merges.
 6. **Releases (optional)** — copy `templates/factory-release.json` to
    `.github/factory-release.json` to gate intake behind milestones (§2d), and
    add a `release_scope` list to `.github/factory-approvers.json`. Leave the
@@ -470,7 +506,7 @@ plugin cannot deliver them.
 
 | Channel | Delivers | Mechanism |
 |---|---|---|
-| Claude Code plugin `factory` | the 11 role prompts, this handbook, the protected-branch hook | marketplace install, or `--plugin-dir` for local development |
+| Claude Code plugin `factory` | the 12 role prompts, this handbook, the protected-branch hook | marketplace install, or `--plugin-dir` for local development |
 | Reusable GitHub Actions workflows | the pipeline, the test harness, the branch guard | `uses: <owner>/claude-software-factory/.github/workflows/<file>@v1` |
 
 Both channels serve the same files from the same tagged commit. In CI the

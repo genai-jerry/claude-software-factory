@@ -10,6 +10,31 @@ on:
     types: [created]
   milestone:
     types: [created, opened]
+  # Profile drift (§2c). These are the paths a repo's stack facts go stale
+  # from — the commands, the toolchain, the branch layout. A push that touches
+  # one re-runs the Profiler, which opens a PR only where it disagrees with
+  # .factory/profile.json. Nothing else in the pipeline routes on push, and the
+  # router ignores pushes to any branch but the default one. Add the manifests
+  # your stack actually uses; an unmatched path costs nothing but a missed check.
+  push:
+    paths:
+      - "package.json"
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+      - "package-lock.json"
+      - "yarn.lock"
+      - "pyproject.toml"
+      - "requirements*.txt"
+      - "go.mod"
+      - "Cargo.toml"
+      - "pom.xml"
+      - "build.gradle*"
+      - "Gemfile"
+      - "composer.json"
+      - "Makefile"
+      - "Dockerfile"
+      - "docker-compose*.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
     inputs:
       issue_number:
@@ -19,12 +44,14 @@ on:
         description: "Factory role to run"
         required: true
         type: choice
-        options: [scrum, intake, fasttrack, planner, architect, dispatch, implementer, reviewer, qa, release, ops]
+        options: [scrum, intake, fasttrack, planner, architect, dispatch, implementer, reviewer, qa, release, ops, profiler]
 
 concurrency:
   # Milestone events carry no issue number; they get their own lane so a
-  # milestone created while an issue is mid-run does not queue behind it.
-  group: factory-${{ github.event.issue.number || inputs.issue_number || format('ms{0}', github.event.milestone.number) }}
+  # milestone created while an issue is mid-run does not queue behind it. Push
+  # (profile drift) carries neither, and gets a third lane rather than sharing
+  # the milestone one — a profile check must not queue behind a release.
+  group: factory-${{ github.event.issue.number || inputs.issue_number || (github.event.milestone.number && format('ms{0}', github.event.milestone.number)) || 'profile' }}
   cancel-in-progress: false
 
 permissions:

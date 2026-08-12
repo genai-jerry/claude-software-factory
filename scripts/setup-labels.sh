@@ -41,6 +41,7 @@ factory:in-test|D4A017|QA verifying WHEN/THEN scenarios
 factory:ready-to-ship|6AA84F|Green + approved; awaiting merge order and gate G3
 factory:deployed|0B8043|In production; soak in progress
 factory:fast-track|8C8C8C|Small change: Fast-Track implements it and opens a PR
+factory:profile|5A4A7A|Repo profile issue: the Profiler drafts and re-checks .factory/profile.json (kind, not a state)
 factory:in-progress|1F6FEB|A factory agent run is live on this issue right now
 factory:blocked|A63D40|Factory flow needs human attention
 factory:incident|7A1F1F|Post-deploy regression under investigation
