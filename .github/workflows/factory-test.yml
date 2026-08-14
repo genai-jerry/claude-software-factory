@@ -26,6 +26,13 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      FACTORY_CROSS_REPO_TOKEN:
+        required: false
 
 permissions:
   contents: write
@@ -53,9 +60,12 @@ jobs:
     steps:
       - name: Require Anthropic credentials
         env:
-          HAS_CREDS: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          if [ "$HAS_CREDS" != "true" ]; then
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) as a REPOSITORY secret (Settings -> Secrets and variables -> Actions)."
             exit 1
           fi
@@ -136,6 +146,8 @@ jobs:
             printf '\n\n===== ROLE INSTRUCTIONS (%s) =====\n\n' "$ROLE"
             cat "$ROLE_FILE"
           } > "$RUNNER_TEMP/prompt.md"
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
           CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
           echo "Preference chain for $ROLE: $CHAIN"
           MODEL=""

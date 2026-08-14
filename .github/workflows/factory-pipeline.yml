@@ -4,12 +4,18 @@ name: Factory pipeline (reusable)
 # ~15-line caller stub that owns the triggers and calls this workflow; see
 # templates/workflows/factory-pipeline.yml.
 #
-# Because this is called with `secrets: inherit`, `github.*` and
+# Because this is called from a consuming repo, `github.*` and
 # `context.payload` refer to the CALLER's repository and event throughout — the
 # checkout below is the caller's repo, and .github/factory-{models,approvers,release}.json
 # are read from it. Role definitions come from this repo, cloned at `factory_ref`
 # into RUNNER_TEMP (never the workspace, so an agent's `git add` cannot sweep
 # them into a PR) and injected into the prompt directly.
+#
+# Caller secrets must be passed by name, not `secrets: inherit`. Inherit only
+# forwards secrets when the caller and this workflow are in the same GitHub
+# Organisation or Enterprise; a SaaS factory is called from other accounts, so
+# inherit leaves ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN empty and the
+# agent job fails at "Require Anthropic credentials".
 #
 # Behaviour:
 # - Release gating (.github/factory-release.json, FACTORY.md §2d). With
@@ -95,6 +101,13 @@ on:
         required: false
         type: string
         default: "claude"
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      FACTORY_CROSS_REPO_TOKEN:
+        required: false
 
 permissions:
   contents: write
@@ -802,9 +815,12 @@ jobs:
     steps:
       - name: Require Anthropic credentials
         env:
-          HAS_CREDS: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          if [ "$HAS_CREDS" != "true" ]; then
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) to this repo's Actions secrets (Settings -> Secrets and variables -> Actions) to run factory agents."
             exit 1
           fi
@@ -891,6 +907,8 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ROLE: ${{ needs.route.outputs.role }}
         run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
           CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
           echo "Preference chain for $ROLE: $CHAIN"
           MODEL=""
@@ -1150,9 +1168,12 @@ jobs:
     steps:
       - name: Require Anthropic credentials
         env:
-          HAS_CREDS: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          if [ "$HAS_CREDS" != "true" ]; then
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) to this repo's Actions secrets (Settings -> Secrets and variables -> Actions) to run factory agents."
             exit 1
           fi
@@ -1210,6 +1231,8 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ROLE: intake
         run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
           CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
           echo "Preference chain for $ROLE: $CHAIN"
           MODEL=""
@@ -1366,6 +1389,8 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ROLE: architect
         run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
           CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
           echo "Preference chain for $ROLE: $CHAIN"
           MODEL=""

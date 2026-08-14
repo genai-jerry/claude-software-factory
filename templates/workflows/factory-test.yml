@@ -25,7 +25,10 @@ permissions:
 jobs:
   harness:
     uses: genai-jerry/claude-software-factory/.github/workflows/factory-test.yml@v1
-    secrets: inherit
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      FACTORY_CROSS_REPO_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN }}
     with:
       dev_branch: <dev-branch>
       factory_ref: v1
