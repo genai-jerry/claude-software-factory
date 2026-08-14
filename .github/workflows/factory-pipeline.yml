@@ -92,7 +92,7 @@ on:
         type: string
         default: "v1"
       factory_repo:
-        description: "owner/repo publishing the factory. Defaults to <caller owner>/claude-software-factory."
+        description: "owner/repo publishing the factory. Defaults to this reusable workflow's repository (from github.workflow_ref), not the caller. Required when the uses: repo is not named claude-software-factory under the caller's account."
         required: false
         type: string
         default: ""
@@ -856,14 +856,23 @@ jobs:
       - name: Load factory role definition
         id: roledef
         env:
-          FACTORY_REPO: ${{ inputs.factory_repo || format('{0}/claude-software-factory', github.repository_owner) }}
+          FACTORY_REPO_INPUT: ${{ inputs.factory_repo }}
           FACTORY_REF: ${{ inputs.factory_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
           ROLE: ${{ needs.route.outputs.role }}
         run: |
           # Cloned outside the workspace on purpose: an agent running `git add -A`
           # in the repo must not be able to sweep the factory into its PR.
-          git clone --depth 1 --branch "$FACTORY_REF" \
-            "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"
+          FACTORY_REPO="${FACTORY_REPO_INPUT:-}"
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(printf '%s' "$WORKFLOW_REF" | cut -d/ -f1-2)
+          fi
+          echo "Cloning factory $FACTORY_REPO@$FACTORY_REF"
+          if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$FACTORY_REF" \
+              "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"; then
+            echo "::error::Could not clone https://github.com/$FACTORY_REPO (ref $FACTORY_REF). Pass factory_repo on the caller stub — the same owner/repo as the uses: line. A missing repository looks like: fatal: could not read Username for 'https://github.com'."
+            exit 1
+          fi
           ROLE_FILE="$RUNNER_TEMP/factory/commands/$ROLE.md"
           if [ ! -f "$ROLE_FILE" ]; then
             echo "::error::No role definition '$ROLE' in $FACTORY_REPO@$FACTORY_REF"
@@ -1200,11 +1209,20 @@ jobs:
       - name: Load factory role definition
         id: roledef
         env:
-          FACTORY_REPO: ${{ inputs.factory_repo || format('{0}/claude-software-factory', github.repository_owner) }}
+          FACTORY_REPO_INPUT: ${{ inputs.factory_repo }}
           FACTORY_REF: ${{ inputs.factory_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
-          git clone --depth 1 --branch "$FACTORY_REF" \
-            "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"
+          FACTORY_REPO="${FACTORY_REPO_INPUT:-}"
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(printf '%s' "$WORKFLOW_REF" | cut -d/ -f1-2)
+          fi
+          echo "Cloning factory $FACTORY_REPO@$FACTORY_REF"
+          if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$FACTORY_REF" \
+              "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"; then
+            echo "::error::Could not clone https://github.com/$FACTORY_REPO (ref $FACTORY_REF). Pass factory_repo on the caller stub — the same owner/repo as the uses: line. A missing repository looks like: fatal: could not read Username for 'https://github.com'."
+            exit 1
+          fi
           {
             echo 'text<<FACTORY_DEF_EOF'
             cat "$RUNNER_TEMP/factory/FACTORY.md"
@@ -1366,11 +1384,20 @@ jobs:
         if: steps.gate.outputs.proceed == 'true'
         id: roledef
         env:
-          FACTORY_REPO: ${{ inputs.factory_repo || format('{0}/claude-software-factory', github.repository_owner) }}
+          FACTORY_REPO_INPUT: ${{ inputs.factory_repo }}
           FACTORY_REF: ${{ inputs.factory_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
-          git clone --depth 1 --branch "$FACTORY_REF" \
-            "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"
+          FACTORY_REPO="${FACTORY_REPO_INPUT:-}"
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(printf '%s' "$WORKFLOW_REF" | cut -d/ -f1-2)
+          fi
+          echo "Cloning factory $FACTORY_REPO@$FACTORY_REF"
+          if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$FACTORY_REF" \
+              "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"; then
+            echo "::error::Could not clone https://github.com/$FACTORY_REPO (ref $FACTORY_REF). Pass factory_repo on the caller stub — the same owner/repo as the uses: line. A missing repository looks like: fatal: could not read Username for 'https://github.com'."
+            exit 1
+          fi
           {
             echo 'text<<FACTORY_DEF_EOF'
             cat "$RUNNER_TEMP/factory/FACTORY.md"

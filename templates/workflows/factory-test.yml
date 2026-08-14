@@ -32,3 +32,4 @@ jobs:
     with:
       dev_branch: <dev-branch>
       factory_ref: v1
+      factory_repo: genai-jerry/claude-software-factory

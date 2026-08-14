@@ -71,6 +71,7 @@ jobs:
       role: ${{ inputs.role }}
       issue_number: ${{ inputs.issue_number }}
       factory_ref: v1
+      factory_repo: genai-jerry/claude-software-factory
       # Bot actors allowed to start a role. The default (`claude`) lets the
       # factory act on issues it filed itself on a human's behalf. Set it only
       # if your factory runs under a differently-named GitHub App; `*` allows
