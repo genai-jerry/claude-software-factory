@@ -934,6 +934,7 @@ jobs:
           fi
           echo "model=$MODEL" >> "$GITHUB_OUTPUT"
       - name: Run factory role
+        if: github.event_name != 'push'
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
@@ -1001,6 +1002,76 @@ jobs:
             --max-turns 50
             --model ${{ steps.model.outputs.model }}
             --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Run factory role (push)
+        # claude-code-action@v1 rejects push ("Unsupported event type: push").
+        # Profile drift is a push trigger, so the Profiler never reaches the
+        # agent unless this path runs. Same CLI invocation as factory-test.yml.
+        if: github.event_name == 'push'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          OPENSPEC_TELEMETRY: "0"
+          ROLE: ${{ needs.route.outputs.role }}
+          ISSUE: ${{ matrix.issue }}
+          MODEL: ${{ steps.model.outputs.model }}
+        run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          {
+            cat <<PROMPT
+          You are running the "$ROLE" role of the
+          Software Factory inside GitHub Actions, on repository
+          $GITHUB_REPOSITORY.
+
+          The factory handbook and your role instructions follow verbatim
+          below. Execute the role instructions, treating number
+          $ISSUE as the issue/PR argument
+          (\$ARGUMENTS).
+
+          Repo-specific facts (stack, test/build commands, conventions) live
+          in .factory/profile.json in the checked-out repository — your role
+          instructions tell you when to read it.
+
+          Operating rules:
+          - Use the gh CLI for GitHub operations (labels, comments, PRs); GH_TOKEN is set.
+          - HARD RULES: never push to main or master; never merge a pull request;
+            perform exactly one factory role in this run.
+          - End EVERY comment you post on an issue or PR with a line containing
+            exactly: <!-- factory-agent -->
+            (it stops your own comments from re-triggering the pipeline).
+          - The pipeline puts \`factory:in-progress\` on your issue for the
+            lifetime of this run and takes it off when the run ends. It is a
+            marker, not a pipeline state: ignore it when you read the issue's
+            labels, and never add or remove it yourself.
+
+          Cross-repo epics: if the change folder lists other repos in this
+          estate and GH_TOKEN has cross-repo access (FACTORY_CROSS_REPO_TOKEN
+          secret), operate on them with the gh CLI —
+          \`gh repo clone ${GITHUB_REPOSITORY_OWNER}/<repo> /tmp/<repo>\` — and
+          create sub-issues, push factory branches and open PRs there as the role
+          requires (never to main/master). If the role needs cross-repo access and the
+          token cannot reach the other repo, comment on the epic that the
+          FACTORY_CROSS_REPO_TOKEN secret is required and apply factory:blocked.
+
+          Note on triggering: with the default workflow token, label changes you make
+          do NOT emit trigger events (GitHub anti-recursion); with the
+          FACTORY_CROSS_REPO_TOKEN PAT they DO. Either way: apply exactly the state
+          labels your role instructions specify — never extra ones — and let the
+          pipeline's own routing decide what runs next.
+
+          ===== FACTORY HANDBOOK =====
+
+          PROMPT
+            cat "$RUNNER_TEMP/factory/FACTORY.md"
+            printf '\n\n===== ROLE INSTRUCTIONS (%s) =====\n\n' "$ROLE"
+            cat "$RUNNER_TEMP/factory/commands/$ROLE.md"
+          } > "$RUNNER_TEMP/prompt.md"
+          claude -p "$(cat "$RUNNER_TEMP/prompt.md")" \
+            --model "$MODEL" \
+            --max-turns 50 \
+            --permission-mode acceptEdits \
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
       - name: Verify the role changed something (no-op guard)
         if: steps.before.outputs.skip != 'true'
