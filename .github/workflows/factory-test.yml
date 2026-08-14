@@ -22,10 +22,17 @@ on:
         type: string
         default: "v1"
       factory_repo:
-        description: "owner/repo publishing the factory. Defaults to <caller owner>/claude-software-factory."
+        description: "owner/repo publishing the factory. Defaults to this reusable workflow's repository (from github.workflow_ref), not the caller."
         required: false
         type: string
         default: ""
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      FACTORY_CROSS_REPO_TOKEN:
+        required: false
 
 permissions:
   contents: write
@@ -53,9 +60,12 @@ jobs:
     steps:
       - name: Require Anthropic credentials
         env:
-          HAS_CREDS: ${{ secrets.ANTHROPIC_API_KEY != '' || secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
-          if [ "$HAS_CREDS" != "true" ]; then
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
             echo "::error::Add ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN) as a REPOSITORY secret (Settings -> Secrets and variables -> Actions)."
             exit 1
           fi
@@ -94,13 +104,22 @@ jobs:
           ROLE: ${{ needs.route.outputs.role }}
           ISSUE: ${{ needs.route.outputs.issue }}
           DEV_BRANCH: ${{ inputs.dev_branch }}
-          FACTORY_REPO: ${{ inputs.factory_repo || format('{0}/claude-software-factory', github.repository_owner) }}
+          FACTORY_REPO_INPUT: ${{ inputs.factory_repo }}
           FACTORY_REF: ${{ inputs.factory_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
         run: |
           # Cloned outside the workspace on purpose: an agent running `git add -A`
           # in the repo must not be able to sweep the factory into its PR.
-          git clone --depth 1 --branch "$FACTORY_REF" \
-            "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"
+          FACTORY_REPO="${FACTORY_REPO_INPUT:-}"
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(printf '%s' "$WORKFLOW_REF" | cut -d/ -f1-2)
+          fi
+          echo "Cloning factory $FACTORY_REPO@$FACTORY_REF"
+          if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$FACTORY_REF" \
+              "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"; then
+            echo "::error::Could not clone https://github.com/$FACTORY_REPO (ref $FACTORY_REF). Pass factory_repo on the caller stub — the same owner/repo as the uses: line. A missing repository looks like: fatal: could not read Username for 'https://github.com'."
+            exit 1
+          fi
           ROLE_FILE="$RUNNER_TEMP/factory/commands/$ROLE.md"
           if [ ! -f "$ROLE_FILE" ]; then
             echo "::error::No role definition '$ROLE' in $FACTORY_REPO@$FACTORY_REF"
@@ -136,6 +155,8 @@ jobs:
             printf '\n\n===== ROLE INSTRUCTIONS (%s) =====\n\n' "$ROLE"
             cat "$ROLE_FILE"
           } > "$RUNNER_TEMP/prompt.md"
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
           CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
           echo "Preference chain for $ROLE: $CHAIN"
           MODEL=""
