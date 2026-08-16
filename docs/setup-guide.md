@@ -10,6 +10,15 @@ only covers *doing* the install. Where the two disagree, `FACTORY.md` wins.
 - A GitHub token with `repo` scope, to create labels.
 - Push access to the repo, including its Settings → Secrets page.
 - An Anthropic API key or a `claude setup-token` OAuth token.
+- The **Claude GitHub App** installed on the consuming repo:
+  <https://github.com/apps/claude>. At run time `claude-code-action` exchanges
+  the workflow's OIDC token for this App's credentials — that token is how
+  agent jobs comment on issues and open PRs. Installing the
+  `@anthropic-ai/claude-code` npm package is **not** the same thing: with the
+  App missing, every agent job dies at startup with
+  `Claude Code is not installed on this repository` even though the CLI
+  installed fine. If the App is already on the account but scoped to "Only
+  select repositories", add this repo to its repository access.
 - Decide, up front:
   - **Does this repo have a `staging` branch?** Task PRs merge to staging when
     one exists, otherwise to `default` (FACTORY.md §6).
@@ -220,6 +229,31 @@ claude --plugin-dir /path/to/claude-software-factory
 - Confirm `factory-branch-guard.yml` is enabled — it opens a
   `factory:incident` issue if a commit ever lands on `main` without a PR.
 
+### Every agent job fails with `Claude Code is not installed on this repository`
+
+```
+App token exchange failed: 401 Unauthorized - Claude Code is not installed on
+this repository. Please install the Claude Code GitHub App at
+https://github.com/apps/claude
+```
+
+The two "installs" involved are different things, and the earlier green
+`npm install -g @anthropic-ai/claude-code` step is why this one misleads: the
+npm package puts the CLI on the runner, but the failing step is
+`claude-code-action` exchanging the workflow's OIDC token for a **Claude
+GitHub App** installation token — the GitHub credential agent jobs use to
+comment on issues and open PRs. `ANTHROPIC_API_KEY` /
+`CLAUDE_CODE_OAUTH_TOKEN` don't help here either; they authenticate to
+Anthropic, not GitHub.
+
+Fix: install the App from <https://github.com/apps/claude> on the account that
+owns the consuming repo, and make sure the repo is included under the App's
+**Repository access** (Settings → Applications → Claude) — an App installed
+with "Only select repositories" silently excludes repos added later. Then
+re-run the failed workflow. Using the
+[Factory Console](https://github.com/genai-jerry/software-factory-view)? Its
+onboarding wizard has a dedicated step for this.
+
 ### A stage that "succeeds" but leaves the epic where it was
 
 The `agent` job guards against this itself. It snapshots the issue's comment
@@ -258,9 +292,10 @@ implementer). From anywhere else the router now replies saying so rather than
 finishing green and silent. Same for a reply on a `factory:blocked` issue whose
 stage has no automatic resume step.
 
-## 9. Nothing to configure on GitHub itself
+## 9. Nothing else to configure on GitHub itself
 
-Branch protection needs a paid plan on private repos, so gate G3 (humans
+Beyond installing the Claude GitHub App (see *Before you start*), GitHub's own
+settings need nothing. Branch protection needs a paid plan on private repos, so gate G3 (humans
 merge to `main` via the UI) is enforced entirely by the hook, the permission
 deny list and the branch guard from step 4 — see FACTORY.md §8a. If the repo
 later moves to a plan with branch protection or rulesets, turn them on too
