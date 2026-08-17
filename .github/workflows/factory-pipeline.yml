@@ -1117,6 +1117,27 @@ jobs:
           fi
           echo "::error::Role '$ROLE' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
           exit 1
+      - name: Report the failure on the issue
+        # A dead run is otherwise a red X on an Actions tab nobody watches: the
+        # issue thread is where the humans (and the Factory Console) already
+        # look, so a failure has to say so there. github.token on purpose — a
+        # comment from the workflow token emits no events, so this can never
+        # trigger another pipeline run; and continue-on-error because failing
+        # to report a failure must not eat the cleanup step below.
+        if: failure() && matrix.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ matrix.issue }}
+          ROLE: ${{ needs.route.outputs.role }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          BODY="⚠️ The **$ROLE** run failed before finishing — nothing was changed. [Open the run log]($RUN_URL) for the reason (missing credentials, a missing Claude GitHub App install, and tool permission denials are the usual ones). Fix the cause, then re-trigger the role.
+
+          <!-- factory-agent -->"
+          gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" \
+            -f body="$BODY" >/dev/null
+          echo "Reported the failed $ROLE run on #$ISSUE."
       - name: Clear the in-progress marker
         # always(), and last: the marker must come off when the role fails, when
         # the no-op guard fails it, and when the 45-minute timeout cancels the
