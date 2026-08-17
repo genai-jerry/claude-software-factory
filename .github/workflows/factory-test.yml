@@ -22,7 +22,7 @@ on:
         type: string
         default: "v1"
       factory_repo:
-        description: "owner/repo publishing the factory. Defaults to this reusable workflow's repository (from github.workflow_ref), not the caller."
+        description: "owner/repo publishing the factory. Defaults to the repo on the caller stub's uses: line, resolved from the run's referenced workflows (github.workflow_ref names the CALLER, so it cannot locate the factory). Pass it explicitly to override the lookup."
         required: false
         type: string
         default: ""
@@ -111,6 +111,16 @@ jobs:
           # Cloned outside the workspace on purpose: an agent running `git add -A`
           # in the repo must not be able to sweep the factory into its PR.
           FACTORY_REPO="${FACTORY_REPO_INPUT:-}"
+          if [ -z "$FACTORY_REPO" ]; then
+            # github.workflow_ref names the CALLER's workflow (a reusable
+            # workflow gets no ref of its own), so a stub that omits
+            # factory_repo used to clone the caller's own repo at v1 and die.
+            # The run's referenced workflows record the repo the uses: line
+            # actually resolved to — take the factory's owner/repo from there.
+            FACTORY_REPO=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --jq '[.referenced_workflows[]?.path | select(contains(".github/workflows/factory-test.yml"))][0] // ""' \
+              2>/dev/null | cut -d/ -f1-2)
+          fi
           if [ -z "$FACTORY_REPO" ]; then
             FACTORY_REPO=$(printf '%s' "$WORKFLOW_REF" | cut -d/ -f1-2)
           fi
