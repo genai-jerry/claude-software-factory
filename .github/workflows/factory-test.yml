@@ -181,7 +181,7 @@ jobs:
           echo "Using model: $MODEL"
           claude -p "$(cat "$RUNNER_TEMP/prompt.md")" \
             --model "$MODEL" \
-            --max-turns 50 \
+            --max-turns 100 \
             --permission-mode acceptEdits \
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
       - name: Clear the in-progress marker
