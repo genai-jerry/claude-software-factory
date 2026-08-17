@@ -1009,8 +1009,16 @@ jobs:
           # reads the repo, then silently fails to run `gh`, write files or
           # commit — the run goes green and the epic sits at its current label.
           # Keep in sync with the same list in factory-test.yml.
+          #
+          # 100 turns, not 50: roles that verify their own work by running the
+          # repo's build and test suites (profiler, implementer, qa) legitimately
+          # burn turns on it, and the action fails the job on the count even
+          # after the role delivered (a Profiler run opened its PR, posted its
+          # evidence, then went red at "successful result after 52 turns,
+          # exceeding the configured maximum of 50"). The no-op guard below is
+          # what catches runs that spend turns achieving nothing.
           claude_args: |
-            --max-turns 50
+            --max-turns 100
             --model ${{ steps.model.outputs.model }}
             --permission-mode acceptEdits
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
@@ -1081,7 +1089,7 @@ jobs:
           } > "$RUNNER_TEMP/prompt.md"
           claude -p "$(cat "$RUNNER_TEMP/prompt.md")" \
             --model "$MODEL" \
-            --max-turns 50 \
+            --max-turns 100 \
             --permission-mode acceptEdits \
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
       - name: Verify the role changed something (no-op guard)
@@ -1132,7 +1140,7 @@ jobs:
           ROLE: ${{ needs.route.outputs.role }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          BODY="⚠️ The **$ROLE** run failed before finishing — nothing was changed. [Open the run log]($RUN_URL) for the reason (missing credentials, a missing Claude GitHub App install, and tool permission denials are the usual ones). Fix the cause, then re-trigger the role.
+          BODY="⚠️ The **$ROLE** run failed — [open the run log]($RUN_URL) for the reason (missing credentials, a missing Claude GitHub App install, tool permission denials, and the turn limit are the usual ones). Work it completed before failing may still have landed — check this thread and any PR it links before re-triggering, so a re-run doesn't redo delivered work.
 
           <!-- factory-agent -->"
           gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/comments" \
@@ -1414,7 +1422,7 @@ jobs:
 
             ${{ steps.roledef.outputs.text }}
           claude_args: |
-            --max-turns 50
+            --max-turns 100
             --model ${{ steps.model.outputs.model }}
             --permission-mode acceptEdits
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
@@ -1596,7 +1604,7 @@ jobs:
           # commit — the run goes green and the epic sits at its current label.
           # Keep in sync with the same list in factory-test.yml.
           claude_args: |
-            --max-turns 50
+            --max-turns 100
             --model ${{ steps.model.outputs.model }}
             --permission-mode acceptEdits
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
