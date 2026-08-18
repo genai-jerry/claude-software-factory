@@ -32,9 +32,17 @@ Every other role reads it from a change folder, which does not exist here.
    change touches a handful of files, needs no schema migration, no new
    dependency, no new public contract (API route, exported type, config key)
    and no design decision a reviewer would want to see argued separately.
-   If it fails any of those, do **not** implement it: remove
-   `factory:fast-track`, comment naming the criterion it fails, and stop.
-   The pipeline picks it up as a normal requirement from there.
+   If it fails any of those, do **not** implement it — hand it back visibly:
+   remove `factory:fast-track`, apply `factory:blocked`, and comment naming
+   the criterion it fails, @-mentioning the issue author with the decision
+   they now own: reply on this issue to send it through the normal pipeline
+   (a human reply on a blocked issue with no other state label resumes it
+   into intake), or narrow the scope and re-apply `factory:fast-track`.
+   Never remove the label without putting `factory:blocked` in its place:
+   your own label changes emit no trigger events, so nothing picks the issue
+   up on its own — and an issue with no `factory:*` label at all is invisible
+   to the pipeline and to the Factory Console. It does not re-enter the
+   pipeline; it disappears.
    Being wrong in this direction is cheap; a fast-tracked schema change is
    not.
 3. Branch `factory/<issue-number>-<slug>` from `branches.default`.
@@ -74,7 +82,11 @@ Every other role reads it from a change folder, which does not exist here.
   `design.md`. If the change needs one, it is not a fast-track (step 2).
 - Do not apply pipeline state labels (`factory:intake`, `factory:spec-ready`,
   …). This issue is not in the pipeline. `factory:fast-track` stays on it, and
-  the PR closing the issue is what ends its life.
+  the PR closing the issue is what ends its life. `factory:blocked` is the one
+  exception — it is orthogonal to the pipeline states, and it is how this lane
+  hands an issue back to a human (step 2, and the failed-build guardrail
+  below): whatever the reason you stop without a PR, the issue must end the
+  run carrying a `factory:*` label someone will see.
 - If the tests or build fail for a reason you cannot fix inside the size
   budget from step 2: push nothing, comment with what failed and what you
   tried, apply `factory:blocked`, and stop. A red PR is worse than no PR.

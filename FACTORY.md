@@ -376,9 +376,13 @@ by doing the work manually and setting the next label.
   runs the repo's test and build commands, and opens a ready-for-review PR in
   one run. No change folder, no sub-issues, no G1/G2; the human merge (G3) is
   the only gate left. The role sizes the issue before writing any code and
-  hands it back to the normal pipeline — removing the label, saying why — when
-  it needs a migration, a new dependency, a new public contract, or a design
-  decision worth arguing separately.
+  hands it back — swapping the label for `factory:blocked` and saying why,
+  @-mentioning the issue author — when it needs a migration, a new dependency,
+  a new public contract, or a design decision worth arguing separately. The
+  swap matters: an agent's own label changes emit no trigger events, so a bare
+  label removal leaves an issue no role and no console will ever look at
+  again; blocked keeps it visible, and the author's reply resumes it into
+  intake.
 - **Commands (OpenSpec v1.7 core profile):** `/opsx:explore`, `/opsx:propose`,
   `/opsx:apply`, `/opsx:update`, `/opsx:sync`, `/opsx:archive`.
 - **Archive:** only the Ops Monitor archives, and only after production soak
