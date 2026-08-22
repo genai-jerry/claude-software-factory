@@ -19,6 +19,7 @@ import jsonschema
 import pytest
 
 from factory_orchestrator.router import RepoConfig, Router, release_chain
+
 from .fake_repo import FakeRepo
 
 CONF = Path(__file__).resolve().parents[1] / "conformance"

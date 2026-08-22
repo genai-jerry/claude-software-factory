@@ -76,22 +76,22 @@
 
 ## 5. Graph and role execution
 
-- [ ] 5.1 Define the `StateGraph` with per-issue `thread_id` and the
+- [x] 5.1 Define the `StateGraph` with per-issue `thread_id` and the
       Postgres checkpointer: route → claim_check → mark_in_progress →
       snapshot → resolve_model → run_role → verify_no_op → clear_marker;
       verify a stubbed-role end-to-end test moves a fake issue and
       checkpoints the thread.
-- [ ] 5.2 Implement guard nodes to the engine contract: in-progress marker
+- [x] 5.2 Implement guard nodes to the engine contract: in-progress marker
       applied/removed in all outcomes (including timeout), no-op guard
       (comment count + `factory:*` snapshot compare), failure-report
       comment linking the run log, `<!-- factory-agent -->` marker on every
       posted comment; verify each guard with dedicated tests (e.g. silent
       role → run failed).
-- [ ] 5.3 Implement model resolution from `.github/factory-models.json`
+- [x] 5.3 Implement model resolution from `.github/factory-models.json`
       with accessibility probing via langchain-anthropic, per-fallback
       warnings, default chain for missing roles, and hard failure on an
       exhausted chain; verify tests cover fallback and exhaustion.
-- [ ] 5.4 Implement the role runner: per-run isolated workspace (fresh
+- [x] 5.4 Implement the role runner: per-run isolated workspace (fresh
       clone, deleted after), factory handbook + role prompt resolved from
       the pinned ref outside the workspace, `claude -p` with the factory
       allow-list/permission mode/turn budget, wall-clock timeout,
@@ -99,12 +99,12 @@
       verify with a fake `claude` binary that prompt assembly matches the
       Actions path byte-for-byte and that workspaces are isolated and
       cleaned up.
-- [ ] 5.5 Implement chaining edges: planner→architect (with the
+- [x] 5.5 Implement chaining edges: planner→architect (with the
       reached-`factory:planned` check), G0 release fan-out via `Send` with
       per-repo `max_parallel` and no fail-fast plus the tracker receipt
       comment, task-closed re-dispatch on the parent epic; verify
       integration tests reproduce the Actions chains' traces.
-- [ ] 5.6 Implement the operator dispatch entry point (any role, any issue,
+- [x] 5.6 Implement the operator dispatch entry point (any role, any issue,
       authenticated) and the reconciliation sweep (startup + timer:
       re-route issues whose state implies a pending automatic step);
       verify tests for dispatch auth and for sweep picking up a missed

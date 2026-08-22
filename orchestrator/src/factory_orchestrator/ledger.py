@@ -52,7 +52,7 @@ runs = sa.Table(
 
 
 def _now() -> dt.datetime:
-    return dt.datetime.now(dt.timezone.utc)
+    return dt.datetime.now(dt.UTC)
 
 
 class Ledger:

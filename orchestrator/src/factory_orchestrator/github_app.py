@@ -83,7 +83,7 @@ class GitHubApp:
         self._tokens[key] = (token, time.time() + 55 * 60)
         return token
 
-    def repo_client(self, owner: str, repo: str) -> "RepoClient":
+    def repo_client(self, owner: str, repo: str) -> RepoClient:
         return RepoClient(self, owner, repo)
 
 

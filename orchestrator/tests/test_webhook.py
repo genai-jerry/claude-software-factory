@@ -1,5 +1,4 @@
 import asyncio
-import json
 
 import httpx
 import pytest
@@ -7,6 +6,7 @@ import pytest
 from factory_orchestrator.config import load_config
 from factory_orchestrator.ledger import Ledger
 from factory_orchestrator.webhook import create_app
+
 from .test_config import BASE
 from .test_github_app import sign
 
@@ -94,6 +94,7 @@ async def test_processor_failure_stamped(service):
             assert rows == []
             with ledger.engine.begin() as cx:
                 import sqlalchemy as sa
+
                 from factory_orchestrator.ledger import deliveries
                 row = cx.execute(sa.select(deliveries.c.status, deliveries.c.error)
                                  .where(deliveries.c.delivery_guid == "guid-err")).first()

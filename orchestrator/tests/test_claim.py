@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from factory_orchestrator.claim import claim_check, declared_engine, orchestrator_settings
+
 from .fake_repo import FakeRepo
 
 FIXDIR = Path(__file__).resolve().parents[1] / "conformance" / "fixtures"
