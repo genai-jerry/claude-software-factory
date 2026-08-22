@@ -41,35 +41,35 @@
 
 ## 3. Orchestrator service skeleton
 
-- [ ] 3.1 Scaffold `orchestrator/` (Python 3.11+, `pyproject.toml` with
+- [x] 3.1 Scaffold `orchestrator/` (Python 3.11+, `pyproject.toml` with
       langgraph, langchain-anthropic, langgraph-checkpoint-postgres,
       FastAPI, uvicorn, httpx; ruff + pytest config); verify `pip install
       -e .[dev]` and `pytest` (empty suite) succeed.
-- [ ] 3.2 Implement config/env loading (App credentials, Anthropic
+- [x] 3.2 Implement config/env loading (App credentials, Anthropic
       credentials, database URL, factory repo + ref, runner caps) with
       validation and a redacting `__repr__`; verify unit tests cover
       missing/invalid config and that secrets never appear in logs.
-- [ ] 3.3 Implement the GitHub App client: webhook HMAC verification,
+- [x] 3.3 Implement the GitHub App client: webhook HMAC verification,
       installation-token minting scoped per repo, REST helpers used by the
       router (issues, labels, comments, milestones, PR merge for G1/G2
       document PRs); verify against recorded/mocked API tests.
-- [ ] 3.4 Implement the webhook endpoint + idempotency ledger + async queue
+- [x] 3.4 Implement the webhook endpoint + idempotency ledger + async queue
       (FastAPI → Postgres ledger → worker): verify signature rejection,
       duplicate-delivery no-op, and fast acknowledgement in integration
       tests.
 
 ## 4. Python router with conformance parity
 
-- [ ] 4.1 Port the routing decision table to `orchestrator/router.py`
+- [x] 4.1 Port the routing decision table to `orchestrator/router.py`
       (pure function of event + repo state → route decision + side-effect
       plan, mirroring the JS router's guards, tracker/profile issue
       management, approver enforcement and explanatory replies); verify
       unit tests on the side-effect plan structure.
-- [ ] 4.2 Build the pytest conformance harness running every fixture from
+- [x] 4.2 Build the pytest conformance harness running every fixture from
       `orchestrator/conformance/fixtures/` against the Python router;
       verify all fixtures pass and the harness is wired into the repo CI
       gate from task 1.4.
-- [ ] 4.3 Implement the `claim_check` guard (fetch
+- [x] 4.3 Implement the `claim_check` guard (fetch
       `.github/factory-orchestrator.json` from the default branch per
       event; act only when it names this engine); verify tests for named,
       unnamed, missing and unparseable config.

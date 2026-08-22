@@ -126,6 +126,15 @@ fold into the same `expect` block (e.g. released issues now `has:
 factory:intake`); `expect.chainIssues` / `expect.chainCount` assert the
 fan-out's own outputs.
 
+## Claim fixtures are engine-sided
+
+A fixture whose `config` carries an `orchestrator` key pins the **Actions
+engine's** claim behaviour (stand down when an external engine is named).
+The Python conformance harness skips those — the claim protocol is
+engine-specific by design — and `orchestrator/tests/test_claim.py` covers
+this engine's half against the same configurations, asserting that for
+every declared engine value exactly one engine acts.
+
 ## What fixtures deliberately do not encode
 
 - `factory:in-progress` application/removal, snapshots, and the no-op guard

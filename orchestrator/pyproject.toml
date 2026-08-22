@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "factory-orchestrator"
+version = "0.1.0"
+description = "LangGraph orchestration engine for the Claude Software Factory"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.2.60",
+    "langchain-core>=0.3",
+    "langchain-anthropic>=0.3",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "httpx>=0.27",
+    "SQLAlchemy>=2.0",
+    "PyJWT>=2.8",
+    "cryptography>=42",
+    "jsonschema>=4.21",
+]
+
+[project.optional-dependencies]
+postgres = [
+    "langgraph-checkpoint-postgres>=2.0",
+    "psycopg[binary]>=3.1",
+]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "langgraph-checkpoint-sqlite>=2.0",
+]
+
+[project.scripts]
+factory-orchestrator = "factory_orchestrator.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
