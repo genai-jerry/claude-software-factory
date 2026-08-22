@@ -20,6 +20,38 @@ GitHub webhook ► verify HMAC + idempotency ledger ► queue (DB-backed)
 At a human gate the invocation ends — the parked position is the label on
 GitHub, no compute waits, and the next webhook resumes the thread.
 
+## Test locally on your laptop
+
+No Docker, GitHub App, or Postgres needed for the first loop:
+
+```bash
+cd orchestrator
+make install        # pip install -e ".[dev]"
+make test           # 116 tests, including the shared routing fixtures
+make conformance    # both engines against the fixtures (needs node + js-yaml)
+make dev            # http://localhost:8080 — sqlite, auto-reload, dev fallbacks
+make smoke          # from another terminal: signed webhook, dedupe, bad-sig checks
+```
+
+`make dev` boots with placeholder credentials so the intake path (signature
+verification, idempotency ledger, queue, `/runs`, `/healthz`) is fully
+exercisable before any real registration. For the full loop on a laptop:
+
+1. Copy `.env.example` → `.env` and fill in a real GitHub App
+   (`GITHUB_APP_PRIVATE_KEY_B64` = `base64 -w0 < key.pem`) and an Anthropic
+   credential. Set `FACTORY_LOCAL_PATH` to your factory checkout to skip the
+   factory clone while iterating on role prompts.
+2. GitHub cannot reach `localhost`, so bridge webhooks with
+   [smee.io](https://smee.io): create a channel, set it as the App's webhook
+   URL, and run `npx smee-client --url https://smee.io/<channel> --target
+   http://localhost:8080/webhooks/github`.
+3. Claim a scratch repo (`.github/factory-orchestrator.json` →
+   `"engine": "langgraph"`), file a test issue, and watch
+   `curl localhost:8080/runs` plus the labels move on the issue.
+
+`make compose-up` runs the production shape (image + Postgres) when you do
+have Docker locally.
+
 ## Deploy
 
 1. **Register a GitHub App** (Settings → Developer settings → GitHub Apps):
@@ -45,6 +77,40 @@ GitHub, no compute waits, and the next webhook resumes the thread.
 3. **Run**: `docker compose up` (orchestrator + Postgres), or
    `pip install -e . && factory-orchestrator` against your own database.
    `GET /healthz` is the health endpoint.
+
+### Deploy to a VPS (Hostinger) — the lighthouse-backend way
+
+`.github/workflows/deploy-orchestrator.yml` deploys exactly the way
+`lighthouse-backend`'s `deploy.yml` does: build the image on the runner,
+`docker save | gzip`, SCP the tarball to the host, then over SSH — load,
+stop/rm the old container, write the env file from environment-scoped
+secrets, `docker run` on a shared docker network, health-check via
+`docker exec curl`, prune. It triggers on pushes to `main` touching
+`orchestrator/**`, or manually via *Run workflow* with an environment
+choice.
+
+One-time setup:
+
+1. Create the `production` (and optionally `staging`) GitHub Environment on
+   this repo and add, per the comment block at the top of the workflow:
+   - **Secrets**: `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_KEY` (the same
+     SSH trio lighthouse uses), `FACTORY_GH_APP_ID`,
+     `FACTORY_GH_APP_PRIVATE_KEY_B64`, `FACTORY_GH_WEBHOOK_SECRET`
+     (GitHub forbids secret names starting with `GITHUB_`),
+     `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN`, `DISPATCH_TOKEN`;
+     optional `FACTORY_CROSS_REPO_TOKEN`, `ORCH_DATABASE_URL`.
+   - **Variables**: `PUBLIC_BASE_URL` (required), `CLAIMED_REPOS`,
+     `DOCKER_NETWORK` (default `factory-network`), `PUBLISH_PORT`
+     (e.g. `127.0.0.1:8080:8080` when nginx runs on the host itself; leave
+     empty when the reverse-proxy container shares the docker network, as
+     in the lighthouse setup).
+2. Point HTTPS at the container: either a host nginx/caddy proxying the
+   published port, or attach your existing proxy container to
+   `DOCKER_NETWORK` and route to `factory-orchestrator-production:8080`.
+   `PUBLIC_BASE_URL` and the GitHub App's webhook URL are that address.
+3. Push to `main` (or *Run workflow*). The container gets a named volume at
+   `/data` (sqlite database + transcripts survive redeploys); set
+   `ORCH_DATABASE_URL` to a Postgres URL instead when you outgrow sqlite.
 
 ## Claim a repo (migration runbook)
 

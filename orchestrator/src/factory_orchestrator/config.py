@@ -90,11 +90,32 @@ class Config:
         return f"Config({', '.join(parts)})"
 
 
+def _private_key(e: dict[str, str]) -> str:
+    """The App key, plain or base64.
+
+    `docker run --env-file` cannot carry multi-line values, so deployments
+    that pass the key through an env file (the lighthouse-style SSH deploy)
+    provide GITHUB_APP_PRIVATE_KEY_B64 instead; the plain variable wins when
+    both are set.
+    """
+    plain = e.get("GITHUB_APP_PRIVATE_KEY", "")
+    if plain:
+        return plain
+    b64 = e.get("GITHUB_APP_PRIVATE_KEY_B64", "")
+    if not b64:
+        return ""
+    import base64
+    try:
+        return base64.b64decode(b64).decode()
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ConfigError("GITHUB_APP_PRIVATE_KEY_B64 is not valid base64") from exc
+
+
 def load_config(env: dict[str, str] | None = None) -> Config:
     e = os.environ if env is None else env
     return Config(
         github_app_id=e.get("GITHUB_APP_ID", ""),
-        github_app_private_key=Secret(e.get("GITHUB_APP_PRIVATE_KEY", "")),
+        github_app_private_key=Secret(_private_key(dict(e))),
         github_webhook_secret=Secret(e.get("GITHUB_WEBHOOK_SECRET", "")),
         anthropic_api_key=Secret(e.get("ANTHROPIC_API_KEY", "")),
         claude_code_oauth_token=Secret(e.get("CLAUDE_CODE_OAUTH_TOKEN", "")),

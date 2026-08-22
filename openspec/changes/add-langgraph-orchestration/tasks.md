@@ -139,3 +139,25 @@
       (verify Actions resumes on the next event); document both runs.
 - [x] 7.3 Run `openspec validate add-langgraph-orchestration --strict` and
       the full repo CI (JS + Python conformance suites); verify green.
+
+## 8. Local development and VPS deployment (follow-up)
+
+- [x] 8.1 Laptop harness: Makefile (install/test/lint/conformance/dev/
+      smoke/compose targets), `scripts/dev.sh` (sqlite + uvicorn reload +
+      dev-credential fallbacks), `scripts/smoke.py` (signed webhook, dedupe
+      and bad-signature checks against a running instance), `.env.example`,
+      and a "Test locally on your laptop" README section including the
+      smee.io webhook bridge; verified by running dev.sh + smoke.py end to
+      end (all checks pass).
+- [x] 8.2 Support `GITHUB_APP_PRIVATE_KEY_B64` in config (docker env files
+      cannot carry multi-line PEMs) and forward it through docker-compose;
+      verified by unit tests (decode, precedence, invalid base64 rejected).
+- [x] 8.3 `.github/workflows/deploy-orchestrator.yml` mirroring
+      lighthouse-backend's deploy.yml (build → save/gzip → SCP → SSH load,
+      env file from environment-scoped secrets, shared docker network,
+      /data volume for sqlite + transcripts, docker-exec health check,
+      prune; push-to-main on orchestrator/** + workflow_dispatch with an
+      environment choice), plus the README runbook naming every secret and
+      variable; verified by YAML parse and secret-name rules (no GITHUB_-
+      prefixed secret names). Live deploy verification happens on the
+      first push to main with the environment configured.

@@ -50,3 +50,21 @@ def test_secret_reveal_and_bool():
     s = Secret("x")
     assert s.reveal() == "x"
     assert bool(s) and not bool(Secret(""))
+
+
+def test_private_key_accepts_base64_variant():
+    import base64
+    pem = BASE["GITHUB_APP_PRIVATE_KEY"]
+    env = {**BASE, "GITHUB_APP_PRIVATE_KEY": "",
+           "GITHUB_APP_PRIVATE_KEY_B64": base64.b64encode(pem.encode()).decode()}
+    assert load_config(env).github_app_private_key.reveal() == pem
+    # plain wins when both are set
+    both = {**env, "GITHUB_APP_PRIVATE_KEY": "plain-key"}
+    assert load_config(both).github_app_private_key.reveal() == "plain-key"
+
+
+def test_private_key_bad_base64_rejected():
+    env = {**BASE, "GITHUB_APP_PRIVATE_KEY": "",
+           "GITHUB_APP_PRIVATE_KEY_B64": "!!!not-base64!!!"}
+    with pytest.raises(ConfigError, match="B64"):
+        load_config(env)

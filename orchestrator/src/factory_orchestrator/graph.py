@@ -77,6 +77,7 @@ class Engine:
         self.runner = runner
         self.probe = probe
         self.transcript_dir = Path(transcript_dir or tempfile.mkdtemp(prefix="transcripts-"))
+        self.transcript_dir.mkdir(parents=True, exist_ok=True)
         self._port_factory = port_factory or (lambda o, r: app.repo_client(o, r))
 
     def port(self, owner: str, repo: str) -> RepoPort:

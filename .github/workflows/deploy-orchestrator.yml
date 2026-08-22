@@ -1,0 +1,225 @@
+name: Deploy Factory Orchestrator
+
+# Deploys the LangGraph orchestrator (orchestrator/) to a VPS over SSH, the
+# same way lighthouse-backend deploys: build the image on the runner, ship it
+# as a tarball over SCP, load and restart the container on the host, write
+# the env file from environment-scoped secrets, health-check, prune.
+#
+# Configure under repo Settings -> Environments -> production (or staging):
+#   Secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_KEY, FACTORY_GH_APP_ID,
+#            FACTORY_GH_APP_PRIVATE_KEY_B64 (base64 of the PEM: `base64 -w0 < key.pem`),
+#            FACTORY_GH_WEBHOOK_SECRET (GitHub forbids secret names starting
+#            with GITHUB_, hence the FACTORY_GH_ prefix),
+#            ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN,
+#            DISPATCH_TOKEN, FACTORY_CROSS_REPO_TOKEN (optional),
+#            ORCH_DATABASE_URL (optional; default is sqlite on the data volume)
+#   Variables: PUBLIC_BASE_URL (required — where GitHub reaches the webhook),
+#              CLAIMED_REPOS, FACTORY_REPO, FACTORY_REF, DOCKER_NETWORK,
+#              PUBLISH_PORT (e.g. 127.0.0.1:8080:8080 for a host reverse proxy;
+#              leave empty when a proxy container shares DOCKER_NETWORK),
+#              LANGSMITH_TRACING, LANGSMITH_API_KEY
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "orchestrator/**"
+      - ".github/workflows/deploy-orchestrator.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - production
+          - staging
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: >-
+      ${{
+        github.event_name == 'workflow_dispatch' && inputs.environment || 'production'
+      }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve deployment metadata
+        run: |
+          TARGET_ENV="${{ github.event_name == 'workflow_dispatch' && inputs.environment || 'production' }}"
+          echo "TARGET_ENV=${TARGET_ENV}" >> "$GITHUB_ENV"
+          echo "DOCKER_IMAGE=factory-orchestrator-${TARGET_ENV}" >> "$GITHUB_ENV"
+          echo "CONTAINER_NAME=factory-orchestrator-${TARGET_ENV}" >> "$GITHUB_ENV"
+          echo "DATA_VOLUME=factory-orchestrator-${TARGET_ENV}-data" >> "$GITHUB_ENV"
+          echo "IMAGE_TAR=factory-orchestrator-${TARGET_ENV}.tar.gz" >> "$GITHUB_ENV"
+        shell: bash
+
+      - name: Validate required configuration
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          GH_APP_ID: ${{ secrets.FACTORY_GH_APP_ID }}
+          GH_APP_PRIVATE_KEY_B64: ${{ secrets.FACTORY_GH_APP_PRIVATE_KEY_B64 }}
+          GH_WEBHOOK_SECRET: ${{ secrets.FACTORY_GH_WEBHOOK_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+        run: |
+          REQUIRED=(DEPLOY_HOST DEPLOY_USER DEPLOY_KEY GH_APP_ID GH_APP_PRIVATE_KEY_B64 GH_WEBHOOK_SECRET PUBLIC_BASE_URL)
+          missing=()
+          for var in "${REQUIRED[@]}"; do
+            if [[ -z "${!var:-}" ]]; then
+              missing+=("${var/GH_/FACTORY_GH_}")
+            fi
+          done
+          if [[ -z "${ANTHROPIC_API_KEY}" && -z "${CLAUDE_CODE_OAUTH_TOKEN}" ]]; then
+            missing+=("ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN")
+          fi
+          if (( ${#missing[@]} )); then
+            echo "Missing required configuration for ${TARGET_ENV}: ${missing[*]}" >&2
+            echo "Configure under repo Settings -> Environments -> ${TARGET_ENV} (Secrets or Variables tab)." >&2
+            exit 1
+          fi
+        shell: bash
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -t "${DOCKER_IMAGE}:latest" orchestrator/
+
+      - name: Save Docker image
+        run: docker save "${DOCKER_IMAGE}:latest" | gzip > "${IMAGE_TAR}"
+
+      - name: Transfer image to deploy host
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: 22
+          timeout: 120s
+          command_timeout: 30m
+          source: ${{ env.IMAGE_TAR }}
+          target: "/tmp/"
+
+      - name: Deploy on host
+        uses: appleboy/ssh-action@master
+        env:
+          GH_APP_ID: ${{ secrets.FACTORY_GH_APP_ID }}
+          GH_APP_PRIVATE_KEY_B64: ${{ secrets.FACTORY_GH_APP_PRIVATE_KEY_B64 }}
+          GH_WEBHOOK_SECRET: ${{ secrets.FACTORY_GH_WEBHOOK_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          DISPATCH_TOKEN: ${{ secrets.DISPATCH_TOKEN }}
+          FACTORY_CROSS_REPO_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN }}
+          ORCH_DATABASE_URL: ${{ secrets.ORCH_DATABASE_URL }}
+          PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+          CLAIMED_REPOS: ${{ vars.CLAIMED_REPOS }}
+          FACTORY_REPO_VAR: ${{ vars.FACTORY_REPO }}
+          FACTORY_REF_VAR: ${{ vars.FACTORY_REF }}
+          DOCKER_NETWORK: ${{ vars.DOCKER_NETWORK }}
+          PUBLISH_PORT: ${{ vars.PUBLISH_PORT }}
+          LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING }}
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          timeout: 60s
+          command_timeout: 30m
+          envs: TARGET_ENV,DOCKER_IMAGE,CONTAINER_NAME,DATA_VOLUME,IMAGE_TAR,GH_APP_ID,GH_APP_PRIVATE_KEY_B64,GH_WEBHOOK_SECRET,ANTHROPIC_API_KEY,CLAUDE_CODE_OAUTH_TOKEN,DISPATCH_TOKEN,FACTORY_CROSS_REPO_TOKEN,ORCH_DATABASE_URL,PUBLIC_BASE_URL,CLAIMED_REPOS,FACTORY_REPO_VAR,FACTORY_REF_VAR,DOCKER_NETWORK,PUBLISH_PORT,LANGSMITH_TRACING,LANGSMITH_API_KEY
+          script: |
+            set -e
+            echo "🚀 Deploying factory orchestrator (${TARGET_ENV})..."
+
+            IMAGE_TAR_PATH="/tmp/${IMAGE_TAR}"
+            ENV_FILE="/tmp/${CONTAINER_NAME}.env"
+            NETWORK="${DOCKER_NETWORK:-factory-network}"
+
+            echo "📄 Verifying artifact ${IMAGE_TAR_PATH}..."
+            if [ ! -f "${IMAGE_TAR_PATH}" ]; then
+              echo "❌ Artifact ${IMAGE_TAR_PATH} not found."
+              exit 1
+            fi
+
+            if ! command -v docker &> /dev/null; then
+              echo "📦 Installing Docker..."
+              curl -fsSL https://get.docker.com -o get-docker.sh
+              sudo sh get-docker.sh
+              sudo usermod -aG docker $USER
+            fi
+
+            echo "📥 Loading Docker image..."
+            docker load < "${IMAGE_TAR_PATH}"
+            rm "${IMAGE_TAR_PATH}"
+
+            echo "🛑 Stopping existing container..."
+            docker stop "${CONTAINER_NAME}" 2>/dev/null || true
+            docker rm "${CONTAINER_NAME}" 2>/dev/null || true
+
+            # Env file from environment-scoped secrets forwarded over SSH.
+            # The App PEM travels base64-encoded: --env-file cannot carry
+            # multi-line values, and the orchestrator decodes _B64 itself.
+            umask 077
+            : > "${ENV_FILE}"
+            {
+              echo "GITHUB_APP_ID=${GH_APP_ID}"
+              echo "GITHUB_APP_PRIVATE_KEY_B64=${GH_APP_PRIVATE_KEY_B64}"
+              echo "GITHUB_WEBHOOK_SECRET=${GH_WEBHOOK_SECRET}"
+              echo "DATABASE_URL=${ORCH_DATABASE_URL:-sqlite:////data/factory-orchestrator.db}"
+              echo "TRANSCRIPT_DIR=/data/transcripts"
+              echo "PUBLIC_BASE_URL=${PUBLIC_BASE_URL}"
+              echo "FACTORY_REPO=${FACTORY_REPO_VAR:-genai-jerry/claude-software-factory}"
+              echo "FACTORY_REF=${FACTORY_REF_VAR:-v1}"
+            } >> "${ENV_FILE}"
+            [ -n "${ANTHROPIC_API_KEY}" ] && echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}" >> "${ENV_FILE}"
+            [ -n "${CLAUDE_CODE_OAUTH_TOKEN}" ] && echo "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}" >> "${ENV_FILE}"
+            [ -n "${DISPATCH_TOKEN}" ] && echo "DISPATCH_TOKEN=${DISPATCH_TOKEN}" >> "${ENV_FILE}"
+            [ -n "${FACTORY_CROSS_REPO_TOKEN}" ] && echo "FACTORY_CROSS_REPO_TOKEN=${FACTORY_CROSS_REPO_TOKEN}" >> "${ENV_FILE}"
+            [ -n "${CLAIMED_REPOS}" ] && echo "CLAIMED_REPOS=${CLAIMED_REPOS}" >> "${ENV_FILE}"
+            [ -n "${LANGSMITH_TRACING}" ] && echo "LANGSMITH_TRACING=${LANGSMITH_TRACING}" >> "${ENV_FILE}"
+            [ -n "${LANGSMITH_API_KEY}" ] && echo "LANGSMITH_API_KEY=${LANGSMITH_API_KEY}" >> "${ENV_FILE}"
+
+            echo "🔗 Ensuring ${NETWORK} exists..."
+            docker network inspect "${NETWORK}" >/dev/null 2>&1 || \
+              docker network create "${NETWORK}"
+
+            # Optional host port publish (e.g. 127.0.0.1:8080:8080) for a
+            # host-level reverse proxy; empty when a proxy container shares
+            # the docker network, matching the lighthouse setup.
+            PORT_ARGS=""
+            [ -n "${PUBLISH_PORT}" ] && PORT_ARGS="-p ${PUBLISH_PORT}"
+
+            echo "▶️ Starting new container..."
+            docker run -d \
+              --name "${CONTAINER_NAME}" \
+              --restart unless-stopped \
+              --network "${NETWORK}" \
+              --env-file "${ENV_FILE}" \
+              -v "${DATA_VOLUME}:/data" \
+              ${PORT_ARGS} \
+              "${DOCKER_IMAGE}:latest"
+
+            rm -f "${ENV_FILE}"
+
+            echo "⏳ Waiting for service to be healthy..."
+            sleep 10
+
+            if docker exec "${CONTAINER_NAME}" curl -fsS http://localhost:8080/healthz > /dev/null; then
+              echo "✅ Deployment successful!"
+            else
+              echo "❌ Deployment verification failed"
+              echo "🔍 Recent container logs:"
+              docker logs --tail 100 "${CONTAINER_NAME}" || true
+              exit 1
+            fi
+
+            docker image prune -f
+
+            echo "🎉 Deployment completed successfully!"
