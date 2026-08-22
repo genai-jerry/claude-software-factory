@@ -34,6 +34,78 @@ Constraints that shape this design:
 - The two routers (JS in the workflow, Python in the orchestrator) must not
   drift.
 
+## Architecture overview
+
+Where the orchestrator sits — GitHub stays the state machine; the engines
+are interchangeable motors beneath it, selected per repo:
+
+```mermaid
+flowchart TB
+  subgraph HUM["HUMANS"]
+    H1["Requester<br/>files an issue"]
+    H2["Gate approvers<br/>G0 · G1 · G2"]
+    H3["Release human<br/>G3 merge — GitHub UI only"]
+  end
+
+  HUM --> GH
+
+  subgraph GH["GITHUB — THE STATE MACHINE (unchanged)"]
+    G1["Issues + sub-issues<br/>factory:* labels"]
+    G2["Milestones<br/>= releases"]
+    G3["PRs + branches"]
+    G4["OpenSpec change folders"]
+    CFG["profile.json · models · approvers · release ·<br/><b>factory-orchestrator.json ← engine choice</b>"]
+  end
+
+  GH -->|"webhooks (unchanged)"| CONSOLE["Factory Console<br/>software-factory-view"]
+
+  GH --> SEL{"engine per repo<br/>.github/factory-orchestrator.json<br/>absent ⇒ github-actions"}
+
+  SEL -- "github-actions (default)" --> GA["ENGINE A — GitHub Actions<br/>caller stub → route job (JS router)<br/>→ agent jobs + in-run chains<br/><i>stands down when another engine holds the claim</i>"]
+  SEL -- "langgraph" --> LG["ENGINE B — LangGraph orchestrator (new)<br/>webhook receiver → Python router<br/>→ StateGraph + checkpointer → role runner<br/>Postgres · run ledger · LangSmith (opt.)"]
+
+  GA -->|"labels · comments · PRs"| GH
+  LG -->|"identical traces"| GH
+
+  FIX["conformance fixtures — one routing truth,<br/>both routers must pass in CI"] -.- GA
+  FIX -.- LG
+
+  classDef core fill:#FFFFFF,stroke:#0B6E6B,stroke-width:1.5px,color:#0F1A1C
+  classDef new fill:#DFEDEC,stroke:#0B6E6B,stroke-width:2px,color:#0A3B39
+  classDef dec fill:#DFEDEC,stroke:#0B6E6B,stroke-width:2px,color:#0A3B39
+  classDef ext fill:#EDF0F1,stroke:#9FADB1,stroke-width:1.2px,color:#3A464B
+  class G1,G2,G3,G4,CFG,GA core
+  class LG new
+  class SEL dec
+  class H1,H2,H3,CONSOLE,FIX ext
+  style GH fill:#F4F6F6,stroke:#C6CFD2,color:#3A464B
+  style HUM fill:#FFFFFF,stroke:#C6CFD2,color:#3A464B
+```
+
+How one event executes inside the orchestrator (the node chain mirrors the
+Actions agent job step for step; chains become graph edges):
+
+```mermaid
+flowchart LR
+  WH["GitHub<br/>webhook"] --> VER["HMAC verify +<br/>idempotency ledger"] --> Q["queue"] --> R
+
+  subgraph SG["StateGraph invocation · thread_id = owner/repo#issue · Postgres checkpointer"]
+    direction LR
+    R["route<br/>(Python router)"] --> CC["claim<br/>check"] --> MIP["mark<br/>in-progress"] --> SNAP["snapshot<br/>labels+comments"] --> MODEL["resolve model<br/>(preference chain)"] --> RUN["<b>run role</b><br/>isolated workspace<br/>headless Claude Code"] --> NOOP["no-op guard<br/>trace or fail"] --> CLR["clear marker<br/>(always)"]
+    R -. "role = none →<br/>explanatory reply · END" .-> X(( ))
+    CLR -. "planner done → architect<br/>G0 approved → Send() fan-out ≤ max_parallel<br/>task closed → re-dispatch epic" .-> RUN
+  end
+
+  CLR --> PARK["at a human gate: invocation ends —<br/>parked, zero compute; next webhook<br/>resumes the same thread"]
+
+  classDef core fill:#FFFFFF,stroke:#0B6E6B,stroke-width:1.5px,color:#0F1A1C
+  classDef new fill:#DFEDEC,stroke:#0B6E6B,stroke-width:2px,color:#0A3B39
+  classDef ext fill:#EDF0F1,stroke:#9FADB1,stroke-width:1.2px,color:#3A464B
+  class R,CC,MIP,SNAP,MODEL,NOOP,CLR core
+  class RUN new
+  class WH,VER,Q,PARK,X ext
+```
+
 ## Goals / Non-Goals
 
 **Goals:**
