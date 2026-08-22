@@ -48,6 +48,16 @@ flowchart TB
 Nothing reaches a role until the router names one, and no run is allowed to
 finish green without leaving a visible trace on the issue.
 
+One check runs before everything above: the route job reads
+`.github/factory-orchestrator.json` from the caller's checkout, and when it
+names an external engine (FACTORY.md §2e — e.g. `langgraph`) the job exits
+with `role=none` before any side effect, logging which engine holds the
+claim. That is the whole Actions half of the exactly-one-engine guarantee;
+the external engine holds the other half by refusing repos whose config does
+not name it. The routing decision table itself is pinned by the shared
+conformance fixtures (`orchestrator/conformance/`), which both engines run
+in CI.
+
 ## Router decision table
 
 ```mermaid

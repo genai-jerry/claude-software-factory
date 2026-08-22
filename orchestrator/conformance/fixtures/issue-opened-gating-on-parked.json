@@ -1,0 +1,66 @@
+{
+  "name": "issue-opened-gating-on-parked",
+  "description": "gating on, no milestone: parked in backlog with an explanation, intake removed",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": [
+          "factory:intake"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:backlog"
+        ],
+        "not": [
+          "factory:intake"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "release-gated intake",
+          "<!-- factory-agent -->"
+        ]
+      }
+    }
+  }
+}

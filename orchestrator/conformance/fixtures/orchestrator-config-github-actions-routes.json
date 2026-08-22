@@ -1,0 +1,54 @@
+{
+  "name": "orchestrator-config-github-actions-routes",
+  "description": "an explicit engine: github-actions keeps Actions routing normally",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "orchestrator": {
+      "engine": "github-actions",
+      "endpoint": "",
+      "runners": {
+        "max_parallel": 4
+      }
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": []
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "intake",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "has": [
+          "factory:intake"
+        ]
+      }
+    }
+  }
+}

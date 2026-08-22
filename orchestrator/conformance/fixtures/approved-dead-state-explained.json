@@ -1,0 +1,54 @@
+{
+  "name": "approved-dead-state-explained",
+  "description": "Approved in a state with no approval semantics gets an explanatory reply, not silence",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:planned"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "has no effect",
+          "**factory:planned**",
+          "<!-- factory-agent -->"
+        ]
+      }
+    }
+  }
+}

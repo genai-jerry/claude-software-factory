@@ -1,0 +1,44 @@
+{
+  "name": "labeled-profile-reruns-profiler",
+  "description": "re-applying factory:profile re-runs the profiler",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 7,
+        "title": "Factory: repo profile",
+        "labels": [
+          "factory:profile"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 7,
+    "label": "factory:profile",
+    "sender": "dev"
+  },
+  "expect": {
+    "role": "profiler",
+    "issues": [
+      "7"
+    ]
+  }
+}

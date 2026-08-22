@@ -1,0 +1,170 @@
+{
+  "name": "approved-g0-releases-milestone",
+  "description": "gate G0 approved by comment: label flips and the fan-out releases only not-started milestone members; a second pass is a no-op",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "milestones": [
+      {
+        "number": 7,
+        "title": "v0.4",
+        "htmlUrl": "u"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "release(7): v0.4",
+        "labels": [
+          "factory:release",
+          "factory:release-ready"
+        ],
+        "authorType": "Bot",
+        "milestone": 7
+      },
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": [
+          "factory:backlog"
+        ],
+        "milestone": 7
+      },
+      {
+        "number": 6,
+        "title": "Fix lapse email",
+        "labels": [
+          "factory:backlog"
+        ],
+        "milestone": 7
+      },
+      {
+        "number": 7,
+        "title": "Older thing",
+        "labels": [
+          "factory:in-review"
+        ],
+        "milestone": 7
+      },
+      {
+        "number": 8,
+        "title": "task(5): step one",
+        "labels": [],
+        "milestone": 7
+      },
+      {
+        "number": 9,
+        "title": "Not in this release",
+        "labels": [
+          "factory:backlog"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 1,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "releaseIssue": "1",
+    "labels": {
+      "1": {
+        "has": [
+          "factory:release-approved"
+        ],
+        "not": [
+          "factory:release-ready"
+        ]
+      },
+      "5": {
+        "has": [
+          "factory:intake"
+        ],
+        "not": [
+          "factory:backlog"
+        ]
+      },
+      "6": {
+        "has": [
+          "factory:intake"
+        ]
+      },
+      "7": {
+        "has": [
+          "factory:in-review"
+        ],
+        "not": [
+          "factory:intake"
+        ]
+      },
+      "8": {
+        "not": [
+          "factory:intake"
+        ]
+      },
+      "9": {
+        "has": [
+          "factory:backlog"
+        ],
+        "not": [
+          "factory:intake"
+        ]
+      }
+    },
+    "comments": {
+      "1": {
+        "contains": [
+          "factory-release-dispatched",
+          "Gate G0 approved"
+        ]
+      }
+    },
+    "chainIssues": [
+      "5",
+      "6"
+    ],
+    "chainCount": "2"
+  },
+  "chain": "release",
+  "repeatEvent": true,
+  "expectSecond": {
+    "role": "none",
+    "chainCount": "0",
+    "comments": {
+      "1": {
+        "contains": [
+          "has no effect"
+        ]
+      }
+    }
+  }
+}

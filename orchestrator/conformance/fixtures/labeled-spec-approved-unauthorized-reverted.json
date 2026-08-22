@@ -1,0 +1,57 @@
+{
+  "name": "labeled-spec-approved-unauthorized-reverted",
+  "description": "an unauthorized gate label flip is reverted with an explanation",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:spec-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:spec-approved",
+    "sender": "randal"
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "not": [
+          "factory:spec-approved"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "Reverted",
+          "@boss"
+        ]
+      }
+    }
+  }
+}

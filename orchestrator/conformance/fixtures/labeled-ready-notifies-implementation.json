@@ -1,0 +1,51 @@
+{
+  "name": "labeled-ready-notifies-implementation",
+  "description": "factory:ready on a task notifies the implementation approvers",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 8,
+        "title": "task(5): step one",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 8,
+    "label": "factory:ready",
+    "sender": "dispatchbot"
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "8": {
+        "count": 1,
+        "contains": [
+          "@boss",
+          "Implementation start",
+          "waiting on you"
+        ]
+      }
+    }
+  }
+}

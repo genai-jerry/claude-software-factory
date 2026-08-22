@@ -1,0 +1,54 @@
+{
+  "name": "labeled-fast-track-already-done",
+  "description": "re-applying factory:fast-track after the fast lane opened a PR does not run it again",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Rename a page title",
+        "labels": [
+          "factory:fast-track"
+        ],
+        "comments": [
+          {
+            "body": "Opened #40.\n\n<!-- factory-fast-track-done -->\n<!-- factory-agent -->"
+          }
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:fast-track",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "none"
+  }
+}

@@ -2,15 +2,15 @@
 
 ## 1. Conformance fixtures (single source of routing truth)
 
-- [ ] 1.1 Define the fixture schema (`orchestrator/conformance/SCHEMA.md` +
+- [x] 1.1 Define the fixture schema (`orchestrator/conformance/SCHEMA.md` +
       JSON Schema): `{event, repoState: {labels, comments, milestones,
       configs}, expected: {role, issues, mutations, replies}}`; verify the
       schema validates a hand-written example fixture.
-- [ ] 1.2 Extend `scripts/test-router.js` to load and run JSON fixtures from
+- [x] 1.2 Extend `scripts/test-router.js` to load and run JSON fixtures from
       `orchestrator/conformance/fixtures/` against the workflow's inline
       router (keeping its existing extraction harness); verify it fails on a
       deliberately wrong fixture and passes on the example.
-- [ ] 1.3 Write fixtures covering the full decision table: issue opened
+- [x] 1.3 Write fixtures covering the full decision table: issue opened
       (human/bot/task/tracker/fast-track/profile), release gating parking
       and exemptions, milestone created, milestoned/demilestoned, `Plan
       release`, `Approved` in every state (authorized and not), blocked
@@ -20,21 +20,21 @@
       `node scripts/test-router.js` passes every fixture against the
       existing workflow router (fixing fixtures, not the router, on
       mismatch).
-- [ ] 1.4 Add a CI workflow in this repo that runs the JS fixture harness on
+- [x] 1.4 Add a CI workflow in this repo that runs the JS fixture harness on
       every PR touching the pipeline, fixtures, or (later) the Python
       router; verify it runs and gates on a test PR.
 
 ## 2. Engine selection (stand-down / claim)
 
-- [ ] 2.1 Add `templates/factory-orchestrator.json` and document the
+- [x] 2.1 Add `templates/factory-orchestrator.json` and document the
       `engine` key (default `github-actions`); verify the template parses
       and matches the schema documented in FACTORY.md.
-- [ ] 2.2 Add the stand-down check to the reusable workflow's `route` job:
+- [x] 2.2 Add the stand-down check to the reusable workflow's `route` job:
       load `.github/factory-orchestrator.json` from the caller checkout,
       and when `engine` is external set `role=none` and log which engine
       holds the claim; verify with fixtures (external engine → no route for
       every event; missing/invalid file → routing unchanged).
-- [ ] 2.3 Update FACTORY.md (§2a and a new orchestration-layer section) and
+- [x] 2.3 Update FACTORY.md (§2a and a new orchestration-layer section) and
       wiki/Control-Architecture.md to describe engine selection, the claim
       protocol, and migration/rollback; verify the docs name the config
       file, both engines, and the one-file rollback.

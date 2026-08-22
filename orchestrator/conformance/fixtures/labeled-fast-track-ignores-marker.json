@@ -1,0 +1,54 @@
+{
+  "name": "labeled-fast-track-ignores-marker",
+  "description": "the fast lane is not blocked by the in-progress marker",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Rename a page title",
+        "labels": [
+          "factory:intake",
+          "factory:in-progress",
+          "factory:fast-track"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:fast-track",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "fasttrack",
+    "issues": [
+      "5"
+    ]
+  }
+}

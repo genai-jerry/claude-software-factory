@@ -1,0 +1,61 @@
+{
+  "name": "milestone-created-tracker",
+  "description": "gating on: a new milestone gets a release tracker that names its approvers",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "milestones": [
+      {
+        "number": 7,
+        "title": "v0.4",
+        "htmlUrl": "u"
+      }
+    ]
+  },
+  "event": {
+    "name": "milestone",
+    "action": "created",
+    "milestone": 7
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 1,
+    "createdIssues": [
+      {
+        "titlePattern": "^release\\(7\\): v0\\.4$",
+        "labels": [
+          "factory:release",
+          "factory:release-planning"
+        ],
+        "bodyContains": [
+          "Nothing is running yet",
+          "@boss",
+          "Plan release",
+          "<!-- factory-agent -->"
+        ]
+      }
+    ]
+  }
+}

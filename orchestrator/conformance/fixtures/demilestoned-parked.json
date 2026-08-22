@@ -1,0 +1,73 @@
+{
+  "name": "demilestoned-parked",
+  "description": "removed from its release before intake ran: parked back in backlog with a note",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "milestones": [
+      {
+        "number": 7,
+        "title": "v0.4",
+        "htmlUrl": "u"
+      }
+    ],
+    "issues": [
+      {
+        "number": 5,
+        "title": "Moved out",
+        "labels": [
+          "factory:intake"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "demilestoned",
+    "issue": 5,
+    "milestone": 7
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:backlog"
+        ],
+        "not": [
+          "factory:intake"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "countAtLeast": 1,
+        "contains": [
+          "factory:backlog"
+        ]
+      }
+    }
+  }
+}

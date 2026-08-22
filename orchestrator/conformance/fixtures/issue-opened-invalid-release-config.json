@@ -1,0 +1,41 @@
+{
+  "name": "issue-opened-invalid-release-config",
+  "description": "an unparseable factory-release.json means gating off: straight to intake",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": "invalid-json"
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": []
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "intake",
+    "issues": [
+      "5"
+    ]
+  }
+}

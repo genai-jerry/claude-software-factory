@@ -1,0 +1,63 @@
+{
+  "name": "labeled-in-progress-routes-nowhere",
+  "description": "the in-progress marker's own label event routes nowhere and changes nothing",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": [
+          "factory:intake",
+          "factory:in-progress"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:in-progress",
+    "sender": "github-actions"
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:intake",
+          "factory:in-progress"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "count": 0
+      }
+    }
+  }
+}

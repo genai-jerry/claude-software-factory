@@ -1,0 +1,44 @@
+{
+  "name": "labeled-design-approved-dispatch",
+  "description": "factory:design-approved applied by a design approver starts the dispatcher",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:design-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:design-approved",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "dispatch",
+    "issues": [
+      "5"
+    ]
+  }
+}

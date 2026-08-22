@@ -1,0 +1,57 @@
+{
+  "name": "comment-from-bot-skipped",
+  "description": "bot comments never route",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:spec-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "somebot",
+      "authorAssociation": "OWNER",
+      "authorType": "Bot"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "count": 0
+      }
+    },
+    "labels": {
+      "5": {
+        "has": [
+          "factory:spec-ready"
+        ]
+      }
+    }
+  }
+}

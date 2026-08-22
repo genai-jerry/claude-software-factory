@@ -1,0 +1,54 @@
+{
+  "name": "standdown-external-engine-issue-opened",
+  "description": "an external engine holds the claim: issues.opened routes nothing and mutates nothing",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "orchestrator": {
+      "engine": "langgraph"
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": []
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "not": [
+          "factory:intake",
+          "factory:backlog"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "count": 0
+      }
+    },
+    "createdCount": 0
+  }
+}

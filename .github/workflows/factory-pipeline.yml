@@ -182,6 +182,22 @@ jobs:
               try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
               catch (e) { return {}; }
             };
+            // Engine stand-down (orchestration/engine-selection). When
+            // .github/factory-orchestrator.json names an external engine, that
+            // engine drives this repo and the Actions pipeline must not route,
+            // mutate a label, or post a reply — at most one engine acts per
+            // event, and both engines evaluate this same file when they
+            // process one. An absent or unparseable file means
+            // "github-actions", which keeps every existing repo exactly as it
+            // was. This exits before any side effect below.
+            const orchCfg = loadJson('.github/factory-orchestrator.json');
+            const engine = typeof orchCfg.engine === 'string' && orchCfg.engine ? orchCfg.engine : 'github-actions';
+            if (engine !== 'github-actions') {
+              core.info(`Engine stand-down: .github/factory-orchestrator.json names "${engine}" - that engine drives this repo, so this run routes nothing. Revert the file to github-actions (or remove it) to hand the repo back to Actions.`);
+              core.setOutput('role', 'none'); core.setOutput('issue', '');
+              core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
+              return;
+            }
             const approverList = (gate) => {
               const v = loadJson('.github/factory-approvers.json')[gate];
               return Array.isArray(v) ? v.filter(x => typeof x === 'string') : [];

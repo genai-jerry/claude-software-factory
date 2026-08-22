@@ -1,0 +1,40 @@
+{
+  "name": "non-task-closed-ignored",
+  "description": "closing an ordinary issue routes nowhere",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:deployed"
+        ],
+        "state": "closed"
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "closed",
+    "issue": 5
+  },
+  "expect": {
+    "role": "none"
+  }
+}

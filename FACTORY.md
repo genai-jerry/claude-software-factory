@@ -306,6 +306,31 @@ low, and leave it on `"human"` when it is not.
 - **It is not a deadline.** The milestone's due date and its `closed` state mean
   nothing to the factory; only the tracker's label does.
 
+## 2e. Orchestration engines (which motor drives the pipeline)
+
+GitHub is the state machine and OpenSpec is the content; the *engine* is
+only the motor that reads events and turns them into agent runs. Two engines
+implement the same routing decision table — pinned by the shared conformance
+fixtures in `orchestrator/conformance/` — and a repo picks one in
+`.github/factory-orchestrator.json`:
+
+| `engine` | What drives the repo |
+|---|---|
+| `github-actions` (default; also: file absent or unparseable) | The reusable workflow in §2a — zero infrastructure, exactly the behaviour documented above |
+| `langgraph` | The LangGraph orchestrator (`orchestrator/`): a long-lived service receiving GitHub App webhooks, routing with a Python port of the router, and running roles as headless Claude Code in isolated workspaces |
+
+Exactly one engine acts on a repo at a time. When the file names an external
+engine, the Actions route job stands down before any side effect (a log line
+says which engine holds the claim), and the external engine refuses events
+for repos whose config does not name it — both checks evaluate the same file
+at processing time, so a config race resolves to at most one engine per
+event. Because all pipeline state lives on GitHub, switching engines is a
+one-file PR in either direction with no state migration: issues continue
+from their current labels under the new engine. Labels, gates, approvers,
+role prompts and every trace convention are identical whichever engine runs
+— the Console cannot tell them apart. Deployment and migration runbook:
+`orchestrator/README.md`.
+
 ## 3. Label state machine
 
 State labels are mutually exclusive; exactly one `factory:*` state label per
@@ -524,6 +549,7 @@ injects the handbook plus the role prompt into the agent's prompt directly.
 | `.github/factory-models.json` | per-repo model tuning; read from the caller's checkout |
 | `.github/factory-approvers.json` | per-repo gate approvers |
 | `.github/factory-release.json` | per-repo release gating (§2d); optional — omit it and intake runs on every filed issue |
+| `.github/factory-orchestrator.json` | per-repo engine choice (§2e); optional — omit it and GitHub Actions drives the repo |
 | `.github/ISSUE_TEMPLATE/factory-requirement.yml` | the intake entry point — GitHub only renders issue forms present in the repo being filed against |
 | `.claude/settings.json` | plugin `settings.json` supports only `agent` and `subagentStatusLine` — a **permissions** block cannot ship in a plugin, and the merge deny list is half of §8a |
 

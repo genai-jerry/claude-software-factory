@@ -1,0 +1,69 @@
+{
+  "name": "labeled-fast-track-runs",
+  "description": "factory:fast-track applied to a not-started issue runs the fast lane and leaves the queues",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "milestones": [
+      {
+        "number": 7,
+        "title": "v0.4",
+        "htmlUrl": "u"
+      }
+    ],
+    "issues": [
+      {
+        "number": 5,
+        "title": "Rename a page title",
+        "labels": [
+          "factory:backlog",
+          "factory:fast-track"
+        ],
+        "milestone": 7
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:fast-track",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "fasttrack",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "not": [
+          "factory:backlog",
+          "factory:intake"
+        ]
+      }
+    }
+  }
+}
