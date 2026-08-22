@@ -112,17 +112,17 @@
 
 ## 6. Observability and packaging
 
-- [ ] 6.1 Implement the run ledger (repo, issue, role, trigger, model +
+- [x] 6.1 Implement the run ledger (repo, issue, role, trigger, model +
       fallbacks, timestamps, outcome, guard results, transcript path) and
       the read-only HTTP surface for runs and transcripts (this is the
       failure-comment link target); verify ledger rows and endpoints in
       integration tests, and that transcripts are secret-redacted.
-- [ ] 6.2 Wire optional LangSmith tracing behind `LANGSMITH_*` env vars;
+- [x] 6.2 Wire optional LangSmith tracing behind `LANGSMITH_*` env vars;
       verify the service boots identically with and without them.
 - [ ] 6.3 Add Dockerfile + docker-compose (orchestrator + Postgres) and a
       health endpoint; verify `docker compose up` yields a healthy service
       that accepts a signed test webhook.
-- [ ] 6.4 Write `orchestrator/README.md`: deployment, App registration,
+- [x] 6.4 Write `orchestrator/README.md`: deployment, App registration,
       claiming a repo, the migration runbook (config PR → stand-down check
       → canary issue → rollout) and rollback; verify the runbook's steps
       against the compose stack.
@@ -137,5 +137,5 @@
 - [ ] 7.2 Migration + rollback rehearsal on the scratch repo: claim via
       config PR (verify Actions stands down with the log line), then revert
       (verify Actions resumes on the next event); document both runs.
-- [ ] 7.3 Run `openspec validate add-langgraph-orchestration --strict` and
+- [x] 7.3 Run `openspec validate add-langgraph-orchestration --strict` and
       the full repo CI (JS + Python conformance suites); verify green.

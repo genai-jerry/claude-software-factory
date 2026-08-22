@@ -181,6 +181,20 @@ def test_silent_role_is_failed_and_reported(tmp_path):
     assert "factory:in-progress" not in world.labels_of(5)
 
 
+def test_boots_identically_with_langsmith_env(tmp_path, monkeypatch):
+    # LangSmith is env-only wiring: setting the variables must not change
+    # behaviour when the endpoint is unreachable, and unsetting them is the
+    # same code path.
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "ls-test")
+    world = ConfiguredRepo({5: issue(5, "Add renewals", [])})
+    graph, engine, ledger, runner = graph_with(
+        tmp_path, world, {"intake": lambda w, n: flip(w, n, "factory:intake", "factory:spec-ready")})
+    Processor(engine, graph)("issues", {"action": "opened", "issue": world.issues[5],
+                                        "repository": {"full_name": "o/r"}})
+    assert [c["role"] for c in runner.calls] == ["intake"]
+
+
 def test_model_exhaustion_fails_run(tmp_path):
     world = ConfiguredRepo({5: issue(5, "Add renewals", [])})
     engine, ledger, runner = make_engine(tmp_path, world, {})
