@@ -161,6 +161,12 @@ curl -s localhost:8080/runs         # run ledger
   another port (`PORT=8090 make dev`, smoke with
   `.venv/bin/python scripts/smoke.py http://localhost:8090`) or move the
   Console stack (`WEB_HOST_PORT=8081` in its `.env`).
+- **Console URL loses its port** (`:8081/setup` → `http://localhost/setup/`,
+  connection refused) — nginx built an absolute redirect from its own
+  in-container port. Fixed in `infra/nginx.conf` (`absolute_redirect off`);
+  rebuild with `./scripts/start.sh --rebuild`. Chrome caches 301s hard, so
+  confirm with `curl -sSI http://localhost:8081/setup | grep -i location`
+  and use a private window (or clear the site's cache) after rebuilding.
 - **Console: "No .env — run ./scripts/setup.sh first"** — run setup once.
 - **Orchestrator won't start: `GITHUB_APP_ID is required`** — running
   `factory-orchestrator` directly needs real env; use `make dev` (it has dev
