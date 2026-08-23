@@ -16,6 +16,11 @@ export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-sk-dev-placeholder}"
 export DATABASE_URL="${DATABASE_URL:-sqlite:///factory-orchestrator.db}"
 export PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-http://localhost:8080}"
 
+# Prefer the venv scripts/install.sh created; fall back to python3.
+if [ -z "${PYTHON:-}" ] && [ -x .venv/bin/python ]; then
+  PYTHON=.venv/bin/python
+fi
+
 echo "orchestrator dev server -> http://localhost:${PORT:-8080}  (healthz, /runs, /webhooks/github)"
 echo "smoke-test it from another terminal:  make smoke"
 exec "${PYTHON:-python3}" -m uvicorn --factory factory_orchestrator.devapp:create \

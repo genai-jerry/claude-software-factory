@@ -19,11 +19,16 @@ configure, and which scripts to run.
 
 ```bash
 cd claude-software-factory/orchestrator
-make install      # pip install -e ".[dev]"
-make test         # 131 tests — confirms the checkout is healthy
+make install      # runs scripts/install.sh: finds Python 3.11+, creates ./.venv,
+                  # installs — works with pyenv/brew (no bare `pip` needed)
+make test         # full test suite — confirms the checkout is healthy
 make dev          # http://localhost:8080 (sqlite, auto-reload)
 make smoke        # in another terminal: signed-webhook smoke test
 ```
+
+All make targets and scripts use `./.venv` automatically once it exists.
+With pyenv and no global version set, `make install` still works; to pick a
+specific interpreter: `PYTHON=$(pyenv which python3.12) make install`.
 
 **No configuration is needed for the first loop** — `make dev` boots with
 safe placeholder credentials, so you can exercise webhook intake, the

@@ -97,7 +97,9 @@ case $ACTION in
         ;;
     smoke)
         echo -e "${YELLOW}Running signed-webhook smoke test...${NC}"
-        python3 scripts/smoke.py "http://localhost:${PORT:-8080}"
+        PY=python3
+        [ -x .venv/bin/python ] && PY=.venv/bin/python
+        "$PY" scripts/smoke.py "http://localhost:${PORT:-8080}"
         ;;
     *)
         echo -e "${RED}Unknown action: $ACTION${NC}"

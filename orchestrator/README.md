@@ -26,8 +26,8 @@ No Docker, GitHub App, or Postgres needed for the first loop:
 
 ```bash
 cd orchestrator
-make install        # pip install -e ".[dev]"
-make test           # 116 tests, including the shared routing fixtures
+make install        # creates ./.venv via scripts/install.sh (pyenv/brew friendly)
+make test           # full suite, including the shared routing fixtures
 make conformance    # both engines against the fixtures (needs node + js-yaml)
 make dev            # http://localhost:8080 — sqlite, auto-reload, dev fallbacks
 make smoke          # from another terminal: signed webhook, dedupe, bad-sig checks
@@ -122,7 +122,8 @@ The Console's API stays write-only for these values (metadata out, never
 secrets); the orchestrator is the only reader, via the shared master key.
 
 3. **Run**: `docker compose up` (orchestrator + Postgres), or
-   `pip install -e . && factory-orchestrator` against your own database.
+   `./scripts/install.sh && .venv/bin/factory-orchestrator` against your
+   own database.
    `GET /healthz` is the health endpoint.
 
 ### Deploy to a VPS (Hostinger) — the lighthouse-backend way
