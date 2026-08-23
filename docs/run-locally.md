@@ -135,6 +135,8 @@ cd software-factory-view && ./scripts/dev.sh        # :5173
 
 # terminal 2 — Orchestrator
 cd claude-software-factory/orchestrator && make dev # :8080
+# NOTE: the Console's DOCKER stack (./scripts/start.sh) also uses :8080.
+# Run only one of them there — or move the orchestrator: PORT=8090 make dev
 
 # terminal 3 — checks
 cd claude-software-factory/orchestrator
@@ -153,6 +155,12 @@ curl -s localhost:8080/runs         # run ledger
   follow. (`DB_PASSWORD` sets the compose Postgres password; user and
   database are fixed to `console`. A fully custom server goes in
   `DATABASE_URL`.)
+- **Console start.sh: "Port 8080 is already in use"** — the orchestrator's
+  `make dev` also defaults to :8080. Check with
+  `lsof -nP -iTCP:8080 -sTCP:LISTEN`; then either run the orchestrator on
+  another port (`PORT=8090 make dev`, smoke with
+  `.venv/bin/python scripts/smoke.py http://localhost:8090`) or move the
+  Console stack (`WEB_HOST_PORT=8081` in its `.env`).
 - **Console: "No .env — run ./scripts/setup.sh first"** — run setup once.
 - **Orchestrator won't start: `GITHUB_APP_ID is required`** — running
   `factory-orchestrator` directly needs real env; use `make dev` (it has dev
