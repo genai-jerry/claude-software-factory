@@ -73,6 +73,28 @@ have Docker locally.
    | `DISPATCH_TOKEN` | bearer token for the manual `/dispatch` endpoint |
    | `FACTORY_CROSS_REPO_TOKEN` | optional estate-wide PAT, same role as in Actions |
    | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | optional — set them and LangGraph traces to LangSmith, unset and nothing changes |
+   | `CONSOLE_DATABASE_URL`, `CONSOLE_MASTER_KEY`, `CONSOLE_ORG` | optional — read agent secrets the Factory Console retained (below) |
+
+### Agent secrets from the Factory Console
+
+Agent secrets entered in the Factory Console (`software-factory-view`) —
+`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `FACTORY_CROSS_REPO_TOKEN`
+— are written through to each repo's GitHub Actions secrets *and retained*,
+sealed in the Console's `orchestrator_secrets` table. Point the
+orchestrator at that store with `CONSOLE_DATABASE_URL` (the Console's
+Postgres) and `CONSOLE_MASTER_KEY` (the same key the Console seals with;
+`CONSOLE_ORG` only when the Console hosts more than one org), and:
+
+- values the deployment did not set by env come from the store — you can
+  drop the Anthropic credential from the deploy secrets entirely and manage
+  it in the Console UI instead;
+- env vars always win when both are set;
+- rotations in the Console reach role runs on the next refresh cycle
+  (reconciler timer, ~15 min; restart to force) — no redeploy;
+- a temporarily unreachable Console store never interrupts running work.
+
+The Console's API stays write-only for these values (metadata out, never
+secrets); the orchestrator is the only reader, via the shared master key.
 
 3. **Run**: `docker compose up` (orchestrator + Postgres), or
    `pip install -e . && factory-orchestrator` against your own database.

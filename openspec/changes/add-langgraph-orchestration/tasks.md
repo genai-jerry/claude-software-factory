@@ -161,3 +161,29 @@
       variable; verified by YAML parse and secret-name rules (no GITHUB_-
       prefixed secret names). Live deploy verification happens on the
       first push to main with the environment configured.
+
+## 9. Console-retained agent secrets (follow-up)
+
+- [x] 9.1 software-factory-view: retain agent secrets on write — new
+      `orchestrator_secrets` table (+ migration 0010), org-level settings
+      route and per-repo onboarding step seal the value with
+      CONSOLE_MASTER_KEY before the GitHub write-through, upsert per
+      org+name, write-only API (GET exposes name + updatedAt only),
+      retention skipped and reported when no master key is set; verified by
+      5 new API tests (encrypt/decrypt round trip, upsert, metadata-only
+      surface, allow-list, no-key fallback) with the full 121-test suite
+      green.
+- [x] 9.2 orchestrator: `console_secrets.py` — envelope decryption
+      byte-compatible with the Console's crypto.ts (pinned by a vector
+      generated with the real Node implementation), ConsoleSecretStore
+      (TTL-cached reads, single-org auto-select, CONSOLE_ORG for
+      multi-org), env-wins merge into config at startup, and rotation
+      refresh on the reconciler timer that never breaks on a store outage;
+      verified by 15 unit tests.
+- [x] 9.3 Plumbing + docs: CONSOLE_DATABASE_URL / CONSOLE_MASTER_KEY /
+      CONSOLE_ORG through .env.example, docker-compose and the deploy
+      workflow (Anthropic deploy-secret requirement relaxed when the
+      Console store is wired), README section, spec requirement
+      (langgraph-engine: credential sourcing scenarios) and design
+      decision D8a; verified by YAML parse, full orchestrator suite and
+      `openspec validate --strict`.

@@ -21,6 +21,10 @@ services:
       CLAIMED_REPOS: ${CLAIMED_REPOS:-}
       FACTORY_REPO: ${FACTORY_REPO:-genai-jerry/claude-software-factory}
       FACTORY_REF: ${FACTORY_REF:-v1}
+      # Factory Console secret store (optional) — see .env.example.
+      CONSOLE_DATABASE_URL: ${CONSOLE_DATABASE_URL:-}
+      CONSOLE_MASTER_KEY: ${CONSOLE_MASTER_KEY:-}
+      CONSOLE_ORG: ${CONSOLE_ORG:-}
       # Optional LangSmith tracing — set and it just works, unset and it's off.
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-}
       LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}

@@ -268,6 +268,28 @@ supported for estates that already use it. App-authored comments carry the
 `<!-- factory-agent -->` marker, and the router's existing bot-comment
 handling covers them.
 
+### D8a. Agent credentials via the Console's retained-secret store
+
+The Console's secret flow was write-through only: agent secrets entered in
+its UI were pushed to each repo's GitHub Actions secrets and dropped —
+correct for the Actions engine, invisible to this one (Actions secrets
+cannot be read back). The Console now *retains* those secrets in an
+`orchestrator_secrets` table, sealed with its existing envelope
+(`v1.iv.tag.ct`, AES-256-GCM under `CONSOLE_MASTER_KEY`), still write-only
+through its API. The orchestrator, given `CONSOLE_DATABASE_URL` +
+`CONSOLE_MASTER_KEY` (+ `CONSOLE_ORG` when the Console hosts several orgs),
+reads and decrypts them at startup and on the reconciler timer — env vars
+always win, the store fills gaps, rotation needs no redeploy. Compatibility
+is pinned by a test vector generated with the Console's actual crypto.ts.
+
+*Alternative considered:* a Console API endpoint serving secrets to the
+orchestrator. Rejected for v1: it turns the Console into a live dependency
+on the role-run path and needs its own service-to-service auth; a shared
+database + master key matches how the Console's own worker already consumes
+credentials. The GitHub App identity deliberately stays deployment config —
+a GitHub App has one webhook URL, so the orchestrator's App cannot be the
+Console's App.
+
 ### D8. Observability: run ledger + optional LangSmith
 
 Every run writes a row (repo, issue, role, trigger, model + fallbacks,

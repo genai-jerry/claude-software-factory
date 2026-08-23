@@ -103,6 +103,40 @@ model in the chain is accessible.
 - **WHEN** the preferred model is inaccessible and the second is used
 - **THEN** the run telemetry records the fallback and the run proceeds
 
+### Requirement: Agent credentials may come from the Factory Console's secret store
+The orchestrator SHALL be able to source its agent credentials
+(`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `FACTORY_CROSS_REPO_TOKEN`)
+from the Factory Console's retained-secret store — values set through the
+Console UI and stored encrypted in the Console's database — decrypting them
+with the shared Console master key. Environment-provided values SHALL always
+take precedence; the store fills only what the deployment left unset.
+Console-sourced values SHALL be refreshed periodically so a rotation in the
+Console reaches subsequent role runs without a redeploy, and a temporarily
+unreachable Console store SHALL never interrupt running work or discard the
+last known credentials. Decrypted values are subject to the same handling
+rules as any credential: never in prompts, ledgers, transcripts, or logs.
+
+#### Scenario: Console fills what the deployment left unset
+- **WHEN** the deployment sets no Anthropic credential but the Console store
+  holds one and the store is configured
+- **THEN** the orchestrator starts successfully and role runs use the
+  Console-stored credential
+
+#### Scenario: Environment wins over the store
+- **WHEN** both the environment and the Console store provide the same
+  credential
+- **THEN** the environment value is used and is never replaced by a refresh
+
+#### Scenario: Rotation without redeploy
+- **WHEN** an admin rotates a retained secret through the Console
+- **THEN** the orchestrator picks the new value up on its next refresh cycle
+  and later role runs use it
+
+#### Scenario: Store outage is non-fatal
+- **WHEN** the Console database is temporarily unreachable during a refresh
+- **THEN** the orchestrator keeps the credentials it has and continues
+  operating
+
 ### Requirement: Runs are observable outside GitHub
 The orchestrator SHALL expose structured run telemetry — per run: repo,
 issue, role, trigger event, model used and fallbacks, start/end, outcome,

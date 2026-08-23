@@ -7,5 +7,5 @@ from .main import build_service
 
 
 def create():
-    _cfg, _ledger, _engine, app = build_service()
+    _cfg, _ledger, _engine, app, _console = build_service()
     return app
