@@ -117,6 +117,7 @@ that store and you can stop putting the Anthropic key in its env at all:
 ```bash
 # in the orchestrator's .env / config.local.env
 CONSOLE_DATABASE_URL=postgres://console:console@localhost:5432/console
+# (use the Console's DB_HOST_PORT/DB_PASSWORD values if you changed them)
 CONSOLE_MASTER_KEY=<the same value as the Console's .env>
 # CONSOLE_ORG=<org id>   # only if the Console hosts more than one org
 ```
@@ -144,6 +145,14 @@ curl -s localhost:8080/runs         # run ledger
 
 ## Troubleshooting
 
+- **Console: `PostgresError: role "console" does not exist`** — another
+  Postgres on your machine (Homebrew, Postgres.app) owns :5432, so the
+  migration hit it instead of the Console's Docker Postgres. Set
+  `DB_HOST_PORT=5433` in the Console's `.env` and re-run
+  `./scripts/setup.sh` — compose publishes on that port and the scripts
+  follow. (`DB_PASSWORD` sets the compose Postgres password; user and
+  database are fixed to `console`. A fully custom server goes in
+  `DATABASE_URL`.)
 - **Console: "No .env — run ./scripts/setup.sh first"** — run setup once.
 - **Orchestrator won't start: `GITHUB_APP_ID is required`** — running
   `factory-orchestrator` directly needs real env; use `make dev` (it has dev
