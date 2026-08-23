@@ -52,6 +52,31 @@ exercisable before any real registration. For the full loop on a laptop:
 `make compose-up` runs the production shape (image + Postgres) when you do
 have Docker locally.
 
+### Local deploy — the lighthouse-backend way
+
+`./deploy.sh [environment] [action]` mirrors lighthouse-backend's root
+`deploy.sh`: it loads `config.<environment>.env` (committed with safe
+placeholders — `config.local.env`, `config.staging.env`,
+`config.production.env`; falling back to `.env`, seeded from `.env.example`
+if neither exists), then drives docker compose:
+
+```bash
+./deploy.sh                      # local + up (default)
+./deploy.sh local rebuild        # rebuild image and restart
+./deploy.sh local logs           # follow logs
+./deploy.sh local health         # curl /healthz (works against `make dev` too)
+./deploy.sh local smoke          # signed-webhook smoke test
+./deploy.sh production up        # on the server, with config.production.env filled in
+./deploy.sh local down
+```
+
+Actions: `up|start`, `down|stop`, `restart`, `logs`, `status|ps`, `build`,
+`rebuild`, plus orchestrator-specific `health` and `smoke`. Like
+lighthouse, edit the environment file on the machine that runs it — real
+values in `config.production.env` belong on the server, not in a commit.
+This is the by-hand path; the GitHub Actions workflow below is the
+push-to-main path, and both start the same container.
+
 ## Deploy
 
 1. **Register a GitHub App** (Settings → Developer settings → GitHub Apps):

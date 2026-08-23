@@ -162,6 +162,16 @@
       prefixed secret names). Live deploy verification happens on the
       first push to main with the environment configured.
 
+- [x] 8.4 Local deploy the lighthouse-backend way: `orchestrator/deploy.sh
+      [environment] [action]` (up/down/restart/logs/status/build/rebuild +
+      health/smoke) loading committed `config.<env>.env` files
+      (local/staging/production placeholders, .env fallback seeded from
+      .env.example), with lighthouse's usage/help and access-URL footer;
+      verified by bash -n, the unknown-action exit path, and live
+      `deploy.sh local health` + `deploy.sh local smoke` against a running
+      dev server (all checks green). Compose actions need a Docker daemon
+      (not available here), same caveat as 6.3.
+
 ## 9. Console-retained agent secrets (follow-up)
 
 - [x] 9.1 software-factory-view: retain agent secrets on write — new
