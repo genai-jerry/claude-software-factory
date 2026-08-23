@@ -1,2 +1,0 @@
-[console_scripts]
-factory-orchestrator = factory_orchestrator.main:main
