@@ -1,0 +1,32 @@
+{
+  "name": "standdown-external-engine-dispatch",
+  "description": "an external engine holds the claim: even a manual workflow_dispatch on Actions routes nothing",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "orchestrator": {
+      "engine": "langgraph"
+    }
+  },
+  "event": {
+    "name": "workflow_dispatch",
+    "role": "reviewer",
+    "issue": "12"
+  },
+  "expect": {
+    "role": "none",
+    "issues": []
+  }
+}

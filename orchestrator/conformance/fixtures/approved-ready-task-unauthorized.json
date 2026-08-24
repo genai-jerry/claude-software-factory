@@ -1,0 +1,52 @@
+{
+  "name": "approved-ready-task-unauthorized",
+  "description": "Approved on a ready task from outside the implementation list is refused",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(3): add endpoint",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "randal",
+      "authorAssociation": "NONE"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "@boss"
+        ]
+      }
+    }
+  }
+}

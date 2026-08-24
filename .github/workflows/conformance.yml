@@ -1,0 +1,47 @@
+name: Routing conformance
+
+# The conformance fixtures (orchestrator/conformance/fixtures/) are the
+# canonical routing decision table. Two engines implement it — the reusable
+# workflow's inline JS router and the orchestrator's Python router — and a
+# change to either, or to the fixtures, must keep both green. This is the
+# drift guard the engine-contract spec requires.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/factory-pipeline.yml"
+      - ".github/workflows/conformance.yml"
+      - "scripts/test-router.js"
+      - "orchestrator/**"
+  push:
+    branches: [main, v1]
+    paths:
+      - ".github/workflows/factory-pipeline.yml"
+      - "scripts/test-router.js"
+      - "orchestrator/**"
+
+permissions:
+  contents: read
+
+jobs:
+  js-router:
+    name: Actions engine (JS router + fixtures)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-save js-yaml
+      - run: node scripts/test-router.js
+
+  python-router:
+    name: LangGraph engine (Python router + fixtures)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e "./orchestrator[dev]"
+      - run: python -m pytest orchestrator/tests -q

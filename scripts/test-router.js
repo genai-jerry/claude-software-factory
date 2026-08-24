@@ -654,6 +654,158 @@ function check(label, cond, extra) {
     check('and files nothing', w5.state.created.length === 0, w5.state.created);
   }
 
+  // ------------------------------------------------------------------ fixtures
+  // The JSON conformance fixtures are the canonical routing decision table,
+  // shared with the orchestrator's Python router (orchestrator/conformance/).
+  // Everything above pins workflow-specific mechanics (YAML job conditions,
+  // marker steps); the fixtures pin the routing decisions any engine must
+  // reproduce. Both run here so a routing change cannot land without the
+  // fixture set moving with it.
+  await runFixtures();
+
   console.log(failures ? `\n${failures} FAILURE(S)` : '\nall scenarios pass');
   process.exit(failures ? 1 : 0);
 })();
+
+function fixtureWorld(fx) {
+  const CONFIG_PATHS = {
+    release: '.github/factory-release.json',
+    approvers: '.github/factory-approvers.json',
+    orchestrator: '.github/factory-orchestrator.json',
+  };
+  const files = {};
+  for (const [key, p] of Object.entries(CONFIG_PATHS)) {
+    const v = (fx.config || {})[key];
+    if (v === undefined) continue;
+    files[p] = v === 'invalid-json' ? '{not json' : JSON.stringify(v);
+  }
+  const milestones = {};
+  for (const m of (fx.repo || {}).milestones || []) {
+    milestones[m.number] = { number: m.number, title: m.title, html_url: m.htmlUrl || 'u' };
+  }
+  const msObj = (n) => (n == null ? null
+    : milestones[n] || (milestones[n] = { number: n, title: `ms${n}`, html_url: 'u' }));
+  const issues = {}, comments = {};
+  for (const i of (fx.repo || {}).issues || []) {
+    issues[i.number] = {
+      number: i.number,
+      title: i.title,
+      labels: (i.labels || []).map(name => ({ name })),
+      user: { type: i.authorType || 'User' },
+      state: i.state || 'open',
+      milestone: msObj(i.milestone),
+      pull_request: i.isPullRequest ? {} : undefined,
+    };
+    if (i.comments && i.comments.length) comments[i.number] = i.comments.map(c => ({ body: c.body }));
+  }
+  return { world: makeWorld({ files, issues, comments }), msObj };
+}
+
+function fixtureContext(fx, world, msObj) {
+  const ev = fx.event;
+  const iss = (n) => world.state.issues[n];
+  if (ev.name === 'issues') {
+    const payload = { action: ev.action, issue: iss(ev.issue) };
+    if (ev.label !== undefined) payload.label = { name: ev.label };
+    if (ev.sender !== undefined) payload.sender = { login: ev.sender };
+    if (ev.milestone !== undefined) payload.milestone = msObj(ev.milestone);
+    return ctx('issues', payload);
+  }
+  if (ev.name === 'issue_comment') {
+    return ctx('issue_comment', {
+      action: ev.action,
+      issue: iss(ev.issue),
+      comment: {
+        body: ev.comment.body,
+        user: { login: ev.comment.login, type: ev.comment.authorType || 'User' },
+        author_association: ev.comment.authorAssociation || 'NONE',
+      },
+    });
+  }
+  if (ev.name === 'milestone') return ctx('milestone', { action: ev.action, milestone: msObj(ev.milestone) });
+  if (ev.name === 'push') return ctx('push', { ref: ev.ref, repository: { default_branch: ev.defaultBranch } });
+  if (ev.name === 'workflow_dispatch') return ctx('workflow_dispatch', {}, { DISPATCH_ROLE: ev.role, DISPATCH_ISSUE: ev.issue });
+  throw new Error(`unknown event ${ev.name}`);
+}
+
+function assertExpect(name, fx, expect, world, outputs, baseline, chainOut) {
+  const L = (n) => (world.state.issues[n] ? world.state.issues[n].labels.map(l => l.name || l) : []);
+  if (expect.role !== undefined) check(`${name}: role=${expect.role}`, outputs.role === expect.role, outputs);
+  if (expect.issues !== undefined) {
+    check(`${name}: issues=${JSON.stringify(expect.issues)}`, outputs.issues === JSON.stringify(expect.issues), outputs);
+  }
+  if (expect.releaseIssue !== undefined) {
+    check(`${name}: releaseIssue=${JSON.stringify(expect.releaseIssue)}`,
+      String(outputs.release_issue || '') === expect.releaseIssue, outputs);
+  }
+  for (const [n, want] of Object.entries(expect.labels || {})) {
+    for (const l of want.has || []) check(`${name}: #${n} has ${l}`, L(Number(n)).includes(l), L(Number(n)));
+    for (const l of want.not || []) check(`${name}: #${n} not ${l}`, !L(Number(n)).includes(l), L(Number(n)));
+  }
+  for (const [n, want] of Object.entries(expect.comments || {})) {
+    const before = baseline[n] || 0;
+    const fresh = (world.state.comments[n] || []).slice(before);
+    if (want.count !== undefined) check(`${name}: #${n} ${want.count} new comment(s)`, fresh.length === want.count, fresh.map(c => c.body.slice(0, 60)));
+    if (want.countAtLeast !== undefined) check(`${name}: #${n} >=${want.countAtLeast} new comment(s)`, fresh.length >= want.countAtLeast, fresh.length);
+    for (const s of want.contains || []) {
+      check(`${name}: #${n} comment contains ${JSON.stringify(s.slice(0, 40))}`,
+        fresh.some(c => c.body.includes(s)), fresh.map(c => c.body.slice(0, 80)));
+    }
+    for (const s of want.notContains || []) {
+      check(`${name}: #${n} comment omits ${JSON.stringify(s.slice(0, 40))}`,
+        !fresh.some(c => c.body.includes(s)), fresh.map(c => c.body.slice(0, 80)));
+    }
+  }
+  if (expect.createdCount !== undefined) {
+    check(`${name}: created ${expect.createdCount} issue(s)`, world.state.created.length === expect.createdCount,
+      world.state.created.map(i => i.title));
+  }
+  (expect.createdIssues || []).forEach((want, idx) => {
+    const got = world.state.created[idx];
+    check(`${name}: created[${idx}] exists`, !!got, world.state.created.map(i => i.title));
+    if (!got) return;
+    if (want.titlePattern) check(`${name}: created[${idx}] title ~ ${want.titlePattern}`, new RegExp(want.titlePattern).test(got.title), got.title);
+    for (const l of want.labels || []) check(`${name}: created[${idx}] labelled ${l}`, got.labels.some(x => (x.name || x) === l), got.labels);
+    for (const s of want.bodyContains || []) check(`${name}: created[${idx}] body has ${JSON.stringify(s.slice(0, 40))}`, (got.body || '').includes(s), got.body);
+  });
+  if (expect.chainIssues !== undefined) {
+    check(`${name}: chain issues=${JSON.stringify(expect.chainIssues)}`,
+      chainOut && chainOut.issues === JSON.stringify(expect.chainIssues), chainOut);
+  }
+  if (expect.chainCount !== undefined) {
+    check(`${name}: chain count=${expect.chainCount}`, chainOut && chainOut.count === expect.chainCount, chainOut);
+  }
+}
+
+async function runFixtures() {
+  const dir = path.join(__dirname, '..', 'orchestrator', 'conformance', 'fixtures');
+  if (!fs.existsSync(dir)) { console.log('\n(no conformance fixtures directory - skipping)'); return; }
+  const names = fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort();
+  console.log(`\n--- conformance fixtures (${names.length}) ---`);
+  for (const file of names) {
+    const fx = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+    const { world, msObj } = fixtureWorld(fx);
+    const baseline = {};
+    for (const [n, cs] of Object.entries(world.state.comments)) baseline[n] = cs.length;
+    const context = fixtureContext(fx, world, msObj);
+    const outputs = await run(routeSrc, { world, context });
+    let chainOut = null;
+    if (fx.chain === 'release') {
+      const rel = String(outputs.release_issue || (fx.expect || {}).releaseIssue || '');
+      chainOut = await run(relSrc, { world, context: { ...ctx('x', {}), __env: { RELEASE_ISSUE: rel } } });
+    }
+    assertExpect(fx.name, fx, fx.expect || {}, world, outputs, baseline, chainOut);
+    if (fx.repeatEvent) {
+      const baseline2 = {};
+      for (const [n, cs] of Object.entries(world.state.comments)) baseline2[n] = cs.length;
+      const context2 = fixtureContext(fx, world, msObj);
+      const outputs2 = await run(routeSrc, { world, context: context2 });
+      let chainOut2 = null;
+      if (fx.chain === 'release') {
+        const rel = String(outputs2.release_issue || (fx.expect || {}).releaseIssue || '');
+        chainOut2 = await run(relSrc, { world, context: { ...ctx('x', {}), __env: { RELEASE_ISSUE: rel } } });
+      }
+      assertExpect(`${fx.name} (2nd)`, fx, fx.expectSecond || {}, world, outputs2, baseline2, chainOut2);
+    }
+  }
+}

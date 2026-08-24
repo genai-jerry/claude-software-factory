@@ -1,0 +1,62 @@
+{
+  "name": "approved-g1-unauthorized",
+  "description": "gate G1 approval from a user not on the spec list is refused and nothing flips",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:spec-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "randal",
+      "authorAssociation": "NONE"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:spec-ready"
+        ],
+        "not": [
+          "factory:spec-approved"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "@boss"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "issue-opened-gating-off",
+  "description": "gating off: a human-filed issue goes straight to intake",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": []
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "intake",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "has": [
+          "factory:intake"
+        ]
+      }
+    }
+  }
+}

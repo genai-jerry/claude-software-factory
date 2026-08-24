@@ -1,0 +1,96 @@
+{
+  "name": "milestoned-unapproved-queued",
+  "description": "milestoned into an unapproved release: queued once, pointed at the tracker, never repeated",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "milestones": [
+      {
+        "number": 7,
+        "title": "v0.4",
+        "htmlUrl": "u"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "release(7): v0.4",
+        "labels": [
+          "factory:release",
+          "factory:release-planning"
+        ],
+        "authorType": "Bot",
+        "milestone": 7
+      },
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": [
+          "factory:intake"
+        ],
+        "milestone": 7
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "milestoned",
+    "issue": 5,
+    "milestone": 7
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 0,
+    "labels": {
+      "5": {
+        "has": [
+          "factory:backlog"
+        ],
+        "not": [
+          "factory:intake"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "countAtLeast": 1,
+        "contains": [
+          "#1",
+          "Plan release",
+          "Approved"
+        ]
+      }
+    }
+  },
+  "repeatEvent": true,
+  "expectSecond": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "count": 0
+      }
+    }
+  }
+}

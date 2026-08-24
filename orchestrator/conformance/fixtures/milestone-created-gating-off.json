@@ -1,0 +1,38 @@
+{
+  "name": "milestone-created-gating-off",
+  "description": "gating off: milestone events are ignored and no tracker is filed",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "milestones": [
+      {
+        "number": 7,
+        "title": "v0.4",
+        "htmlUrl": "u"
+      }
+    ]
+  },
+  "event": {
+    "name": "milestone",
+    "action": "created",
+    "milestone": 7
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 0
+  }
+}

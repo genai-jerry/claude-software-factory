@@ -1,0 +1,66 @@
+{
+  "name": "plan-release-authorized",
+  "description": "Plan release on a tracker from an authorized approver starts the scrum master",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "milestones": [
+      {
+        "number": 7,
+        "title": "v0.4",
+        "htmlUrl": "u"
+      }
+    ],
+    "issues": [
+      {
+        "number": 1,
+        "title": "release(7): v0.4",
+        "labels": [
+          "factory:release",
+          "factory:release-planning"
+        ],
+        "authorType": "Bot",
+        "milestone": 7
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 1,
+    "comment": {
+      "body": "Plan release",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "scrum",
+    "issues": [
+      "1"
+    ],
+    "releaseIssue": "1"
+  }
+}

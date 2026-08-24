@@ -1,0 +1,55 @@
+{
+  "name": "blocked-resume-planned-architect",
+  "description": "a human reply on a blocked planned epic resumes the architect",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:blocked",
+          "factory:planned"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "here is the answer",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "architect",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "not": [
+          "factory:blocked"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "name": "standdown-external-engine-gate-comment",
+  "description": "an external engine holds the claim: a gate approval comment neither flips the label nor replies",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "orchestrator": {
+      "engine": "langgraph"
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:spec-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:spec-ready"
+        ],
+        "not": [
+          "factory:spec-approved"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "count": 0
+      }
+    }
+  }
+}

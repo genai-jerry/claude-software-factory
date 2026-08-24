@@ -1,0 +1,45 @@
+{
+  "name": "issue-opened-bot-skipped",
+  "description": "a bot-authored issue does not enter intake on opened",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": [],
+        "authorType": "Bot"
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "not": [
+          "factory:intake"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,51 @@
+# Minimal deployment: the orchestrator + Postgres.
+# Copy .env from .env.example (or export the variables) before `docker compose up`.
+services:
+  orchestrator:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      # Preferred in .env: the PEM base64-encoded (multi-line values do not
+      # survive env files) — the orchestrator decodes it itself.
+      GITHUB_APP_PRIVATE_KEY_B64: ${GITHUB_APP_PRIVATE_KEY_B64:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      FACTORY_CROSS_REPO_TOKEN: ${FACTORY_CROSS_REPO_TOKEN:-}
+      DATABASE_URL: postgresql+psycopg://factory:factory@db:5432/factory
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      DISPATCH_TOKEN: ${DISPATCH_TOKEN:-}
+      CLAIMED_REPOS: ${CLAIMED_REPOS:-}
+      FACTORY_REPO: ${FACTORY_REPO:-genai-jerry/claude-software-factory}
+      FACTORY_REF: ${FACTORY_REF:-v1}
+      # Factory Console secret store (optional) — see .env.example.
+      CONSOLE_DATABASE_URL: ${CONSOLE_DATABASE_URL:-}
+      CONSOLE_MASTER_KEY: ${CONSOLE_MASTER_KEY:-}
+      CONSOLE_ORG: ${CONSOLE_ORG:-}
+      # Optional LangSmith tracing — set and it just works, unset and it's off.
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: factory
+      POSTGRES_PASSWORD: factory
+      POSTGRES_DB: factory
+    volumes:
+      - factory-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U factory"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  factory-db:

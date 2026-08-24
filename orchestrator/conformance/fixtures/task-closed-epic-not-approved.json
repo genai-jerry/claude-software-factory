@@ -1,0 +1,45 @@
+{
+  "name": "task-closed-epic-not-approved",
+  "description": "a task closing while its epic is past implementation does not re-dispatch",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:ready-to-ship"
+        ]
+      },
+      {
+        "number": 8,
+        "title": "task(5): step one",
+        "labels": [],
+        "state": "closed"
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "closed",
+    "issue": 8
+  },
+  "expect": {
+    "role": "none"
+  }
+}

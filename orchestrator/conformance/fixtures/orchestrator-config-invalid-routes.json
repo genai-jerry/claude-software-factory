@@ -1,0 +1,41 @@
+{
+  "name": "orchestrator-config-invalid-routes",
+  "description": "an unparseable factory-orchestrator.json means github-actions: routing unchanged",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "orchestrator": "invalid-json"
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": []
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "intake",
+    "issues": [
+      "5"
+    ]
+  }
+}

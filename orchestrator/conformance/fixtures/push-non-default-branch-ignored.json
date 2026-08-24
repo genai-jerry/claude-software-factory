@@ -1,0 +1,29 @@
+{
+  "name": "push-non-default-branch-ignored",
+  "description": "a push to any other branch is not profile drift",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "event": {
+    "name": "push",
+    "ref": "refs/heads/feature-x",
+    "defaultBranch": "main"
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 0
+  }
+}

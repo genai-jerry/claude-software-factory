@@ -1,0 +1,39 @@
+{
+  "name": "issue-opened-existing-state-skipped",
+  "description": "an issue opened already carrying a factory state routes nowhere",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Imported epic",
+        "labels": [
+          "factory:planned"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "none"
+  }
+}

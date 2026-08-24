@@ -1,0 +1,58 @@
+{
+  "name": "labeled-fast-track-in-flight-refused",
+  "description": "factory:fast-track cannot hijack an issue the pipeline already invested in",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Big thing",
+        "labels": [
+          "factory:spec-ready",
+          "factory:fast-track"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:fast-track",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "does not take over"
+        ]
+      }
+    }
+  }
+}

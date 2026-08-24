@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/genai-jerry/claude-software-factory/orchestrator/conformance/fixture.schema.json",
+  "title": "Factory routing conformance fixture",
+  "type": "object",
+  "required": ["name", "description", "event", "expect"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "description": { "type": "string", "minLength": 10 },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "release": { "$ref": "#/$defs/configFile" },
+        "approvers": { "$ref": "#/$defs/configFile" },
+        "orchestrator": { "$ref": "#/$defs/configFile" }
+      }
+    },
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "issues": { "type": "array", "items": { "$ref": "#/$defs/issue" } },
+        "milestones": { "type": "array", "items": { "$ref": "#/$defs/milestone" } }
+      }
+    },
+    "event": { "$ref": "#/$defs/event" },
+    "expect": { "$ref": "#/$defs/expect" },
+    "repeatEvent": { "type": "boolean" },
+    "expectSecond": { "$ref": "#/$defs/expect" },
+    "chain": { "enum": ["release"] }
+  },
+  "$defs": {
+    "configFile": {
+      "oneOf": [
+        { "type": "object" },
+        { "const": "invalid-json" }
+      ]
+    },
+    "issue": {
+      "type": "object",
+      "required": ["number", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "authorType": { "enum": ["User", "Bot"] },
+        "state": { "enum": ["open", "closed"] },
+        "isPullRequest": { "type": "boolean" },
+        "milestone": { "type": ["integer", "null"] },
+        "comments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["body"],
+            "additionalProperties": false,
+            "properties": { "body": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "milestone": {
+      "type": "object",
+      "required": ["number", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "title": { "type": "string" },
+        "htmlUrl": { "type": "string" }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["name"],
+      "oneOf": [
+        {
+          "properties": {
+            "name": { "const": "issues" },
+            "action": { "enum": ["opened", "labeled", "closed", "milestoned", "demilestoned"] },
+            "issue": { "type": "integer" },
+            "label": { "type": "string" },
+            "milestone": { "type": "integer" },
+            "sender": { "type": "string" }
+          },
+          "required": ["name", "action", "issue"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "name": { "const": "issue_comment" },
+            "action": { "const": "created" },
+            "issue": { "type": "integer" },
+            "comment": {
+              "type": "object",
+              "required": ["body", "login"],
+              "additionalProperties": false,
+              "properties": {
+                "body": { "type": "string" },
+                "login": { "type": "string" },
+                "authorAssociation": { "type": "string" },
+                "authorType": { "enum": ["User", "Bot"] }
+              }
+            }
+          },
+          "required": ["name", "action", "issue", "comment"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "name": { "const": "milestone" },
+            "action": { "enum": ["created", "opened", "closed", "edited"] },
+            "milestone": { "type": "integer" }
+          },
+          "required": ["name", "action", "milestone"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "name": { "const": "push" },
+            "ref": { "type": "string" },
+            "defaultBranch": { "type": "string" }
+          },
+          "required": ["name", "ref", "defaultBranch"],
+          "additionalProperties": false
+        },
+        {
+          "properties": {
+            "name": { "const": "workflow_dispatch" },
+            "role": { "type": "string" },
+            "issue": { "type": "string" }
+          },
+          "required": ["name", "role", "issue"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "expect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string" },
+        "issues": { "type": "array", "items": { "type": "string" } },
+        "releaseIssue": { "type": "string" },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "has": { "type": "array", "items": { "type": "string" } },
+              "not": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "comments": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "count": { "type": "integer", "minimum": 0 },
+              "countAtLeast": { "type": "integer", "minimum": 0 },
+              "contains": { "type": "array", "items": { "type": "string" } },
+              "notContains": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "createdIssues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "titlePattern": { "type": "string" },
+              "labels": { "type": "array", "items": { "type": "string" } },
+              "bodyContains": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "createdCount": { "type": "integer", "minimum": 0 },
+        "chainIssues": { "type": "array", "items": { "type": "string" } },
+        "chainCount": { "type": "string" }
+      }
+    }
+  }
+}

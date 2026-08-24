@@ -1,0 +1,58 @@
+{
+  "name": "issue-opened-fast-track",
+  "description": "filed with factory:fast-track: the fast lane runs, no intake and no parking",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Typo",
+        "labels": [
+          "factory:fast-track"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "fasttrack",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "not": [
+          "factory:intake",
+          "factory:backlog"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "name": "comment-on-pr-skipped",
+  "description": "comments on pull requests never route",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Some PR",
+        "labels": [
+          "factory:spec-ready"
+        ],
+        "isPullRequest": true
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "count": 0
+      }
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "name": "issue-opened-gating-on-custom-exempt",
+  "description": "gating on with a custom exempt label: the issue still enters intake",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "exempt_labels": [
+        "hotfix"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Prod down",
+        "labels": [
+          "hotfix"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 5
+  },
+  "expect": {
+    "role": "intake",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "not": [
+          "factory:backlog"
+        ]
+      }
+    }
+  }
+}

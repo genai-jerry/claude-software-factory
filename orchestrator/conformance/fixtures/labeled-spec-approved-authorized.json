@@ -1,0 +1,44 @@
+{
+  "name": "labeled-spec-approved-authorized",
+  "description": "factory:spec-approved applied by a spec approver starts the planner",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:spec-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:spec-approved",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "planner",
+    "issues": [
+      "5"
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "approved-ready-task-starts-implementer",
+  "description": "Approved on a ready task starts its implementer (not a gate; authorized list)",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(3): add endpoint",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "implementer",
+    "issues": [
+      "5"
+    ]
+  }
+}

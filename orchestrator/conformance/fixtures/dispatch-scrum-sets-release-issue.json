@@ -1,0 +1,32 @@
+{
+  "name": "dispatch-scrum-sets-release-issue",
+  "description": "workflow_dispatch of the scrum master marks its issue as the release tracker",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "event": {
+    "name": "workflow_dispatch",
+    "role": "scrum",
+    "issue": "1"
+  },
+  "expect": {
+    "role": "scrum",
+    "issues": [
+      "1"
+    ],
+    "releaseIssue": "1"
+  }
+}

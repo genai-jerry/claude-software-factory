@@ -1,0 +1,48 @@
+{
+  "name": "push-default-branch-profiler",
+  "description": "a profile-relevant push to the default branch runs the profiler on the singleton profile issue, filing it once and reusing it",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "event": {
+    "name": "push",
+    "ref": "refs/heads/main",
+    "defaultBranch": "main"
+  },
+  "expect": {
+    "role": "profiler",
+    "issues": [
+      "1"
+    ],
+    "createdCount": 1,
+    "createdIssues": [
+      {
+        "titlePattern": "^Factory: repo profile$",
+        "labels": [
+          "factory:profile"
+        ]
+      }
+    ]
+  },
+  "repeatEvent": true,
+  "expectSecond": {
+    "role": "profiler",
+    "issues": [
+      "1"
+    ],
+    "createdCount": 1
+  }
+}

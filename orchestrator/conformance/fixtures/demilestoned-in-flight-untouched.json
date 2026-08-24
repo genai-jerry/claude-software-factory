@@ -1,0 +1,70 @@
+{
+  "name": "demilestoned-in-flight-untouched",
+  "description": "removed from its release while in flight: left exactly where it is",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": true,
+      "exempt_labels": [
+        "factory:fast-track"
+      ]
+    }
+  },
+  "repo": {
+    "milestones": [
+      {
+        "number": 7,
+        "title": "v0.4",
+        "htmlUrl": "u"
+      }
+    ],
+    "issues": [
+      {
+        "number": 5,
+        "title": "In flight",
+        "labels": [
+          "factory:design-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "demilestoned",
+    "issue": 5,
+    "milestone": 7
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:design-approved"
+        ],
+        "not": [
+          "factory:backlog"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "count": 0
+      }
+    }
+  }
+}

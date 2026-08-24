@@ -1,0 +1,32 @@
+{
+  "name": "dispatch-any-role",
+  "description": "workflow_dispatch passes the operator's role and issue straight through",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "event": {
+    "name": "workflow_dispatch",
+    "role": "reviewer",
+    "issue": "12"
+  },
+  "expect": {
+    "role": "reviewer",
+    "issues": [
+      "12"
+    ],
+    "releaseIssue": ""
+  }
+}

@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.env
+factory-orchestrator.db*

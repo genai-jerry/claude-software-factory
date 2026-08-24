@@ -1,0 +1,49 @@
+{
+  "name": "issue-opened-profile-label",
+  "description": "filed with factory:profile: the profiler drafts the repo profile",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 7,
+        "title": "Factory: repo profile",
+        "labels": [
+          "factory:profile"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 7
+  },
+  "expect": {
+    "role": "profiler",
+    "issues": [
+      "7"
+    ],
+    "labels": {
+      "7": {
+        "not": [
+          "factory:intake"
+        ]
+      }
+    }
+  }
+}

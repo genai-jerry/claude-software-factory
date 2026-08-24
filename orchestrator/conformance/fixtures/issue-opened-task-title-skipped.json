@@ -1,0 +1,44 @@
+{
+  "name": "issue-opened-task-title-skipped",
+  "description": "a task(...) sub-issue filed by the planner never routes to intake",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 8,
+        "title": "task(5): step one",
+        "labels": []
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 8
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "8": {
+        "not": [
+          "factory:intake"
+        ]
+      }
+    }
+  }
+}

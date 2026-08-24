@@ -1,0 +1,43 @@
+{
+  "name": "milestone-created-auto-tracker-off",
+  "description": "auto_create_release_issue false: no tracker is filed for a new milestone",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    },
+    "release": {
+      "gating": "milestone",
+      "approval": "human",
+      "auto_create_release_issue": false
+    }
+  },
+  "repo": {
+    "milestones": [
+      {
+        "number": 7,
+        "title": "v0.4",
+        "htmlUrl": "u"
+      }
+    ]
+  },
+  "event": {
+    "name": "milestone",
+    "action": "created",
+    "milestone": 7
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 0
+  }
+}
