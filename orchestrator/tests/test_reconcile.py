@@ -52,3 +52,19 @@ def test_sweep_ignores_states_without_pending_steps(tmp_path):
     world = FakeRepo({5: issue(5, "Epic", ["factory:in-review"]),
                       6: issue(6, "Epic2", ["factory:spec-ready"])})
     assert sweep_repo(world, make_ledger(tmp_path)) == 0
+
+
+def test_sweep_queues_idle_fast_track(tmp_path):
+    world = FakeRepo({102: issue(102, "Add a FACTORY_CANARY.md", ["factory:fast-track"])})
+    ledger = make_ledger(tmp_path)
+    assert sweep_repo(world, ledger) == 1
+    [claimed] = ledger.claim_pending()
+    assert claimed["payload"]["label"]["name"] == "factory:fast-track"
+    assert claimed["payload"]["issue"]["number"] == 102
+
+
+def test_sweep_skips_fast_track_with_recorded_run(tmp_path):
+    world = FakeRepo({102: issue(102, "Canary", ["factory:fast-track"])})
+    ledger = make_ledger(tmp_path)
+    ledger.start_run(repo="o/r", issue=102, role="fasttrack", trigger="issues:labeled")
+    assert sweep_repo(world, ledger) == 0

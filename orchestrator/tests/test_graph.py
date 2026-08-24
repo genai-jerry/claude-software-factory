@@ -48,7 +48,7 @@ class ScriptedRunner:
         self.behaviours = behaviours
         self.calls = []
 
-    def run(self, *, owner, repo, role, issue, model, github_token):
+    def run(self, *, owner, repo, role, issue, model, github_token, **_):
         self.calls.append({"role": role, "issue": issue, "model": model})
         behave = self.behaviours.get(role)
         if behave:
@@ -98,6 +98,8 @@ def test_intake_run_moves_issue_and_checkpoints(tmp_path):
     assert [c["role"] for c in runner.calls] == ["intake"]
     runs = ledger.list_runs(repo="o/r", issue=5)
     assert len(runs) == 1 and runs[0]["outcome"] == "success"
+    bodies = [c["body"] for c in world.comments.get(5, [])]
+    assert any("is running" in b and f"/runs/{runs[0]['id']}" in b for b in bodies)
     state = graph.get_state(cfgc)
     assert state.values["completed"][0]["status"] == "success"
 

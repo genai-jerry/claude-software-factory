@@ -63,6 +63,23 @@ def verify_no_op(port: RepoPort, issue: int, before: Snapshot, role: str) -> boo
     return False
 
 
+def report_start(port: RepoPort, issue: int, role: str, run_url: str) -> None:
+    """A live run has to say so where humans look: the issue thread.
+
+    Posted before the no-op snapshot so it is not itself counted as the role's
+    trace. The Console (and anyone watching the issue) can follow the log
+    without an Actions run.
+    """
+    try:
+        port.create_comment(issue, (
+            f"▶ The **{role}** is running under the Software Factory orchestrator — "
+            f"[watch the run]({run_url}).\n\n"
+            f"{AGENT_MARK}"))
+        log.info("posted start comment for %s on #%s log=%s", role, issue, run_url)
+    except Exception:  # noqa: BLE001 - a missing start note must not fail the run
+        log.warning("could not report the starting %s run on #%s", role, issue, exc_info=True)
+
+
 def report_failure(port: RepoPort, issue: int, role: str, run_url: str) -> None:
     """The failure has to say so where humans look: the issue thread."""
     try:
@@ -73,5 +90,6 @@ def report_failure(port: RepoPort, issue: int, role: str, run_url: str) -> None:
             "this thread and any PR it links before re-triggering, so a re-run doesn't "
             "redo delivered work.\n\n"
             f"{AGENT_MARK}"))
+        log.info("posted failure comment for %s on #%s log=%s", role, issue, run_url)
     except Exception:  # noqa: BLE001 - failing to report must not mask the failure
         log.warning("could not report the failed %s run on #%s", role, issue, exc_info=True)

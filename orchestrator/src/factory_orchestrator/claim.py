@@ -37,6 +37,7 @@ def claim_check(port: RepoPort, engine_name: str) -> bool:
         log.info("claim: %s/%s declares engine %r, not %r - dropping the event",
                  port.owner, port.repo, engine, engine_name)
         return False
+    log.info("claim: %s/%s accepted for %s", port.owner, port.repo, engine_name)
     return True
 
 

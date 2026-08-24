@@ -52,6 +52,22 @@ def test_secret_reveal_and_bool():
     assert bool(s) and not bool(Secret(""))
 
 
+def test_agent_credential_env_oauth_wins_over_api_key():
+    cfg = load_config({**BASE, "CLAUDE_CODE_OAUTH_TOKEN": "oauth-max"})
+    assert cfg.agent_credential_env() == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth-max"}
+    api_only = load_config(BASE)
+    assert api_only.agent_credential_env() == {"ANTHROPIC_API_KEY": "sk-ant-secret"}
+
+
+def test_placeholder_key_is_not_usable():
+    from factory_orchestrator.config import is_usable_credential
+    assert Secret("sk-ant-secret").usable()
+    assert not Secret("").usable()
+    assert not Secret("sk-dev-placeholder").usable()
+    assert not is_usable_credential("sk-dev-placeholder")
+    assert is_usable_credential("sk-ant-real")
+
+
 def test_private_key_accepts_base64_variant():
     import base64
     pem = BASE["GITHUB_APP_PRIVATE_KEY"]

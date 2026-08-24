@@ -20,6 +20,7 @@ node re-reads GitHub before acting (engine-contract).
 
 from __future__ import annotations
 
+import json
 import logging
 import operator
 import tempfile
@@ -32,7 +33,14 @@ from langgraph.types import Send
 from . import claim
 from .config import Config
 from .github_app import GitHubApp, RepoPort, parse_json_or_empty
-from .guards import clear_in_progress, mark_in_progress, report_failure, snapshot, verify_no_op
+from .guards import (
+    clear_in_progress,
+    mark_in_progress,
+    report_failure,
+    report_start,
+    snapshot,
+    verify_no_op,
+)
 from .ledger import Ledger
 from .models import ModelResolutionError, Probe, load_models_config, resolve_model
 from .role_runner import RoleRunner
@@ -104,6 +112,11 @@ def build_graph(engine: Engine, checkpointer=None):
             state["event_name"], state["payload"])
         pending = [{"role": result.role, "issue": int(n)} for n in result.issues] \
             if result.role != "none" else []
+        log.info(
+            "route event=%s repo=%s/%s role=%s issues=%s release=%s",
+            state["event_name"], state["owner"], state["repo"],
+            result.role, [p["issue"] for p in pending], result.release_issue or "-",
+        )
         return {"pending": pending, "release_issue": result.release_issue,
                 "release_dispatched": False, "round": 0, "completed": []}
 
@@ -175,20 +188,42 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
     run_url = f"{engine.cfg.public_base_url}/runs/{run_id}"
     summary: dict[str, Any] = {"role": role, "issue": issue, "run_id": run_id,
                                "round": item.get("round", 0)}
+    log.info("role start role=%s repo=%s/%s#%s run=%s log=%s",
+             role, owner, repo, issue, run_id, run_url)
     mark_in_progress(port, issue)
+    transcript_path = engine.transcript_dir / f"{run_id}.log"
+
+    def note(phase: str, **extra: Any) -> None:
+        payload = {"phase": phase, **extra}
+        engine.ledger.update_run(run_id, outcome="running",
+                                 guards=json.dumps(payload),
+                                 transcript_path=str(transcript_path))
+
     try:
-        before = snapshot(port, issue)
         try:
+            transcript_path.write_text("")
+            note("resolving model")
             resolved = resolve_model(role, load_models_config(port), engine.probe)
         except ModelResolutionError as e:
             engine.ledger.finish_run(run_id, outcome="error", error=str(e))
             report_failure(port, issue, role, run_url)
             summary["status"] = "error"
+            log.info("role finish role=%s repo=%s/%s#%s run=%s status=error reason=model",
+                     role, owner, repo, issue, run_id)
             return summary
+        extra = {"model": resolved.model, "fallbacks": resolved.fallbacks}
+        engine.ledger.update_run(run_id, model=resolved.model,
+                                 model_fallbacks=json.dumps(resolved.fallbacks))
+        note("starting", **extra)
+        # Start note before the no-op snapshot so it is not counted as the
+        # role's own trace. Anyone watching the issue (or the Console card)
+        # can follow the log without an Actions run.
+        report_start(port, issue, role, run_url)
+        before = snapshot(port, issue)
         outcome = engine.runner.run(
             owner=owner, repo=repo, role=role, issue=issue, model=resolved.model,
-            github_token=engine.app.installation_token(owner, repo))
-        transcript_path = engine.transcript_dir / f"{run_id}.log"
+            github_token=engine.app.installation_token(owner, repo),
+            on_phase=lambda phase: note(phase, **extra))
         transcript_path.write_text(outcome.transcript)
         traced = verify_no_op(port, issue, before, role)
         if outcome.status == "success" and traced:
@@ -197,15 +232,20 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             status = "no_op"  # exit 0 but nothing visible happened: fail it
         else:
             status = outcome.status
-        guards = {"before": before.__dict__, "trace": traced}
+        guards = {"before": before.__dict__, "trace": traced, "phase": "finished",
+                  "model": resolved.model, "fallbacks": resolved.fallbacks}
         engine.ledger.finish_run(run_id, outcome=status, model=resolved.model,
                                  model_fallbacks=resolved.fallbacks, guards=guards,
                                  transcript_path=str(transcript_path))
         if status != "success":
             report_failure(port, issue, role, run_url)
         summary["status"] = status
+        log.info("role finish role=%s repo=%s/%s#%s run=%s status=%s traced=%s",
+                 role, owner, repo, issue, run_id, status, traced)
         return summary
     except Exception as e:  # noqa: BLE001 - a crashed run must still report + unmark
+        log.exception("role crashed role=%s repo=%s/%s#%s run=%s",
+                      role, owner, repo, issue, run_id)
         engine.ledger.finish_run(run_id, outcome="error", error=f"{type(e).__name__}: {e}")
         report_failure(port, issue, role, run_url)
         summary["status"] = "error"
@@ -255,13 +295,22 @@ class Processor:
             log.info("event without a repository - ignoring")
             return
         owner, repo = full.split("/", 1)
+        token = (payload.get("inputs") or {}).get("github_token")
+        if token and hasattr(self.engine.app, "cache_token"):
+            self.engine.app.cache_token(owner, repo, token)
         port = self.engine.port(owner, repo)
         if not claim.claim_check(port, self.engine.cfg.engine_name):
             return
+        issue_n = (payload.get("issue") or {}).get("number")
+        if issue_n is None:
+            issue_n = (payload.get("inputs") or {}).get("issue_number")
+        thread = thread_id_for(event_name, payload)
+        log.info("invoke graph event=%s action=%s repo=%s/%s issue=%s thread=%s",
+                 event_name, payload.get("action", ""), owner, repo, issue_n or "-", thread)
         state: PipelineState = {
             "event_name": "workflow_dispatch" if event_name == "workflow_dispatch" else event_name,
             "payload": payload, "owner": owner, "repo": repo,
             "trigger": f"{event_name}:{payload.get('action', '')}",
         }
-        config = {"configurable": {"thread_id": thread_id_for(event_name, payload)}}
+        config = {"configurable": {"thread_id": thread}}
         self.graph.invoke(state, config=config)

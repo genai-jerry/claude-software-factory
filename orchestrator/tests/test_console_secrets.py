@@ -8,6 +8,7 @@ from factory_orchestrator.console_secrets import (
     ConsoleSecretStore,
     SealedSecretError,
     apply_console_secrets,
+    apply_runtime_agent_secrets,
     decrypt_sealed,
     refresh_console_secrets,
     seal,
@@ -103,6 +104,24 @@ def test_store_ttl_and_invalidate(tmp_path):
     assert store.agent_secrets()["ANTHROPIC_API_KEY"] == "v1-value"
     store.invalidate()
     assert store.agent_secrets()["ANTHROPIC_API_KEY"] == "v2-value"
+
+
+def test_placeholder_env_yields_to_console(tmp_path):
+    url = make_console_db(tmp_path, [("org-1", "ANTHROPIC_API_KEY", "console-key")])
+    store = ConsoleSecretStore(url, MASTER_KEY)
+    env = {"ANTHROPIC_API_KEY": "sk-dev-placeholder"}
+    merged, from_console = apply_console_secrets(env, store)
+    assert merged["ANTHROPIC_API_KEY"] == "console-key"
+    assert from_console == {"ANTHROPIC_API_KEY"}
+
+
+def test_dispatch_applies_oauth_and_clears_placeholder_api_key():
+    cfg = load_config({**BASE, "ANTHROPIC_API_KEY": "sk-dev-placeholder"})
+    assert not cfg.anthropic_api_key.usable()
+    applied = apply_runtime_agent_secrets(cfg, {"claude_code_oauth_token": "oauth-from-console"})
+    assert applied == ["CLAUDE_CODE_OAUTH_TOKEN"]
+    assert cfg.claude_code_oauth_token.reveal() == "oauth-from-console"
+    assert not cfg.anthropic_api_key.usable()
 
 
 def test_env_wins_console_fills_gaps(tmp_path):

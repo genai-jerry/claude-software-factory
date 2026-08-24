@@ -33,6 +33,8 @@ async def test_runs_surface(tmp_path):
         r = await client.get("/runs", params={"repo": "o/r", "active": "true"})
         assert [x["id"] for x in r.json()] == [active_id]
         assert r.json()[0]["role"] == "planner"
+        assert r.json()[0]["status"] == "running"
+        assert r.json()[0]["outcome"] == "running"
 
         r = await client.get(f"/runs/{run_id}")
         assert r.json()["guards"] == {"trace": True}
@@ -45,4 +47,24 @@ async def test_runs_surface(tmp_path):
         r = await client.get("/runs/nope")
         assert r.status_code == 404
 
+    await with_client(app, go)
+
+
+async def test_update_run_exposes_model_while_live(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db"})
+    ledger = Ledger(cfg.database_url)
+    run_id = ledger.start_run(repo="o/r", issue=5, role="profiler", trigger="dispatch")
+    ledger.update_run(run_id, model="claude-opus-5", outcome="running",
+                      guards='{"phase": "running Claude (claude-opus-5)"}')
+    app = create_app(cfg, ledger, lambda e, p: None, poll_interval=0.05)
+
+    async def go(client: httpx.AsyncClient):
+        r = await client.get(f"/runs/{run_id}")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["model"] == "claude-opus-5"
+        assert body["outcome"] == "running"
+        assert body["status"] == "running"
+        assert body["guards"]["phase"] == "running Claude (claude-opus-5)"
+        assert body["finished_at"] is None
     await with_client(app, go)

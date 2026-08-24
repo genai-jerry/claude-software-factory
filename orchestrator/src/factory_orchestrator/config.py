@@ -17,6 +17,23 @@ class ConfigError(ValueError):
     """A required setting is missing or invalid."""
 
 
+# scripts/dev.sh fills these so the process can boot before a real token
+# arrives from the Console store or a /dispatch. They must not win over
+# those sources, and they must not be handed to Claude.
+DEV_PLACEHOLDERS = frozenset({"sk-dev-placeholder", "dev-placeholder"})
+
+
+def is_usable_credential(value: str) -> bool:
+    v = (value or "").strip()
+    return bool(v) and v not in DEV_PLACEHOLDERS
+
+
+def agent_path() -> str:
+    """PATH for the Claude CLI. Keep the process PATH so a local install
+    (e.g. ~/.local/bin/claude) is visible; fall back to the usual bins."""
+    return os.environ.get("PATH") or "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
+
+
 class Secret:
     """A string that refuses to print itself."""
 
@@ -25,6 +42,9 @@ class Secret:
 
     def reveal(self) -> str:
         return self._value
+
+    def usable(self) -> bool:
+        return is_usable_credential(self._value)
 
     def __bool__(self) -> bool:
         return bool(self._value)
@@ -65,6 +85,16 @@ class Config:
     dispatch_token: Secret = field(default_factory=lambda: Secret(""))
     # Optional cross-repo PAT for multi-repo estates (same role as in Actions).
     cross_repo_token: Secret = field(default_factory=lambda: Secret(""))
+
+    def agent_credential_env(self) -> dict[str, str]:
+        """Env for the Claude CLI. OAuth wins: Claude Code prefers
+        ANTHROPIC_API_KEY when both are set, and a Max subscription (Opus)
+        lives on CLAUDE_CODE_OAUTH_TOKEN."""
+        if self.claude_code_oauth_token.usable():
+            return {"CLAUDE_CODE_OAUTH_TOKEN": self.claude_code_oauth_token.reveal()}
+        if self.anthropic_api_key.usable():
+            return {"ANTHROPIC_API_KEY": self.anthropic_api_key.reveal()}
+        return {}
 
     def __post_init__(self) -> None:
         if not self.github_app_id:

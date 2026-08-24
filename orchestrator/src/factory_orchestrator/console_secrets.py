@@ -25,6 +25,8 @@ import sqlalchemy as sa
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from .config import is_usable_credential
+
 log = logging.getLogger("factory-orchestrator.console-secrets")
 
 AGENT_SECRETS = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "FACTORY_CROSS_REPO_TOKEN")
@@ -121,7 +123,7 @@ def apply_console_secrets(env: dict[str, str],
     from_console: set[str] = set()
     secrets = store.agent_secrets()
     for name in AGENT_SECRETS:
-        if not merged.get(name) and secrets.get(name):
+        if not is_usable_credential(merged.get(name, "")) and secrets.get(name):
             merged[name] = secrets[name]
             from_console.add(name)
     if from_console:
@@ -153,3 +155,28 @@ def refresh_console_secrets(cfg, store: ConsoleSecretStore, from_console: set[st
         if value and getattr(cfg, field_of[name]).reveal() != value:
             setattr(cfg, field_of[name], Secret(value))
             log.info("refreshed %s from the Console store", name)
+
+
+def apply_runtime_agent_secrets(cfg, body: dict) -> list[str]:
+    """Apply Console-supplied agent tokens for this process.
+
+    /dispatch carries the org's retained Claude credential so a local
+    orchestrator (no CONSOLE_DATABASE_URL) still uses the token the
+    operator stored in the Console. Tokens are not copied into the
+    delivery payload — the ledger must not hold them.
+    """
+    from .config import Secret
+    applied: list[str] = []
+    key = body.get("anthropic_api_key")
+    oauth = body.get("claude_code_oauth_token")
+    if isinstance(key, str) and is_usable_credential(key):
+        cfg.anthropic_api_key = Secret(key)
+        applied.append("ANTHROPIC_API_KEY")
+    if isinstance(oauth, str) and is_usable_credential(oauth):
+        cfg.claude_code_oauth_token = Secret(oauth)
+        applied.append("CLAUDE_CODE_OAUTH_TOKEN")
+        if not cfg.anthropic_api_key.usable():
+            cfg.anthropic_api_key = Secret("")
+    if applied:
+        log.info("agent secrets from dispatch: %s", ", ".join(applied))
+    return applied

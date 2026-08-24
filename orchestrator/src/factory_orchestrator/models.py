@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .config import Config
+from .config import Config, agent_path
 from .github_app import RepoPort, parse_json_or_empty
 
 log = logging.getLogger("factory-orchestrator.models")
@@ -71,35 +71,37 @@ def load_models_config(port: RepoPort, ref: str | None = None) -> dict[str, Any]
 
 
 def default_probe(cfg: Config) -> Probe:
-    """One-token ping per model, cached for the process lifetime."""
+    """One-token ping per model, cached for the process lifetime.
+
+    Always uses the Claude CLI — the same binary the role run uses — so
+    factory aliases like ``claude-opus-5`` resolve the way Claude Code
+    does, not through the Anthropic Messages API (different ids).
+    """
     cache: dict[str, bool] = {}
 
     def probe(model: str) -> bool:
         if model in cache:
             return cache[model]
-        ok = False
-        if cfg.anthropic_api_key:
-            try:
-                from langchain_anthropic import ChatAnthropic
-                llm = ChatAnthropic(model=model, max_tokens=1, timeout=60, max_retries=0,
-                                    api_key=cfg.anthropic_api_key.reveal())
-                llm.invoke("Reply with exactly: OK")
-                ok = True
-            except Exception:  # noqa: BLE001 - any failure = inaccessible
-                ok = False
-        elif cfg.claude_code_oauth_token:
-            # OAuth (Claude subscription) credentials only work through the CLI.
-            try:
-                r = subprocess.run(
-                    ["claude", "-p", "Reply with exactly: OK", "--model", model,
-                     "--max-turns", "1"],
-                    env={"CLAUDE_CODE_OAUTH_TOKEN": cfg.claude_code_oauth_token.reveal(),
-                         "PATH": "/usr/local/bin:/usr/bin:/bin"},
-                    capture_output=True, timeout=120)
-                ok = r.returncode == 0
-            except (OSError, subprocess.TimeoutExpired):
-                ok = False
-        cache[model] = ok
+        creds = cfg.agent_credential_env()
+        if not creds:
+            return False
+        try:
+            r = subprocess.run(
+                ["claude", "-p", "Reply with exactly: OK", "--model", model,
+                 "--max-turns", "1"],
+                env={**creds, "PATH": agent_path()},
+                capture_output=True, timeout=120, text=True)
+            ok = r.returncode == 0
+            if not ok:
+                err = ((r.stderr or r.stdout or "").strip().splitlines() or [""])[-1]
+                log.warning("probe %s failed code=%s: %s", model, r.returncode, err or "(no output)")
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log.warning("probe %s could not run: %s", model, e)
+            ok = False
+        # Success only: a later /dispatch or Console refresh must be allowed
+        # to retry after a placeholder key failed the first probe.
+        if ok:
+            cache[model] = True
         return ok
 
     return probe

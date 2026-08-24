@@ -31,10 +31,11 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import Config
+from .config import Config, agent_path
 
 log = logging.getLogger("factory-orchestrator.runner")
 
@@ -160,13 +161,15 @@ class RoleRunner:
         self._slots = threading.Semaphore(max_parallel or cfg.max_parallel_default)
 
     def clone_workspace(self, owner: str, repo: str, token: str, dest: Path) -> None:
+        log.info("clone start repo=%s/%s dest=%s", owner, repo, dest / repo)
         url = f"https://x-access-token:{token}@github.com/{owner}/{repo}"
         subprocess.run(["git", "clone", url, str(dest / repo)],
                        check=True, capture_output=True, timeout=600,
                        env={"GIT_TERMINAL_PROMPT": "0", "PATH": "/usr/local/bin:/usr/bin:/bin"})
+        log.info("clone done repo=%s/%s dest=%s", owner, repo, dest / repo)
 
     def run(self, *, owner: str, repo: str, role: str, issue: int, model: str,
-            github_token: str) -> RoleOutcome:
+            github_token: str, on_phase: Callable[[str], None] | None = None) -> RoleOutcome:
         prompt = assemble_prompt(
             role=role, repository=f"{owner}/{repo}", owner=owner, issue=issue,
             handbook=self.source.handbook(),
@@ -175,35 +178,44 @@ class RoleRunner:
             workspace = Path(tempfile.mkdtemp(prefix=f"run-{role}-{issue}-",
                                               dir=self.workspace_root))
             try:
+                if on_phase:
+                    on_phase("cloning the repo")
                 self.clone_workspace(owner, repo, github_token, workspace)
                 cwd = workspace / repo
                 gh_token = (self.cfg.cross_repo_token.reveal()
                             if self.cfg.cross_repo_token else github_token)
                 env = {
-                    "PATH": "/usr/local/bin:/usr/bin:/bin",
+                    "PATH": agent_path(),
                     "HOME": str(workspace),
                     "GH_TOKEN": gh_token,
                     "OPENSPEC_TELEMETRY": "0",
+                    **self.cfg.agent_credential_env(),
                 }
-                if self.cfg.anthropic_api_key:
-                    env["ANTHROPIC_API_KEY"] = self.cfg.anthropic_api_key.reveal()
-                if self.cfg.claude_code_oauth_token:
-                    env["CLAUDE_CODE_OAUTH_TOKEN"] = self.cfg.claude_code_oauth_token.reveal()
                 argv = [self.claude_bin, "-p", prompt,
                         "--model", model,
                         "--max-turns", str(self.cfg.max_turns),
                         "--permission-mode", "acceptEdits",
                         "--allowedTools", ALLOWED_TOOLS]
+                log.info(
+                    "claude start role=%s repo=%s/%s#%s model=%s cwd=%s max_turns=%s timeout=%ss",
+                    role, owner, repo, issue, model, cwd,
+                    self.cfg.max_turns, self.cfg.role_timeout_seconds,
+                )
+                if on_phase:
+                    on_phase(f"running Claude ({model})")
                 try:
                     proc = subprocess.run(argv, cwd=cwd, env=env, capture_output=True,
                                           text=True, timeout=self.cfg.role_timeout_seconds)
                 except subprocess.TimeoutExpired as e:
                     transcript = self._redact((e.stdout or "") + "\n" + (e.stderr or ""),
                                               github_token)
-                    log.error("role %s on %s/%s#%s timed out", role, owner, repo, issue)
+                    log.error("claude timeout role=%s repo=%s/%s#%s after %ss",
+                              role, owner, repo, issue, self.cfg.role_timeout_seconds)
                     return RoleOutcome(status="timeout", transcript=transcript)
                 transcript = self._redact(proc.stdout + "\n" + proc.stderr, github_token)
                 status = "success" if proc.returncode == 0 else "error"
+                log.info("claude exit role=%s repo=%s/%s#%s code=%s status=%s",
+                         role, owner, repo, issue, proc.returncode, status)
                 return RoleOutcome(status=status, transcript=transcript,
                                    exit_code=proc.returncode)
             finally:

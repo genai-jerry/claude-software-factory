@@ -24,6 +24,9 @@ PENDING_STEP = {
     "factory:spec-approved": "planner",
     "factory:design-approved": "dispatch",
 }
+# Labels that start a role when applied. Fast-track / profile issues sit idle
+# if GitHub delivered the webhook to the Console and never to this process.
+START_LABELS = ("factory:fast-track", "factory:profile")
 RELEASE_APPROVED = "factory:release-approved"
 DISPATCH_MARK = "<!-- factory-release-dispatched -->"
 
@@ -39,12 +42,16 @@ def sweep_repo(port: RepoPort, ledger: Ledger) -> int:
                   for l in issue.get("labels", [])]
         n = issue["number"]
 
-        for label, _role in PENDING_STEP.items():
-            if label not in labels:
-                continue
-            if ledger.list_runs(repo=full, issue=n):
-                continue  # something already ran here; the ledger is the memory
-            queued += _queue_labeled(ledger, port, issue, label)
+        if not ledger.list_runs(repo=full, issue=n):
+            for label, _role in PENDING_STEP.items():
+                if label in labels:
+                    queued += _queue_labeled(ledger, port, issue, label)
+                    break
+            else:
+                for label in START_LABELS:
+                    if label in labels:
+                        queued += _queue_labeled(ledger, port, issue, label)
+                        break
 
         if RELEASE_APPROVED in labels and "factory:release" in labels:
             comments = port.list_comments(n)

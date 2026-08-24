@@ -66,6 +66,10 @@ class GitHubApp:
         payload = {"iat": now - 60, "exp": now + 9 * 60, "iss": self.cfg.github_app_id}
         return jwt.encode(payload, self.cfg.github_app_private_key.reveal(), algorithm="RS256")
 
+    def cache_token(self, owner: str, repo: str, token: str, *, ttl_seconds: float = 50 * 60) -> None:
+        """Use a caller-supplied installation token (Console /dispatch) instead of minting a JWT."""
+        self._tokens[f"{owner}/{repo}"] = (token, time.time() + ttl_seconds)
+
     def installation_token(self, owner: str, repo: str) -> str:
         key = f"{owner}/{repo}"
         cached = self._tokens.get(key)

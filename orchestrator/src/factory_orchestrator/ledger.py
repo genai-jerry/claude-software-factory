@@ -95,6 +95,11 @@ class Ledger:
                        .values(status="failed" if error else "done",
                                error=error, processed_at=_now()))
 
+    def get_delivery(self, guid: str) -> dict[str, Any] | None:
+        with self.engine.begin() as cx:
+            row = cx.execute(sa.select(deliveries).where(deliveries.c.delivery_guid == guid)).mappings().first()
+            return dict(row) if row else None
+
     def requeue_processing(self) -> int:
         """On startup: anything stuck in processing died with a prior process."""
         with self.engine.begin() as cx:
@@ -110,6 +115,13 @@ class Ledger:
                 id=run_id, repo=repo, issue=issue, role=role,
                 trigger=trigger, started_at=_now()))
         return run_id
+
+    def update_run(self, run_id: str, **fields: Any) -> None:
+        """Patch a live run (model, phase, transcript path) before finish_run."""
+        if not fields:
+            return
+        with self.engine.begin() as cx:
+            cx.execute(runs.update().where(runs.c.id == run_id).values(**fields))
 
     def finish_run(self, run_id: str, *, outcome: str, model: str | None = None,
                    model_fallbacks: list[str] | None = None,

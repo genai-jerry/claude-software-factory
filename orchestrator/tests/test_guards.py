@@ -2,6 +2,7 @@ from factory_orchestrator.guards import (
     clear_in_progress,
     mark_in_progress,
     report_failure,
+    report_start,
     snapshot,
     verify_no_op,
 )
@@ -69,4 +70,14 @@ def test_failure_report_links_run_and_carries_marker():
     body = w.comments[5][0]["body"]
     assert "https://factory.example/runs/abc" in body
     assert "**intake** run failed" in body
+    assert AGENT_MARK in body
+
+
+def test_start_report_links_run_and_carries_marker():
+    w = repo_with_issue()
+    report_start(w, 5, "profiler", "https://factory.example/runs/abc")
+    body = w.comments[5][0]["body"]
+    assert "watch the run" in body
+    assert "https://factory.example/runs/abc" in body
+    assert "**profiler** is running" in body
     assert AGENT_MARK in body

@@ -29,6 +29,13 @@ log = logging.getLogger("factory-orchestrator")
 
 
 def build_service():
+    # Uvicorn --factory (devapp.create) never runs main(), so INFO logs from
+    # the graph / runner / webhook worker would otherwise stay silent.
+    logging.basicConfig(
+        level=os.environ.get("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=False,
+    )
     # Agent secrets may live in the Factory Console's store (set through its
     # UI, sealed in its database). Environment variables always win; the
     # store fills what the deployment left unset, and those values are
