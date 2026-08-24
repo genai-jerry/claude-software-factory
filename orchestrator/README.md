@@ -126,39 +126,42 @@ secrets); the orchestrator is the only reader, via the shared master key.
    own database.
    `GET /healthz` is the health endpoint.
 
-### Deploy to a VPS (Hostinger) — the lighthouse-backend way
+### Deploy to a VPS (Hostinger) — same path as Factory Console
 
-`.github/workflows/deploy-orchestrator.yml` deploys exactly the way
-`lighthouse-backend`'s `deploy.yml` does: build the image on the runner,
-`docker save | gzip`, SCP the tarball to the host, then over SSH — load,
-stop/rm the old container, write the env file from environment-scoped
-secrets, `docker run` on a shared docker network, health-check via
-`docker exec curl`, prune. It triggers on pushes to `main` touching
-`orchestrator/**`, or manually via *Run workflow* with an environment
-choice.
+This is **not** Hostinger shared hosting or the Docker Manager UI. It is the
+same Hostinger **VPS** as Factory Console: GitHub Actions builds the image,
+SCP + `docker load`, `docker compose up` in `~/factory-orchestrator`. Traefik
+on `lighthouse-network` terminates TLS at `Host(ORCHESTRATOR_HOST)`.
+
+`.github/workflows/deploy-orchestrator.yml` runs on pushes to `main` that
+touch `orchestrator/**`, or from **Actions → Deploy Factory Orchestrator →
+Run workflow**.
 
 One-time setup:
 
-1. Create the `production` (and optionally `staging`) GitHub Environment on
-   this repo and add, per the comment block at the top of the workflow:
-   - **Secrets**: `DEPLOY_HOST` / `DEPLOY_USER` / `DEPLOY_KEY` (the same
-     SSH trio lighthouse uses), `FACTORY_GH_APP_ID`,
-     `FACTORY_GH_APP_PRIVATE_KEY_B64`, `FACTORY_GH_WEBHOOK_SECRET`
-     (GitHub forbids secret names starting with `GITHUB_`),
-     `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN`, `DISPATCH_TOKEN`;
-     optional `FACTORY_CROSS_REPO_TOKEN`, `ORCH_DATABASE_URL`.
-   - **Variables**: `PUBLIC_BASE_URL` (required), `CLAIMED_REPOS`,
-     `DOCKER_NETWORK` (default `factory-network`), `PUBLISH_PORT`
-     (e.g. `127.0.0.1:8080:8080` when nginx runs on the host itself; leave
-     empty when the reverse-proxy container shares the docker network, as
-     in the lighthouse setup).
-2. Point HTTPS at the container: either a host nginx/caddy proxying the
-   published port, or attach your existing proxy container to
-   `DOCKER_NETWORK` and route to `factory-orchestrator-production:8080`.
-   `PUBLIC_BASE_URL` and the GitHub App's webhook URL are that address.
-3. Push to `main` (or *Run workflow*). The container gets a named volume at
-   `/data` (sqlite database + transcripts survive redeploys); set
-   `ORCH_DATABASE_URL` to a Postgres URL instead when you outgrow sqlite.
+1. DNS: A record for the orchestrator hostname (e.g. `factory.genaipeople.com`)
+   to `187.127.165.119` — the same VPS as `sf.genaipeople.com`.
+2. Create the `production` GitHub Environment on this repo:
+   - **Secrets** (same SSH trio as Console): `DEPLOY_HOST`, `DEPLOY_USER`,
+     `DEPLOY_KEY`, `FACTORY_GH_APP_ID`, `FACTORY_GH_APP_PRIVATE_KEY_B64`
+     (`base64 -i app.pem`), `FACTORY_GH_WEBHOOK_SECRET` (GitHub forbids
+     names starting `GITHUB_`), `DISPATCH_TOKEN`, and
+     `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`.
+   - **Variables**: `PUBLIC_BASE_URL` (required, e.g.
+     `https://factory.genaipeople.com`), optional `CLAIMED_REPOS`,
+     `FACTORY_REPO`, `FACTORY_REF` (default this repo `@v1`).
+3. On Factory Console's `production` environment set
+   `ORCHESTRATOR_DISPATCH_TOKEN` to the same value as `DISPATCH_TOKEN`, and
+   optionally `ORCHESTRATOR_URL=http://factory-orchestrator:8080`. Redeploy
+   the Console so api/worker join `lighthouse-network`.
+4. Push to `main` (or *Run workflow*). Confirm
+   `curl https://<ORCHESTRATOR_HOST>/healthz`. GitHub App **webhooks stay on
+   the Console** (`{PUBLIC_ORIGIN}/webhooks/github`); the Console worker
+   forwards them to `POST /events`.
+
+Sqlite lives on the named volume `factory-orchestrator-data` and survives
+redeploys. Full list: [`infra/cloud.env.example`](infra/cloud.env.example).
+Do not point Hostinger Docker Manager at `docker-compose.yml`.
 
 ## Claim a repo (migration runbook)
 

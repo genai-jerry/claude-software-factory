@@ -1,0 +1,57 @@
+# Production deploy compose. The image is built in CI and loaded on the
+# Hostinger VPS with `docker load`; this file is image-only (no build:) and
+# lives at $HOME/factory-orchestrator/docker-compose.yml alongside .env.
+#
+# Local development uses orchestrator/docker-compose.yml (build: + Postgres).
+# Do not point Hostinger Docker Manager at either file.
+#
+# Traefik on lighthouse-network routes Host(${ORCHESTRATOR_HOST}) to :8080.
+# The Factory Console api/worker reach this container as
+# http://factory-orchestrator:8080 on the same network (ORCHESTRATOR_URL).
+# GitHub App webhooks still go to the Console; the worker forwards to POST /events.
+
+name: factory-orchestrator
+
+services:
+  orchestrator:
+    image: factory-orchestrator:latest
+    pull_policy: never
+    container_name: factory-orchestrator
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/factory-orchestrator.db}
+      TRANSCRIPT_DIR: /data/transcripts
+    volumes:
+      - factory-orchestrator-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 40s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=lighthouse-network
+      - traefik.http.routers.factory-orchestrator.rule=Host(`${ORCHESTRATOR_HOST}`)
+      - traefik.http.routers.factory-orchestrator.entrypoints=websecure
+      - traefik.http.routers.factory-orchestrator.tls=true
+      - traefik.http.routers.factory-orchestrator.tls.certresolver=letsencrypt
+      - traefik.http.services.factory-orchestrator.loadbalancer.server.port=8080
+      - traefik.http.routers.factory-orchestrator-http.rule=Host(`${ORCHESTRATOR_HOST}`)
+      - traefik.http.routers.factory-orchestrator-http.entrypoints=web
+      - traefik.http.routers.factory-orchestrator-http.middlewares=factory-orchestrator-https
+      - traefik.http.middlewares.factory-orchestrator-https.redirectscheme.scheme=https
+    networks:
+      - default
+      - lighthouse-network
+
+volumes:
+  factory-orchestrator-data:
+    name: factory-orchestrator-data
+
+networks:
+  lighthouse-network:
+    name: lighthouse-network
+    external: true
