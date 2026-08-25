@@ -2,3 +2,4 @@
 # nothing in this repo ships as a package, so its install is never committed.
 node_modules/
 package-lock.json
+orchestrator/factory-orchestrator.tar.gz
