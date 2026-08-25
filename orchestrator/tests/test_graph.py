@@ -209,3 +209,23 @@ def test_model_exhaustion_fails_run(tmp_path):
     assert "preference chain" in runs[0]["error"]
     assert runner.calls == []
     assert "factory:in-progress" not in world.labels_of(5)
+
+
+def test_role_fails_without_anthropic_credential(tmp_path):
+    world = ConfiguredRepo({5: issue(5, "Add renewals", [])})
+    cfg = load_config({**BASE, "ANTHROPIC_API_KEY": "",
+                       "DATABASE_URL": f"sqlite:///{tmp_path}/l.db"})
+    ledger = Ledger(cfg.database_url)
+    runner = ScriptedRunner(world, {})
+    engine = Engine(cfg, ledger, FakeApp(world), runner, probe=lambda m: True,
+                    transcript_dir=str(tmp_path / "tr"),
+                    port_factory=lambda o, r: world)
+    (tmp_path / "tr").mkdir(exist_ok=True)
+    Processor(engine, build_graph(engine))(
+        "issues", {"action": "opened", "issue": world.issues[5],
+                   "repository": {"full_name": "o/r"}})
+    runs = ledger.list_runs(repo="o/r", issue=5)
+    assert runs and runs[0]["outcome"] == "error"
+    assert "No Anthropic credential" in (runs[0]["error"] or "")
+    assert runner.calls == []
+    assert "factory:in-progress" not in world.labels_of(5)

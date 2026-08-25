@@ -50,6 +50,10 @@ def build_service():
             org=env.get("CONSOLE_ORG"))
         env, from_console = apply_console_secrets(env, console_store)
     cfg = load_config(env)
+    if not cfg.agent_credential_env():
+        log.warning(
+            "no Anthropic credential at boot — role runs wait for Factory Console "
+            "to send one on POST /events, or for CONSOLE_DATABASE_URL")
     ledger = Ledger(cfg.database_url)
     app = GitHubApp(cfg)
     source = FactorySource(cfg, local_path=os.environ.get("FACTORY_LOCAL_PATH"))

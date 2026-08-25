@@ -100,7 +100,7 @@ and CI run the same remote compose script.
    | Variable | Meaning |
    |---|---|
    | `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | the App identity |
-   | `ANTHROPIC_API_KEY` **or** `CLAUDE_CODE_OAUTH_TOKEN` | the credential role runs use |
+   | `ANTHROPIC_API_KEY` **or** `CLAUDE_CODE_OAUTH_TOKEN` | optional at boot; Console can forward these on `/events` |
    | `DATABASE_URL` | `postgresql+psycopg://…` (or `sqlite:///…` for a single-repo install) |
    | `PUBLIC_BASE_URL` | where this service is reachable — failure comments link `<base>/runs/<id>` |
    | `FACTORY_REPO`, `FACTORY_REF` | the factory source for FACTORY.md + role prompts (pin like the Actions stub pins `@v1`) |
@@ -155,8 +155,8 @@ One-time setup:
    - **Secrets** (same SSH trio as Console): `DEPLOY_HOST`, `DEPLOY_USER`,
      `DEPLOY_KEY`, `FACTORY_GH_APP_ID`, `FACTORY_GH_APP_PRIVATE_KEY_B64`
      (`base64 -i app.pem`), `FACTORY_GH_WEBHOOK_SECRET` (GitHub forbids
-     names starting `GITHUB_`), `DISPATCH_TOKEN`, and
-     `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`.
+     names starting `GITHUB_`), `DISPATCH_TOKEN`. Anthropic credentials are
+     optional here if the Factory Console forwards them on `POST /events`.
    - **Variables**: `PUBLIC_BASE_URL` (required, e.g.
      `https://factory.genaipeople.com`), optional `CLAIMED_REPOS`,
      `FACTORY_REPO`, `FACTORY_REF` (default this repo `@v1`).
