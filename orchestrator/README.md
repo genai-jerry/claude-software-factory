@@ -74,8 +74,18 @@ Actions: `up|start`, `down|stop`, `restart`, `logs`, `status|ps`, `build`,
 `rebuild`, plus orchestrator-specific `health` and `smoke`. Like
 lighthouse, edit the environment file on the machine that runs it — real
 values in `config.production.env` belong on the server, not in a commit.
-This is the by-hand path; the GitHub Actions workflow below is the
-push-to-main path, and both start the same container.
+This is the by-hand path **on the machine that already has the compose
+project**. To build on a laptop and SCP to the VPS (the
+lighthouse-backend `scripts/local-deploy.sh` pattern, no Actions minutes),
+see [`../docs/LOCAL_DEPLOYMENT.md`](../docs/LOCAL_DEPLOYMENT.md):
+
+```bash
+./scripts/local-deploy.sh production --init-secrets   # once
+./scripts/local-deploy.sh production
+```
+
+The GitHub Actions workflow below is the push-to-main path. Local-deploy
+and CI run the same remote compose script.
 
 ## Deploy
 
@@ -154,7 +164,9 @@ One-time setup:
    `ORCHESTRATOR_DISPATCH_TOKEN` to the same value as `DISPATCH_TOKEN`, and
    optionally `ORCHESTRATOR_URL=http://factory-orchestrator:8080`. Redeploy
    the Console so api/worker join `lighthouse-network`.
-4. Push to `main` (or *Run workflow*). Confirm
+4. Push to `main` (or *Run workflow*), **or** from a laptop:
+   `cd orchestrator && ./scripts/local-deploy.sh production`
+   ([`docs/LOCAL_DEPLOYMENT.md`](../docs/LOCAL_DEPLOYMENT.md)). Confirm
    `curl https://<ORCHESTRATOR_HOST>/healthz`. GitHub App **webhooks stay on
    the Console** (`{PUBLIC_ORIGIN}/webhooks/github`); the Console worker
    forwards them to `POST /events`.
