@@ -23,11 +23,14 @@ def test_missing_app_id_rejected():
         load_config({**BASE, "GITHUB_APP_ID": ""})
 
 
-def test_requires_some_anthropic_credential():
-    with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN"):
-        load_config({**BASE, "ANTHROPIC_API_KEY": ""})
-    cfg = load_config({**BASE, "ANTHROPIC_API_KEY": "", "CLAUDE_CODE_OAUTH_TOKEN": "oauth"})
-    assert cfg.claude_code_oauth_token
+def test_boots_without_anthropic_credential():
+    cfg = load_config({**BASE, "ANTHROPIC_API_KEY": ""})
+    assert not cfg.anthropic_api_key
+    assert not cfg.claude_code_oauth_token
+    assert cfg.agent_credential_env() == {}
+    oauth = load_config({**BASE, "ANTHROPIC_API_KEY": "", "CLAUDE_CODE_OAUTH_TOKEN": "oauth"})
+    assert oauth.claude_code_oauth_token
+    assert oauth.agent_credential_env() == {"CLAUDE_CODE_OAUTH_TOKEN": "oauth"}
 
 
 def test_invalid_factory_repo_rejected():

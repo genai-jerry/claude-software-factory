@@ -202,6 +202,11 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
     try:
         try:
             transcript_path.write_text("")
+            if not engine.cfg.agent_credential_env():
+                raise ModelResolutionError(
+                    "No Anthropic credential is available. Store ANTHROPIC_API_KEY or "
+                    "CLAUDE_CODE_OAUTH_TOKEN in the Factory Console so it is forwarded "
+                    "on POST /events, or set one on the orchestrator.")
             note("resolving model")
             resolved = resolve_model(role, load_models_config(port), engine.probe)
         except ModelResolutionError as e:

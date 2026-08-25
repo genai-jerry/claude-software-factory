@@ -63,7 +63,8 @@ class Config:
     github_app_id: str
     github_app_private_key: Secret
     github_webhook_secret: Secret
-    # Anthropic credential handed to role runs (one of the two).
+    # Anthropic credential for role runs. Optional at boot: Console forwards
+    # a token on POST /events, or CONSOLE_DATABASE_URL fills these later.
     anthropic_api_key: Secret
     claude_code_oauth_token: Secret
     # Where execution bookkeeping lives. sqlite:///... or postgresql+psycopg://...
@@ -103,8 +104,6 @@ class Config:
             raise ConfigError("GITHUB_APP_PRIVATE_KEY is required")
         if not self.github_webhook_secret:
             raise ConfigError("GITHUB_WEBHOOK_SECRET is required")
-        if not (self.anthropic_api_key or self.claude_code_oauth_token):
-            raise ConfigError("one of ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN is required")
         if "/" not in self.factory_repo:
             raise ConfigError(f"FACTORY_REPO must be owner/repo, got {self.factory_repo!r}")
         if self.max_parallel_default < 1:
