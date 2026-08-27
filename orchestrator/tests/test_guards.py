@@ -73,6 +73,15 @@ def test_failure_report_links_run_and_carries_marker():
     assert AGENT_MARK in body
 
 
+def test_failure_report_includes_the_actual_reason():
+    w = repo_with_issue()
+    report_failure(w, 5, "fasttrack", "https://factory.example/runs/abc",
+                   reason="Role 'fasttrack' finished but changed nothing on #5.")
+    body = w.comments[5][0]["body"]
+    assert "changed nothing on #5" in body
+    assert "turn limit are the usual ones" not in body
+
+
 def test_start_report_links_run_and_carries_marker():
     w = repo_with_issue()
     report_start(w, 5, "profiler", "https://factory.example/runs/abc")

@@ -36,6 +36,7 @@ from .github_app import GitHubApp, RepoPort, parse_json_or_empty
 from .guards import (
     clear_in_progress,
     mark_in_progress,
+    no_op_reason,
     report_failure,
     report_start,
     snapshot,
@@ -211,7 +212,7 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             resolved = resolve_model(role, load_models_config(port), engine.probe)
         except ModelResolutionError as e:
             engine.ledger.finish_run(run_id, outcome="error", error=str(e))
-            report_failure(port, issue, role, run_url)
+            report_failure(port, issue, role, run_url, reason=str(e))
             summary["status"] = "error"
             log.info("role finish role=%s repo=%s/%s#%s run=%s status=error reason=model",
                      role, owner, repo, issue, run_id)
@@ -229,21 +230,31 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             owner=owner, repo=repo, role=role, issue=issue, model=resolved.model,
             github_token=engine.app.installation_token(owner, repo),
             on_phase=lambda phase: note(phase, **extra))
-        transcript_path.write_text(outcome.transcript)
         traced = verify_no_op(port, issue, before, role)
+        error: str | None = None
         if outcome.status == "success" and traced:
             status = "success"
         elif outcome.status == "success":
             status = "no_op"  # exit 0 but nothing visible happened: fail it
+            error = no_op_reason(role, issue)
+        elif outcome.status == "timeout":
+            status = "timeout"
+            error = f"Role '{role}' exceeded the {engine.cfg.role_timeout_seconds}s wall clock."
         else:
             status = outcome.status
+            error = (f"Claude exited {outcome.exit_code}."
+                     if outcome.exit_code is not None else f"Role '{role}' failed.")
+        body = outcome.transcript or ""
+        if error:
+            body = f"{error}\n\n--- agent transcript ---\n\n{body}".strip()
+        transcript_path.write_text(body)
         guards = {"before": before.__dict__, "trace": traced, "phase": "finished",
                   "model": resolved.model, "fallbacks": resolved.fallbacks}
         engine.ledger.finish_run(run_id, outcome=status, model=resolved.model,
                                  model_fallbacks=resolved.fallbacks, guards=guards,
-                                 transcript_path=str(transcript_path))
+                                 transcript_path=str(transcript_path), error=error)
         if status != "success":
-            report_failure(port, issue, role, run_url)
+            report_failure(port, issue, role, run_url, reason=error)
         summary["status"] = status
         log.info("role finish role=%s repo=%s/%s#%s run=%s status=%s traced=%s",
                  role, owner, repo, issue, run_id, status, traced)
@@ -251,8 +262,9 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001 - a crashed run must still report + unmark
         log.exception("role crashed role=%s repo=%s/%s#%s run=%s",
                       role, owner, repo, issue, run_id)
-        engine.ledger.finish_run(run_id, outcome="error", error=f"{type(e).__name__}: {e}")
-        report_failure(port, issue, role, run_url)
+        crash = f"{type(e).__name__}: {e}"
+        engine.ledger.finish_run(run_id, outcome="error", error=crash)
+        report_failure(port, issue, role, run_url, reason=crash)
         summary["status"] = "error"
         return summary
     finally:

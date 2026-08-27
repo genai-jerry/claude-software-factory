@@ -101,6 +101,7 @@ def test_role_run_captures_prompt_and_cleans_workspace(tmp_path):
     assert "--permission-mode\nacceptEdits" in argv
     assert ALLOWED_TOOLS in argv
     assert "--max-turns\n100" in argv
+    assert "--verbose" in argv
     # ran inside its own clone of the consuming repo...
     cwd = Path(next(out.glob("cwd-*.txt")).read_text().strip())
     assert cwd.name == "r" and str(cwd).startswith(str(tmp_path / "ws"))
@@ -156,3 +157,5 @@ def test_prompt_body_matches_actions_engine():
     assert shared_ours == shared_actions
     # and PROMPT_BODY is exactly that shared block
     assert PROMPT_BODY.format(issue=5, owner="o") == shared_actions
+    assert "one-shot session" in ours
+    assert "Never background test, build, or lint" in ours

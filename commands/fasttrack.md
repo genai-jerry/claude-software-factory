@@ -48,7 +48,10 @@ Every other role reads it from a change folder, which does not exist here.
    in the PR body rather than inventing a test for it. Run every non-null
    command in `commands` — `test` and `build` must pass; judge `lint` per the
    profile's gotchas (some repos carry pre-existing errors: your delta must be
-   clean even when the base is not).
+   clean even when the base is not). Wait in the foreground for every
+   command. Never background a test, build, or lint, and never end the turn
+   promising to check back — this session dies when you stop, and the
+   workspace (including those shells) is deleted.
 6. Push and open a **ready-for-review PR — not a draft.** There is no agent
    reviewer in this lane; the human is the reviewer, and a draft PR does not
    ask anyone for anything. Base it on `branches.staging` when set, else
@@ -81,3 +84,5 @@ Every other role reads it from a change folder, which does not exist here.
 - No secrets; runtime configuration only through the mechanism the profile and
   AGENTS.md describe.
 - One issue per run.
+- This run is one-shot. Do not background long commands. Open the PR and
+  post the done comment before you stop.
