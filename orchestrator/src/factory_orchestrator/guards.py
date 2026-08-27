@@ -52,14 +52,23 @@ def snapshot(port: RepoPort, issue: int) -> Snapshot:
     return Snapshot(comments=len(port.list_comments(issue)), state=",".join(labels))
 
 
+def no_op_reason(role: str, issue: int) -> str:
+    """Human reason stored on the run and posted on the issue when the guard trips."""
+    return (
+        f"Role '{role}' finished but changed nothing on #{issue} — no factory:* "
+        "label change and no new comment. Local work in the run workspace is "
+        "discarded when the session ends. This is not a credentials, permission, "
+        "or turn-limit failure unless the transcript says so."
+    )
+
+
 def verify_no_op(port: RepoPort, issue: int, before: Snapshot, role: str) -> bool:
     """True when the role left a visible trace. A run that says nothing did nothing."""
     after = snapshot(port, issue)
     if after.comments != before.comments or after.state != before.state:
         log.info("Role '%s' left a trace on #%s.", role, issue)
         return True
-    log.error("Role '%s' finished but changed nothing on #%s - "
-              "no factory:* label change and no new comment.", role, issue)
+    log.error("%s", no_op_reason(role, issue))
     return False
 
 
@@ -80,15 +89,19 @@ def report_start(port: RepoPort, issue: int, role: str, run_url: str) -> None:
         log.warning("could not report the starting %s run on #%s", role, issue, exc_info=True)
 
 
-def report_failure(port: RepoPort, issue: int, role: str, run_url: str) -> None:
+def report_failure(port: RepoPort, issue: int, role: str, run_url: str,
+                   reason: str | None = None) -> None:
     """The failure has to say so where humans look: the issue thread."""
+    why = (reason or "").strip() or (
+        "missing credentials, tool permission denials, and the turn limit are the usual ones"
+    )
     try:
         port.create_comment(issue, (
-            f"⚠️ The **{role}** run failed — [open the run log]({run_url}) for the reason "
-            "(missing credentials, tool permission denials, and the turn limit are the "
-            "usual ones). Work it completed before failing may still have landed — check "
-            "this thread and any PR it links before re-triggering, so a re-run doesn't "
-            "redo delivered work.\n\n"
+            f"⚠️ The **{role}** run failed — [open the run log]({run_url}).\n\n"
+            f"{why}\n\n"
+            "Work it completed before failing may still have landed — check "
+            "this thread and any PR it links before re-triggering, so a re-run "
+            "doesn't redo delivered work.\n\n"
             f"{AGENT_MARK}"))
         log.info("posted failure comment for %s on #%s log=%s", role, issue, run_url)
     except Exception:  # noqa: BLE001 - failing to report must not mask the failure

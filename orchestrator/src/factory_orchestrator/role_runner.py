@@ -91,6 +91,13 @@ Note on triggering: label changes you make DO emit events back to the
 factory's orchestrator. Apply exactly the state
 labels your role instructions specify — never extra ones — and let the
 pipeline's own routing decide what runs next.
+
+This is a one-shot session. When you stop calling tools the process
+exits and the workspace is deleted — background shells die with it.
+Never background test, build, or lint; wait for each command to
+finish. Do not say you will check back later. Finish the role in this
+run: the issue comment, labels, and any PR the role requires must
+exist on GitHub before you stop.
 """
 
 
@@ -194,6 +201,7 @@ class RoleRunner:
                 argv = [self.claude_bin, "-p", prompt,
                         "--model", model,
                         "--max-turns", str(self.cfg.max_turns),
+                        "--verbose",
                         "--permission-mode", "acceptEdits",
                         "--allowedTools", ALLOWED_TOOLS]
                 log.info(

@@ -178,9 +178,13 @@ def test_silent_role_is_failed_and_reported(tmp_path):
                                         "repository": {"full_name": "o/r"}})
     runs = ledger.list_runs(repo="o/r", issue=5)
     assert runs and runs[0]["outcome"] == "no_op"
+    assert "changed nothing" in (runs[0]["error"] or "")
     bodies = [c["body"] for c in world.comments.get(5, [])]
     assert any("run failed" in b and f"/runs/{runs[0]['id']}" in b for b in bodies)
+    assert any("changed nothing" in b for b in bodies)
     assert "factory:in-progress" not in world.labels_of(5)
+    log = (tmp_path / "tr" / f"{runs[0]['id']}.log").read_text()
+    assert log.startswith(runs[0]["error"])
 
 
 def test_boots_identically_with_langsmith_env(tmp_path, monkeypatch):
