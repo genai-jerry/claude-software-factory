@@ -242,8 +242,9 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             error = f"Role '{role}' exceeded the {engine.cfg.role_timeout_seconds}s wall clock."
         else:
             status = outcome.status
-            error = (f"Claude exited {outcome.exit_code}."
-                     if outcome.exit_code is not None else f"Role '{role}' failed.")
+            error = outcome.error or (
+                f"Claude exited {outcome.exit_code}."
+                if outcome.exit_code is not None else f"Role '{role}' failed.")
         body = outcome.transcript or ""
         if error:
             body = f"{error}\n\n--- agent transcript ---\n\n{body}".strip()
