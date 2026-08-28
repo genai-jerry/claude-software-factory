@@ -43,6 +43,7 @@ from .guards import (
     verify_no_op,
 )
 from .ledger import Ledger
+from .live_log import LiveRunLog
 from .models import ModelResolutionError, Probe, load_models_config, resolve_model
 from .role_runner import RoleRunner
 from .router import RepoConfig, Router, release_chain
@@ -193,8 +194,10 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
              role, owner, repo, issue, run_id, run_url)
     mark_in_progress(port, issue)
     transcript_path = engine.transcript_dir / f"{run_id}.log"
+    live = LiveRunLog(transcript_path)
 
     def note(phase: str, **extra: Any) -> None:
+        live.event("phase", phase)
         payload = {"phase": phase, **extra}
         engine.ledger.update_run(run_id, outcome="running",
                                  guards=json.dumps(payload),
@@ -202,7 +205,6 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
 
     try:
         try:
-            transcript_path.write_text("")
             if not engine.cfg.agent_credential_env():
                 raise ModelResolutionError(
                     "No Anthropic credential is available. Store ANTHROPIC_API_KEY or "
@@ -211,7 +213,9 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             note("resolving model")
             resolved = resolve_model(role, load_models_config(port), engine.probe)
         except ModelResolutionError as e:
-            engine.ledger.finish_run(run_id, outcome="error", error=str(e))
+            live.event("error", str(e))
+            engine.ledger.finish_run(run_id, outcome="error", error=str(e),
+                                     transcript_path=str(transcript_path))
             report_failure(port, issue, role, run_url, reason=str(e))
             summary["status"] = "error"
             log.info("role finish role=%s repo=%s/%s#%s run=%s status=error reason=model",
@@ -229,7 +233,8 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         outcome = engine.runner.run(
             owner=owner, repo=repo, role=role, issue=issue, model=resolved.model,
             github_token=engine.app.installation_token(owner, repo),
-            on_phase=lambda phase: note(phase, **extra))
+            on_phase=lambda phase: note(phase, **extra),
+            on_output=live.write)
         traced = verify_no_op(port, issue, before, role)
         error: str | None = None
         if outcome.status == "success" and traced:
@@ -242,12 +247,15 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             error = f"Role '{role}' exceeded the {engine.cfg.role_timeout_seconds}s wall clock."
         else:
             status = outcome.status
-            error = (f"Claude exited {outcome.exit_code}."
-                     if outcome.exit_code is not None else f"Role '{role}' failed.")
+            error = outcome.error or (
+                f"Claude exited {outcome.exit_code}."
+                if outcome.exit_code is not None else f"Role '{role}' failed.")
         body = outcome.transcript or ""
         if error:
             body = f"{error}\n\n--- agent transcript ---\n\n{body}".strip()
-        transcript_path.write_text(body)
+            live.event("error", error)
+        live.replace_transcript(body)
+        live.event("phase", "finished")
         guards = {"before": before.__dict__, "trace": traced, "phase": "finished",
                   "model": resolved.model, "fallbacks": resolved.fallbacks}
         engine.ledger.finish_run(run_id, outcome=status, model=resolved.model,
@@ -263,7 +271,9 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         log.exception("role crashed role=%s repo=%s/%s#%s run=%s",
                       role, owner, repo, issue, run_id)
         crash = f"{type(e).__name__}: {e}"
-        engine.ledger.finish_run(run_id, outcome="error", error=crash)
+        live.event("error", crash)
+        engine.ledger.finish_run(run_id, outcome="error", error=crash,
+                                 transcript_path=str(transcript_path))
         report_failure(port, issue, role, run_url, reason=crash)
         summary["status"] = "error"
         return summary

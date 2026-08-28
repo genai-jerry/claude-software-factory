@@ -22,6 +22,7 @@ from .config import Config
 from .console_secrets import apply_runtime_agent_secrets
 from .github_app import verify_signature
 from .ledger import Ledger
+from .live_log import read_events
 
 log = logging.getLogger("factory-orchestrator")
 
@@ -267,6 +268,7 @@ def _public_run(run: dict[str, Any]) -> dict[str, Any]:
     for key in ("started_at", "finished_at"):
         if out.get(key) is not None:
             out[key] = str(out[key])
+    out["events"] = read_events(out.get("transcript_path"))
     out.pop("transcript_path", None)  # served via /transcript, path is internal
     out["status"] = "completed" if out.get("finished_at") else "running"
     if not out.get("outcome"):
