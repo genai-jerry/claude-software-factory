@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import shutil
 import signal
 import subprocess
@@ -253,7 +254,8 @@ class RoleRunner:
         log.info("clone done repo=%s/%s dest=%s", owner, repo, dest / repo)
 
     def run(self, *, owner: str, repo: str, role: str, issue: int, model: str,
-            github_token: str, on_phase: Callable[[str], None] | None = None) -> RoleOutcome:
+            github_token: str, on_phase: Callable[[str], None] | None = None,
+            on_output: Callable[[str], None] | None = None) -> RoleOutcome:
         prompt = assemble_prompt(
             role=role, repository=f"{owner}/{repo}", owner=owner, issue=issue,
             handbook=self.source.handbook(),
@@ -275,25 +277,27 @@ class RoleRunner:
                     "GH_TOKEN": gh_token,
                     "OPENSPEC_TELEMETRY": "0",
                     "GIT_TERMINAL_PROMPT": "0",
+                    "PYTHONUNBUFFERED": "1",
                     **self.cfg.agent_credential_env(),
                 }
                 outcome = self._invoke_claude(
                     prompt, cwd=cwd, env=env, model=model,
                     github_token=github_token, deadline=deadline,
-                    on_phase=on_phase)
+                    on_phase=on_phase, on_output=on_output)
                 if outcome.status == "timeout":
                     return outcome
                 return self._observe(
                     outcome, cwd=cwd, workspace=workspace, env=env,
                     owner=owner, repo=repo, role=role, issue=issue,
                     model=model, github_token=github_token,
-                    deadline=deadline, on_phase=on_phase)
+                    deadline=deadline, on_phase=on_phase, on_output=on_output)
             finally:
                 shutil.rmtree(workspace, ignore_errors=True)
 
     def _invoke_claude(self, prompt: str, *, cwd: Path, env: dict[str, str],
                        model: str, github_token: str, deadline: float,
-                       on_phase: Callable[[str], None] | None) -> RoleOutcome:
+                       on_phase: Callable[[str], None] | None,
+                       on_output: Callable[[str], None] | None = None) -> RoleOutcome:
         argv = [self.claude_bin, "-p", prompt,
                 "--model", model,
                 "--max-turns", str(self.cfg.max_turns),
@@ -305,8 +309,9 @@ class RoleRunner:
             cwd, model, self.cfg.max_turns, _remaining(deadline))
         if on_phase:
             on_phase(f"running Claude ({model})")
+        emit = self._emitter(github_token, on_output)
         try:
-            proc = _run_bounded(argv, cwd=cwd, env=env, deadline=deadline)
+            proc = _run_bounded(argv, cwd=cwd, env=env, deadline=deadline, on_output=emit)
         except subprocess.TimeoutExpired as e:
             transcript = self._redact((e.stdout or "") + "\n" + (e.stderr or ""),
                                       github_token)
@@ -322,7 +327,8 @@ class RoleRunner:
     def _observe(self, outcome: RoleOutcome, *, cwd: Path, workspace: Path,
                  env: dict[str, str], owner: str, repo: str, role: str,
                  issue: int, model: str, github_token: str, deadline: float,
-                 on_phase: Callable[[str], None] | None) -> RoleOutcome:
+                 on_phase: Callable[[str], None] | None,
+                 on_output: Callable[[str], None] | None = None) -> RoleOutcome:
         """Own tests for a local factory branch, then push — or resume Claude on red."""
         parts = [outcome.transcript]
         resumes = 0
@@ -340,8 +346,9 @@ class RoleRunner:
                     on_phase("waiting for tests")
                 _wait_leftover_tests(workspace, deadline)
                 try:
-                    test_proc, test_log = self._run_tests(test_cmd, cwd=cwd, env=env,
-                                                          deadline=deadline)
+                    test_proc, test_log = self._run_tests(
+                        test_cmd, cwd=cwd, env=env, deadline=deadline,
+                        github_token=github_token, on_output=on_output)
                 except subprocess.TimeoutExpired as e:
                     test_log = _combine(e.stdout, e.stderr)
                     parts.append("--- tests ---\n" + test_log)
@@ -374,7 +381,7 @@ class RoleRunner:
                     outcome = self._invoke_claude(
                         fix, cwd=cwd, env=env, model=model,
                         github_token=github_token, deadline=deadline,
-                        on_phase=on_phase)
+                        on_phase=on_phase, on_output=on_output)
                     parts.append(outcome.transcript)
                     if outcome.status == "timeout":
                         return RoleOutcome(
@@ -396,9 +403,13 @@ class RoleRunner:
                 error=pushed.error)
 
     def _run_tests(self, test_cmd: str, *, cwd: Path, env: dict[str, str],
-                   deadline: float) -> tuple[subprocess.CompletedProcess, str]:
+                   deadline: float, github_token: str = "",
+                   on_output: Callable[[str], None] | None = None,
+                   ) -> tuple[subprocess.CompletedProcess, str]:
         log.info("running commands.test remaining=%.0fs cmd=%s", _remaining(deadline), test_cmd)
-        proc = _run_bounded(test_cmd, cwd=cwd, env=env, deadline=deadline, shell=True)
+        emit = self._emitter(github_token, on_output)
+        proc = _run_bounded(test_cmd, cwd=cwd, env=env, deadline=deadline,
+                            shell=True, on_output=emit)
         return proc, _combine(proc.stdout, proc.stderr)
 
     def _push_and_open_pr(self, *, cwd: Path, env: dict[str, str], branch: str,
@@ -492,6 +503,16 @@ class RoleRunner:
             return subprocess.CompletedProcess(
                 e.cmd, 1, e.stdout or "", e.stderr or "gh timed out")
 
+    def _emitter(self, github_token: str,
+                 on_output: Callable[[str], None] | None) -> Callable[[str], None] | None:
+        if on_output is None:
+            return None
+
+        def emit(text: str) -> None:
+            on_output(self._redact(text, github_token))
+
+        return emit
+
     def _redact(self, text: str, *extra: str) -> str:
         for secret in (self.cfg.anthropic_api_key, self.cfg.claude_code_oauth_token,
                        self.cfg.cross_repo_token):
@@ -508,20 +529,73 @@ def _remaining(deadline: float) -> float:
 
 
 def _run_bounded(argv: str | list[str], *, cwd: Path, env: dict[str, str],
-                 deadline: float, shell: bool = False) -> subprocess.CompletedProcess:
+                 deadline: float, shell: bool = False,
+                 on_output: Callable[[str], None] | None = None) -> subprocess.CompletedProcess:
+    """Run a process, forwarding stdout/stderr as they arrive so the Console
+    can show Claude and test output before the process exits."""
     left = _remaining(deadline)
     if left <= 0:
         raise subprocess.TimeoutExpired(argv, 0)
     proc = subprocess.Popen(
-        argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, errors="replace", shell=shell, start_new_session=True)
+        argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, errors="replace", bufsize=1, shell=shell, start_new_session=True)
+    chunks: list[str] = []
+    q: queue.Queue[str | None] = queue.Queue()
+
+    def pump() -> None:
+        try:
+            assert proc.stdout is not None
+            while True:
+                line = proc.stdout.readline()
+                if line == "":
+                    break
+                q.put(line)
+        finally:
+            q.put(None)
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    timed_out = False
     try:
-        stdout, stderr = proc.communicate(timeout=left)
-    except subprocess.TimeoutExpired as e:
-        _kill_group(proc)
-        stdout, stderr = proc.communicate()
-        raise subprocess.TimeoutExpired(proc.args, left, output=stdout, stderr=stderr) from e
-    return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+        while True:
+            left = _remaining(deadline)
+            if left <= 0:
+                timed_out = True
+                _kill_group(proc)
+                break
+            try:
+                item = q.get(timeout=min(0.5, max(0.05, left)))
+            except queue.Empty:
+                continue
+            if item is None:
+                break
+            chunks.append(item)
+            if on_output:
+                on_output(item)
+    finally:
+        if timed_out:
+            while True:
+                try:
+                    item = q.get(timeout=0.2)
+                except queue.Empty:
+                    break
+                if item is None:
+                    break
+                chunks.append(item)
+                if on_output:
+                    on_output(item)
+        reader.join(timeout=2)
+        if proc.poll() is None:
+            _kill_group(proc)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+    stdout = "".join(chunks)
+    if timed_out:
+        raise subprocess.TimeoutExpired(proc.args, max(0.0, left), output=stdout, stderr="")
+    code = proc.returncode if proc.returncode is not None else -1
+    return subprocess.CompletedProcess(proc.args, code, stdout, "")
 
 
 def _kill_group(proc: subprocess.Popen) -> None:

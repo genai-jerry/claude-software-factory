@@ -102,6 +102,10 @@ def test_intake_run_moves_issue_and_checkpoints(tmp_path):
     assert any("is running" in b and f"/runs/{runs[0]['id']}" in b for b in bodies)
     state = graph.get_state(cfgc)
     assert state.values["completed"][0]["status"] == "success"
+    events = (engine.transcript_dir / f"{runs[0]['id']}.events.jsonl").read_text()
+    assert "resolving model" in events
+    assert "starting" in events
+    assert "finished" in events
 
 
 def test_claim_refusal_drops_event(tmp_path):

@@ -370,3 +370,50 @@ def test_load_test_command_and_inspect_branch(tmp_path):
         json.dumps({"commands": {"test": None}}))
     assert load_test_command(null_dir) is None
 
+
+def test_role_run_streams_output_before_exit(tmp_path):
+    """on_output must see the first line while Claude is still running.
+
+    The fake agent prints FIRST, then waits for a gate file that on_output
+    creates. If we only drained stdout after exit, the wait would time out
+    and the script would exit 7.
+    """
+    cfg = load_config({**BASE, "ROLE_TIMEOUT_SECONDS": "60"})
+    source = FactorySource(cfg, local_path=str(make_local_factory(tmp_path)))
+    out_dir = tmp_path / "captured"
+    gate = tmp_path / "stream-gate"
+    script = tmp_path / "claude"
+    script.write_text(f"""#!/bin/bash
+shift; shift
+pwd > "{out_dir}/cwd-1.txt"
+echo FIRST
+n=0
+while [ ! -f "{gate}" ] && [ "$n" -lt 40 ]; do sleep 0.05; n=$((n+1)); done
+if [ ! -f "{gate}" ]; then
+  echo GATE_MISSING
+  exit 7
+fi
+echo SECOND
+exit 0
+""")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    out_dir.mkdir(parents=True)
+    runner = LocalCloneRunner(cfg, source, workspace_root=str(tmp_path / "ws"),
+                              claude_bin=str(script),
+                              origin=make_consuming_repo(tmp_path))
+    (tmp_path / "ws").mkdir(exist_ok=True)
+    chunks: list[str] = []
+
+    def on_output(text: str) -> None:
+        chunks.append(text)
+        if "FIRST" in text:
+            gate.write_text("go")
+
+    outcome = runner.run(owner="o", repo="r", role="intake", issue=5,
+                         model="m", github_token="t", on_output=on_output)
+    assert outcome.status == "success"
+    joined = "".join(chunks)
+    assert "FIRST" in joined and "SECOND" in joined
+    assert "GATE_MISSING" not in joined
+    assert gate.is_file()
+

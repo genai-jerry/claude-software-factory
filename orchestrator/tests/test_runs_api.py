@@ -29,6 +29,7 @@ async def test_runs_surface(tmp_path):
         assert done["outcome"] == "success"
         assert done["model_fallbacks"] == ["claude-opus-5"]
         assert "transcript_path" not in done  # internal path never leaves the service
+        assert done["events"] == []
 
         r = await client.get("/runs", params={"repo": "o/r", "active": "true"})
         assert [x["id"] for x in r.json()] == [active_id]
@@ -67,4 +68,31 @@ async def test_update_run_exposes_model_while_live(tmp_path):
         assert body["status"] == "running"
         assert body["guards"]["phase"] == "running Claude (claude-opus-5)"
         assert body["finished_at"] is None
+        assert body["events"] == []
+    await with_client(app, go)
+
+
+async def test_run_json_includes_event_log(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db"})
+    ledger = Ledger(cfg.database_url)
+    transcript = tmp_path / "t.log"
+    transcript.write_text("partial output\n")
+    (tmp_path / "t.events.jsonl").write_text(
+        '{"ts":"2026-08-28T03:00:00+00:00","kind":"phase","message":"waiting for tests"}\n'
+        '{"ts":"2026-08-28T03:00:01+00:00","kind":"phase","message":"pushing the branch"}\n'
+    )
+    run_id = ledger.start_run(repo="o/r", issue=5, role="fasttrack", trigger="labeled")
+    ledger.update_run(run_id, outcome="running",
+                      guards='{"phase": "waiting for tests"}',
+                      transcript_path=str(transcript))
+    app = create_app(cfg, ledger, lambda e, p: None, poll_interval=0.05)
+
+    async def go(client: httpx.AsyncClient):
+        r = await client.get(f"/runs/{run_id}")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "running"
+        assert [e["message"] for e in body["events"]] == [
+            "waiting for tests", "pushing the branch"]
+        assert "transcript_path" not in body
     await with_client(app, go)
