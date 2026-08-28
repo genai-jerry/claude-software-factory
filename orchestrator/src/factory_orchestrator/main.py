@@ -21,7 +21,7 @@ from .github_app import GitHubApp
 from .graph import Engine, Processor, build_graph, make_checkpointer
 from .ledger import Ledger
 from .models import default_probe
-from .reconcile import sweep_repo
+from .reconcile import reap_stale_runs, sweep_repo
 from .role_runner import FactorySource, RoleRunner
 from .webhook import create_app
 
@@ -77,7 +77,12 @@ def start_reconciler(engine, ledger, console: tuple | None = None,
             for full in repos:
                 owner, repo = full.split("/", 1)
                 try:
-                    sweep_repo(engine.port(owner, repo), ledger)
+                    port = engine.port(owner, repo)
+                    # Reap first: a run left open by a dead process pins its
+                    # issue as in-flight, which the sweep below would honour.
+                    reap_stale_runs(port, ledger, engine.cfg.role_timeout_seconds,
+                                    engine.cfg.public_base_url)
+                    sweep_repo(port, ledger)
                 except Exception:  # noqa: BLE001
                     log.exception("reconcile sweep failed for %s", full)
             time.sleep(interval_seconds)

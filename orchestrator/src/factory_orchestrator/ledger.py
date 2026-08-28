@@ -134,6 +134,20 @@ class Ledger:
                 guards=json.dumps(guards or {}),
                 transcript_path=transcript_path, error=error, finished_at=_now()))
 
+    def list_unfinished_runs(self, *, repo: str, older_than: dt.datetime) -> list[dict[str, Any]]:
+        """Runs that never reported an outcome and started before `older_than`.
+
+        A role run is capped at ROLE_TIMEOUT_SECONDS in-process, so a row still
+        open past that cap did not overrun — the process that owned it died.
+        """
+        q = (sa.select(runs)
+             .where(runs.c.repo == repo,
+                    runs.c.finished_at.is_(None),
+                    runs.c.started_at < older_than)
+             .order_by(runs.c.started_at))
+        with self.engine.begin() as cx:
+            return [dict(r) for r in cx.execute(q).mappings()]
+
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self.engine.begin() as cx:
             row = cx.execute(sa.select(runs).where(runs.c.id == run_id)).mappings().first()
