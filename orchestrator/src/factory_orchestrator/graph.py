@@ -51,6 +51,13 @@ from .router import RepoConfig, Router, release_chain
 log = logging.getLogger("factory-orchestrator.graph")
 
 MAX_ROUNDS = 4  # initial + architect chain + release fan-out + slack; a backstop, not a schedule
+# Beyond a role's own wall clock, its token still has to cover the clone that
+# precedes it and the no-op guard read that follows it.
+ROLE_TOKEN_SLACK = 10 * 60
+# What the calls that close out a run need left on the clock. They happen
+# after the role's whole wall clock has burned, so this is the check that
+# actually re-mints.
+GUARD_TOKEN_MIN = 5 * 60
 
 
 class PipelineState(TypedDict, total=False):
@@ -98,6 +105,39 @@ class Engine:
             release=parse_json_or_empty(port.get_file(".github/factory-release.json")),
             approvers=parse_json_or_empty(port.get_file(".github/factory-approvers.json")),
         )
+
+    def token_for_role(self, owner: str, repo: str) -> str:
+        """A GitHub token for a role that may run the whole wall clock.
+
+        The agent gets this token in its environment and in its clone URL and
+        cannot be handed a new one mid-run, so it has to be fresh at the
+        start: a role waiting behind a ``max_parallel`` slot can begin close
+        to an hour after the dispatch that carried the batch's token. Ask for
+        the role's own timeout plus room for the clone and the closing guard
+        read; :meth:`GitHubApp.installation_token` re-mints when the held
+        token cannot cover that, and warns rather than fails when no token
+        can (a fresh one tops out around an hour).
+        """
+        return self.app.installation_token(
+            owner, repo, min_remaining=self.cfg.role_timeout_seconds + ROLE_TOKEN_SLACK)
+
+    def refresh_token_before_guards(self, owner: str, repo: str) -> None:
+        """Get a token for the closing guard reads, now that the role is done.
+
+        Every call below goes through :class:`RepoClient`, which fetches the
+        token as it builds each request — so the token is already obtained at
+        the point of use. What it cannot know is that up to
+        ``ROLE_TIMEOUT_SECONDS`` just elapsed since anyone last looked, and a
+        token with a minute left passes an ordinary freshness check and then
+        401s. Asking here, once, for enough life to finish the run is what
+        makes the difference; the 401 retry in ``_req`` stays the backstop.
+        """
+        try:
+            self.app.installation_token(owner, repo, min_remaining=GUARD_TOKEN_MIN)
+        except Exception:  # noqa: BLE001 - the retry in _req still gets a chance
+            log.warning("could not refresh the GitHub token for %s/%s after the role "
+                        "ran; the guard reads will retry on 401", owner, repo,
+                        exc_info=True)
 
     def max_parallel(self, port: RepoPort) -> int:
         runners = claim.orchestrator_settings(port).get("runners")
@@ -232,9 +272,12 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         before = snapshot(port, issue)
         outcome = engine.runner.run(
             owner=owner, repo=repo, role=role, issue=issue, model=resolved.model,
-            github_token=engine.app.installation_token(owner, repo),
+            github_token=engine.token_for_role(owner, repo),
             on_phase=lambda phase: note(phase, **extra),
             on_output=live.write)
+        # The role may have run for the better part of an hour; everything from
+        # here on needs a token that is good now, not one that was good then.
+        engine.refresh_token_before_guards(owner, repo)
         traced = verify_no_op(port, issue, before, role)
         error: str | None = None
         if outcome.status == "success" and traced:
@@ -270,6 +313,10 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001 - a crashed run must still report + unmark
         log.exception("role crashed role=%s repo=%s/%s#%s run=%s",
                       role, owner, repo, issue, run_id)
+        # A crash after a long role leaves the same stale-token problem, and
+        # reporting it is the one call that must land: a failure nobody can
+        # see is worse than the failure.
+        engine.refresh_token_before_guards(owner, repo)
         crash = f"{type(e).__name__}: {e}"
         live.event("error", crash)
         engine.ledger.finish_run(run_id, outcome="error", error=crash,
@@ -322,9 +369,19 @@ class Processor:
             log.info("event without a repository - ignoring")
             return
         owner, repo = full.split("/", 1)
-        token = (payload.get("inputs") or {}).get("github_token")
+        inputs = payload.get("inputs") or {}
+        # Register the re-mint route before adopting the token, so a token that
+        # is already spent by the time the queue reaches it can be replaced
+        # rather than used once and 401'd.
+        console = getattr(self.engine.app, "console", None)
+        if console is not None:
+            console.register(owner, repo, inputs.get("console_url"),
+                             inputs.get("installation_id"))
+        token = inputs.get("github_token")
         if token and hasattr(self.engine.app, "cache_token"):
-            self.engine.app.cache_token(owner, repo, token)
+            self.engine.app.cache_token(
+                owner, repo, token,
+                expires_at=inputs.get("github_token_expires_at"))
         port = self.engine.port(owner, repo)
         if not claim.claim_check(port, self.engine.cfg.engine_name):
             return

@@ -23,6 +23,7 @@ from .ledger import Ledger
 from .models import default_probe
 from .reconcile import sweep_repo
 from .role_runner import FactorySource, RoleRunner
+from .token_refresh import ConsoleTokenSource
 from .webhook import create_app
 
 log = logging.getLogger("factory-orchestrator")
@@ -55,7 +56,16 @@ def build_service():
             "no Anthropic credential at boot — role runs wait for Factory Console "
             "to send one on POST /events, or for CONSOLE_DATABASE_URL")
     ledger = Ledger(cfg.database_url)
-    app = GitHubApp(cfg)
+    # Deployments on the placeholder App id cannot mint their own tokens; the
+    # Console that dispatches their runs mints for them. Registration happens
+    # per repo as dispatches arrive, so this is inert until one carries the
+    # console_url and installation_id to use.
+    app = GitHubApp(cfg, console=ConsoleTokenSource(cfg.dispatch_token.reveal()))
+    if not app.can_mint():
+        log.warning(
+            "GITHUB_APP_PRIVATE_KEY is a placeholder — GitHub tokens can only come "
+            "from the Console. Long roles will 401 unless /dispatch carries "
+            "console_url and installation_id.")
     source = FactorySource(cfg, local_path=os.environ.get("FACTORY_LOCAL_PATH"))
     runner = RoleRunner(cfg, source)
     engine = Engine(cfg, ledger, app, runner, default_probe(cfg),
