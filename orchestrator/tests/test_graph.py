@@ -32,9 +32,21 @@ class ConfiguredRepo(FakeRepo):
 class FakeApp:
     def __init__(self, world):
         self.world = world
+        self.console = None
+        self.mints = []
 
-    def installation_token(self, owner, repo):
+    def installation_token(self, owner, repo, *, min_remaining=120.0, force_refresh=False):
+        # Records what each caller asked for so the tests can assert that a
+        # token is obtained at the point of use, not carried across a run.
+        self.mints.append({"repo": f"{owner}/{repo}", "min_remaining": min_remaining,
+                           "force_refresh": force_refresh})
         return "ghs_test"
+
+    def cache_token(self, owner, repo, token, *, expires_at=None):
+        self.cached = (owner, repo, token, expires_at)
+
+    def invalidate(self, owner, repo):
+        pass
 
     def repo_client(self, owner, repo):
         return self.world
@@ -237,3 +249,56 @@ def test_role_fails_without_anthropic_credential(tmp_path):
     assert "No Anthropic credential" in (runs[0]["error"] or "")
     assert runner.calls == []
     assert "factory:in-progress" not in world.labels_of(5)
+
+
+# ------------------------------------------------------- token freshness
+def test_role_token_must_outlive_the_role_and_guards_get_their_own(tmp_path):
+    """Run 3c2bf884 spent 45 minutes and then 401'd on GET /issues/227.
+
+    Two separate asks, because they happen 45 minutes apart: the token handed
+    to the agent has to cover the whole wall clock (it is baked into the
+    clone URL and the subprocess environment and cannot be replaced), and the
+    guard reads that close the run ask again once the role is done.
+    """
+    world = ConfiguredRepo({5: issue(5, "Add renewals", [])})
+    graph, engine, _ledger, _runner = graph_with(
+        tmp_path, world, {"intake": lambda w, n: flip(w, n, "factory:intake", "factory:spec-ready")})
+    Processor(engine, graph)("issues", {
+        "action": "opened", "issue": world.issues[5], "repository": {"full_name": "o/r"}})
+
+    asks = [m["min_remaining"] for m in engine.app.mints]
+    assert asks[0] >= engine.cfg.role_timeout_seconds, (
+        "the role's own token must cover its full wall clock")
+    assert len(asks) >= 2, "the closing guard reads must ask for a token of their own"
+    assert asks[1] < asks[0], "guards need less life than the role, but must still ask"
+
+
+def test_dispatch_refresh_details_reach_the_token_source(tmp_path):
+    """console_url and installation_id survive the queue, or a placeholder
+    deployment has no way to replace a token that ages out."""
+    world = ConfiguredRepo({5: issue(5, "Add renewals", [])})
+    graph, engine, _ledger, _runner = graph_with(
+        tmp_path, world, {"intake": lambda w, n: flip(w, n, "factory:intake", "factory:spec-ready")})
+    registered = []
+    engine.app.console = type("C", (), {
+        "register": lambda _s, o, r, url, inst: registered.append((o, r, url, inst))})()
+    Processor(engine, graph)("issues", {
+        "action": "opened", "issue": world.issues[5], "repository": {"full_name": "o/r"},
+        "inputs": {"github_token": "ghs_console", "console_url": "https://console.example",
+                   "installation_id": 4242},
+    })
+    assert registered == [("o", "r", "https://console.example", 4242)]
+    # ...and the token was adopted with whatever expiry the Console stated.
+    assert engine.app.cached[2] == "ghs_console"
+
+
+def test_a_dispatch_token_expiry_is_carried_not_guessed(tmp_path):
+    world = ConfiguredRepo({5: issue(5, "Add renewals", [])})
+    graph, engine, _ledger, _runner = graph_with(
+        tmp_path, world, {"intake": lambda w, n: flip(w, n, "factory:intake", "factory:spec-ready")})
+    Processor(engine, graph)("issues", {
+        "action": "opened", "issue": world.issues[5], "repository": {"full_name": "o/r"},
+        "inputs": {"github_token": "ghs_console",
+                   "github_token_expires_at": "2026-08-29T09:05:01Z"},
+    })
+    assert engine.app.cached[3] == "2026-08-29T09:05:01Z"

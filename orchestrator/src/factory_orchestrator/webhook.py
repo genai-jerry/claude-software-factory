@@ -43,6 +43,21 @@ def public_delivery_error(exc: BaseException) -> str:
     return f"{name}: {exc}"
 
 
+def _carry_refresh(inputs: dict[str, Any], console_url: Any, installation_id: Any) -> None:
+    """Record how to re-mint this repo's GitHub token, when the caller said.
+
+    Both halves are needed to call the Console's mint endpoint, so a partial
+    pair is no better than none and is dropped rather than half-stored.
+    """
+    if not console_url or not installation_id:
+        return
+    try:
+        inputs["installation_id"] = int(installation_id)
+    except (TypeError, ValueError):
+        return
+    inputs["console_url"] = str(console_url)
+
+
 def create_app(cfg: Config, ledger: Ledger, processor: Processor,
                *, poll_interval: float = 0.5) -> FastAPI:
     stop = asyncio.Event()
@@ -171,9 +186,17 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         applied = apply_runtime_agent_secrets(cfg, body)
         queued_payload = dict(payload)
         token = body.get("github_token")
+        inputs = dict(queued_payload.get("inputs") or {})
         if isinstance(token, str) and token:
-            inputs = dict(queued_payload.get("inputs") or {})
             inputs["github_token"] = token
+            if body.get("github_token_expires_at"):
+                inputs["github_token_expires_at"] = str(body["github_token_expires_at"])
+        # Where that token can be re-minted when a long role outlives it. The
+        # installation id rides on the GitHub payload itself for real deliveries.
+        installation_id = body.get("installation_id") or (
+            payload.get("installation") or {}).get("id")
+        _carry_refresh(inputs, body.get("console_url"), installation_id)
+        if inputs:
             queued_payload["inputs"] = inputs
         fresh = ledger.record_delivery(str(guid), str(event), queued_payload)
         repo = (queued_payload.get("repository") or {}).get("full_name", "-")
@@ -202,6 +225,11 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         inputs: dict[str, Any] = {"role": body["role"], "issue_number": str(body["issue"])}
         if body.get("github_token"):
             inputs["github_token"] = body["github_token"]
+            if body.get("github_token_expires_at"):
+                inputs["github_token_expires_at"] = str(body["github_token_expires_at"])
+        # The Console already sends these; keeping them is what lets a role
+        # that outlives its dispatch token get a new one instead of a 401.
+        _carry_refresh(inputs, body.get("console_url"), body.get("installation_id"))
         applied = apply_runtime_agent_secrets(cfg, body)
         payload = {"action": "dispatch",
                    "repository": {"full_name": f"{body['owner']}/{body['repo']}",

@@ -245,3 +245,61 @@ async def test_events_applies_claude_token_without_storing_it(service):
         payload = stored if isinstance(stored, dict) else json.loads(stored)
         assert payload["inputs"]["github_token"] == "ghs_from_console"
     await with_client(app, go)
+
+
+async def test_dispatch_carries_the_token_refresh_route(service):
+    """The Console already sends these two; dropping them left a placeholder
+    deployment unable to replace a token that ages out mid-run."""
+    _cfg, ledger, _, app = service
+
+    async def go(client):
+        r = await client.post(
+            "/dispatch",
+            json={"owner": "o", "repo": "r", "role": "profiler", "issue": 227,
+                  "github_token": "ghs_from_console",
+                  "github_token_expires_at": "2026-08-29T09:05:01Z",
+                  "console_url": "https://console.example/",
+                  "installation_id": 4242},
+            headers={"authorization": "Bearer op-token"})
+        assert r.status_code == 200
+        inputs = json.loads(ledger.get_delivery(r.json()["dispatch_id"])["payload"])["inputs"]
+        assert inputs["console_url"] == "https://console.example/"
+        assert inputs["installation_id"] == 4242
+        assert inputs["github_token_expires_at"] == "2026-08-29T09:05:01Z"
+    await with_client(app, go)
+
+
+async def test_dispatch_drops_a_half_written_refresh_route(service):
+    """Half a route is no route, and storing it would only mislead a reader."""
+    _cfg, ledger, _, app = service
+
+    async def go(client):
+        r = await client.post(
+            "/dispatch",
+            json={"owner": "o", "repo": "r", "role": "profiler", "issue": 227,
+                  "console_url": "https://console.example"},
+            headers={"authorization": "Bearer op-token"})
+        inputs = json.loads(ledger.get_delivery(r.json()["dispatch_id"])["payload"])["inputs"]
+        assert "console_url" not in inputs and "installation_id" not in inputs
+    await with_client(app, go)
+
+
+async def test_forwarded_events_take_the_installation_from_the_payload(service):
+    """Real deliveries carry `installation.id`; only console_url has to be told."""
+    _cfg, ledger, _, app = service
+
+    async def go(client):
+        r = await client.post(
+            "/events",
+            json={"event": "issues", "delivery_guid": "console-kick-1",
+                  "github_token": "ghs_from_console",
+                  "console_url": "https://console.example",
+                  "payload": {"action": "labeled", "repository": {"full_name": "o/r"},
+                              "issue": {"number": 227},
+                              "installation": {"id": 4242}}},
+            headers={"authorization": "Bearer op-token"})
+        assert r.status_code == 200
+        inputs = json.loads(ledger.get_delivery("console-kick-1")["payload"])["inputs"]
+        assert inputs["installation_id"] == 4242
+        assert inputs["console_url"] == "https://console.example"
+    await with_client(app, go)
