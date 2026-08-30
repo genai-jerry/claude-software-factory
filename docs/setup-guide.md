@@ -20,8 +20,12 @@ only covers *doing* the install. Where the two disagree, `FACTORY.md` wins.
   installed fine. If the App is already on the account but scoped to "Only
   select repositories", add this repo to its repository access.
 - Decide, up front:
-  - **Does this repo have a `staging` branch?** Task PRs merge to staging when
-    one exists, otherwise to `default` (FACTORY.md §6).
+  - **What does your org call its integration branch?** `staging`, `develop`,
+    `qa` — whatever it is, every implementation PR is based on it and nothing
+    reaches the default branch except a promotion PR from it (FACTORY.md §6a).
+    You name it once, in `.github/factory-branches.json`, identically across the
+    estate. The branch itself does not have to exist yet: `auto_create` cuts it
+    from the default branch the first time it is needed.
   - **Is this repo part of a multi-repo estate?** If so, pick one repo as the
     **coordination repo** — the one that owns the shared contract — and plan
     to get `FACTORY_CROSS_REPO_TOKEN` (a fine-grained PAT with Issues +
@@ -102,14 +106,14 @@ Key fields to get right on the first pass:
 
 | Field | What happens if it's wrong |
 |---|---|
-| `branches.staging` | Task PRs target the wrong branch, or fail to find one that doesn't exist |
+| `branches.staging` | Task PRs target the wrong branch. Leave it `null` unless THIS repo's integration branch is named differently from the org's `.github/factory-branches.json` — the profile overrides the name only (FACTORY.md §6a) |
 | `commands.test` / `build` / `lint` | Implementer/QA can't verify their own work; use `null` for gates this repo doesn't have |
 | `estate_role` | Planner can't derive cross-repo merge order |
 | `deploy.health_checks` | Must be runnable commands (`curl -fsS ...`), not descriptions |
 
 ## 4. Copy the config and caller-stub files
 
-Seven files land in the consuming repo, none of them logic — just triggers,
+Eight files land in the consuming repo, none of them logic — just triggers,
 version pins and per-repo data (FACTORY.md §10). Copy each from `templates/`
 in this repo and adjust as noted.
 
@@ -120,6 +124,7 @@ in this repo and adjust as noted.
 | `.github/factory-models.json` | `templates/factory-models.json` | Optional — retune the model preference chain per role |
 | `.github/factory-approvers.json` | `templates/factory-approvers.json` | Required — replace `genai-jerry` with real GitHub usernames per gate |
 | `.github/factory-release.json` | `templates/factory-release.json` | Optional — release gating. Omit the file and a filed issue goes straight to intake |
+| `.github/factory-branches.json` | `templates/factory-branches.json` | The org's integration branch (FACTORY.md §6a). Set `staging` to its name and copy the *same* file into every repo. Omitting it is not opting out — the defaults apply; ship `"required": false` to opt out |
 | `.claude/settings.json` | `templates/settings.json` | Merge into an existing file if one is present; keep the `permissions.deny` block — it's half of gate G3 |
 
 ```bash
@@ -129,6 +134,7 @@ cp /path/to/claude-software-factory/templates/workflows/factory-branch-guard.yml
 cp /path/to/claude-software-factory/templates/factory-models.json .github/
 cp /path/to/claude-software-factory/templates/factory-approvers.json .github/
 cp /path/to/claude-software-factory/templates/factory-release.json .github/   # optional
+cp /path/to/claude-software-factory/templates/factory-branches.json .github/  # integration branch
 cp /path/to/claude-software-factory/templates/settings.json .claude/
 ```
 
@@ -299,7 +305,9 @@ settings need nothing. Branch protection needs a paid plan on private repos, so 
 merge to `main` via the UI) is enforced entirely by the hook, the permission
 deny list and the branch guard from step 4 — see FACTORY.md §8a. If the repo
 later moves to a plan with branch protection or rulesets, turn them on too
-(require 1 approval + green CI on `main` and `staging`); the factory's own
+(require 1 approval + green CI on `main`, green CI on the integration branch —
+but never protect that branch against the factory, which has to merge onto it);
+the factory's own
 controls then become defence-in-depth rather than the primary enforcement.
 
 ## Footprint summary

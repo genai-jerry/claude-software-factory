@@ -355,6 +355,10 @@ class Router:
                          "- `factory:ready` (a task sub-issue) — starts its implementer\n\n"
                          + ("This issue is in the backlog: add it to a release milestone, then approve that "
                             "release's tracker issue.\n\n" if "factory:backlog" in labels else "")
+                         + ("This is at gate G3: it is already on the integration branch and green there, and "
+                            "ships when a human merges the promotion PR(s) the Release Manager listed. That "
+                            "merge click is the gate — there is nothing here for a comment to approve.\n\n"
+                            if "factory:in-staging" in labels else "")
                          + 'From any other state, use Actions → "Factory pipeline" → Run workflow with the role you want. '
                            "Gate G3 (production) is deliberately not comment-approvable.")
             elif is_plan_release:
@@ -537,6 +541,7 @@ class Router:
                 "factory:release-ready": ("release_scope", "Gate G0 (release approval)"),
                 "factory:spec-ready": ("spec", "Gate G1 (spec approval)"),
                 "factory:design-ready": ("design", "Gate G2 (design approval)"),
+                "factory:in-staging": ("release", "Gate G3 (promotion to the default branch)"),
                 "factory:ready": ("implementation", "Implementation start"),
             }
             if name in notify_of:
@@ -550,6 +555,11 @@ class Router:
                     elif gate == "release_scope":
                         how = ('Read the release plan above, then comment exactly "Approved" here to '
                                "release every issue in this milestone into intake.")
+                    elif gate == "release":
+                        how = ("This is already merged onto the integration branch and green there "
+                               "(FACTORY.md §6a) — the Release Manager's integration report above is the "
+                               "evidence. Merge the promotion PR(s) it lists, in that order, via the GitHub "
+                               "UI. G3 is deliberately not comment-approvable.")
                     else:
                         how = ("Review the linked PR, then merge it + apply the approved label, or "
                                'comment exactly "Approved" here.')

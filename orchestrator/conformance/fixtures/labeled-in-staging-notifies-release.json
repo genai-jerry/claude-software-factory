@@ -1,0 +1,55 @@
+{
+  "name": "labeled-in-staging-notifies-release",
+  "description": "factory:in-staging opens gate G3: the release approvers are told to merge the promotion PR, not to comment Approved",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "release": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Payment reminders",
+        "labels": [
+          "factory:in-staging"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:in-staging",
+    "sender": "releasebot"
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "@boss",
+          "Gate G3 (promotion to the default branch)",
+          "integration branch",
+          "not comment-approvable"
+        ]
+      }
+    }
+  }
+}

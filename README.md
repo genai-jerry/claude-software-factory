@@ -16,7 +16,9 @@ Two foundations, one rule:
   stops the two sources of truth from drifting.
 
 Ten roles move work between them: scrum → intake → planner → architect →
-dispatch → implementer → reviewer → qa → release → ops.
+dispatch → implementer → reviewer → qa → release → ops. Everything they build
+lands on a staging branch and is proved there before a human promotes it to
+`main`.
 
 **[FACTORY.md](FACTORY.md) is the handbook.** Everything below is how to install
 it. For a step-by-step walkthrough of every install step, see
@@ -64,6 +66,7 @@ $EDITOR .factory/profile.json        # replace every value
 #    .github/factory-models.json
 #    .github/factory-approvers.json
 #    .github/factory-release.json      # optional — release gating (FACTORY.md §2d)
+#    .github/factory-branches.json     # optional — integration branch (FACTORY.md §6a)
 #    .claude/settings.json
 
 # 5. Plugin (once per machine; CI does not need it)
@@ -81,7 +84,7 @@ The caller stubs must be on your **default branch** before GitHub will fire
 them. To pilot the factory before merging them there, use the test harness stub
 (`templates/workflows/factory-test.yml`) — it runs from a development branch.
 
-That's the whole footprint: eight files, none of them logic. The pipeline body,
+That's the whole footprint: nine files, none of them logic. The pipeline body,
 the role prompts and the hook stay in this repo.
 
 ## Why two channels
@@ -131,9 +134,28 @@ enforces its own, in three layers:
 2. A **permission deny list** removes the PR-merge tools from agent sessions
    entirely. Humans merge in the GitHub UI; that click is gate G3.
 3. A **detection workflow** opens a `factory:incident` issue if a commit ever
-   lands on `main` without a pull request.
+   lands on `main` without a pull request, or arrives by a PR that did not come
+   from the integration branch — a change that reached `main` without being
+   proved on staging.
 
 Controls, not instructions. The hook is tested — see FACTORY.md §8a.
+
+## Staging first
+
+Nothing the factory writes reaches `main` directly. Every implementation PR —
+task PRs and fast-lane PRs alike — is based on the org's **integration branch**
+(`staging`, `develop`, `qa`, whatever your estate calls it, named once in
+`.github/factory-branches.json`). The Release Manager merges the epic's PRs onto
+that branch in dependency order, watches the staging deploy and runs the repo's
+health checks after each one; only then does it open one promotion PR per repo
+for a human to merge. So gate G3 is a decision about a build that already ran,
+not a hopeful read of a diff.
+
+Two states carry it: `factory:ready-to-ship` (green, awaiting the integration
+merge) and `factory:in-staging` (on staging and verified, promotion PR open,
+awaiting G3). Document PRs — spec, design, profile — are the one exception and
+still merge straight to the default branch, because every later stage clones it.
+Handbook: [FACTORY.md §6a](FACTORY.md).
 
 ## Layout
 
