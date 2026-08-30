@@ -12,7 +12,7 @@ document.
 
 **How it reaches your repos:** this file, the twelve role prompts, and the
 protected-branch hook ship as the `factory` Claude Code plugin; the pipeline
-ships as reusable GitHub Actions workflows. A consuming repo holds eight files,
+ships as reusable GitHub Actions workflows. A consuming repo holds nine files,
 none of them logic. See §10.
 
 ---
@@ -41,7 +41,7 @@ body.** This prevents the two-sources-of-truth drift.
 | 4 | Implement | `/factory:implementer` | Branch + commits + draft PR per task via `/opsx:apply` |
 | 5 | Review | `/factory:reviewer` | Line-level review; approve or request changes |
 | 6 | Test | `/factory:qa` | Scenario→test mapping, full suites green, test report on PR |
-| 7 | Deploy | `/factory:release` | Dependency-ordered merges, staging watch, production promotion |
+| 7 | Deploy | `/factory:release` | Dependency-ordered merges onto the **integration branch**, staging verification, then the promotion PRs a human merges at gate G3 (§6a) |
 | 8 | Verify | `/factory:ops` | Health/smoke checks, soak, `/opsx:archive`, issue closure |
 
 Stage 0 is optional and off by default: with release gating disabled a filed
@@ -51,8 +51,9 @@ existed.
 Beside these stages runs one **fast lane**: `/factory:fasttrack` takes an issue
 labelled `factory:fast-track` and produces a branch, a test and a
 ready-for-review PR in a single run — no proposal, no `tasks.md`, no `design.md`
-and no gate but G3, the human merge. It is the whole pipeline for changes too
-small to be worth the ceremony (§5).
+and no gate but G3. It is the whole pipeline for changes too small to be worth
+the ceremony (§5). It skips the ceremony, not the staging step: its PR is based
+on the integration branch like every other implementation PR (§6a).
 
 One more role sits outside the pipeline entirely: `/factory:profiler` writes and
 maintains `.factory/profile.json` (§2c), the file the stage roles above depend
@@ -82,6 +83,7 @@ events, so **filing a plain issue is all a requester does**:
 | `factory:release-approved` on a tracker (gate G0) | Every `factory:backlog` issue in that milestone is moved to `factory:intake` and its **Intake Analyst** runs, all in the same run |
 | Human applies `factory:spec-approved` (gate G1) | **Planner**, then **Architect** chained in the same run |
 | Human applies `factory:design-approved` (gate G2) | **Dispatcher** — marks unblocked tasks `factory:ready` |
+| `factory:in-staging` applied by the Release Manager | Nothing runs — the `release` approvers are assigned and @-mentioned to merge the promotion PRs. Gate G3 is a merge click, not a role (§6a) |
 | Owner/collaborator comments exactly `Approved` on an issue in `factory:spec-ready` or `factory:design-ready` | The gate's document PR(s) in this repo are squash-merged, the label flips to the approved state, and the next stage (Planner→Architect, or Dispatcher) runs in the same workflow run. Strict match — "Approved, but..." is just a comment. G3 is deliberately not comment-approvable |
 | The same comment on a release tracker in `factory:release-ready` | Gate G0 — the label flips to `factory:release-approved` and the milestone's issues are released (there is no document PR to merge) |
 | Owner/collaborator comments exactly `Approved` on a task sub-issue in `factory:ready` | That task's **Implementer** starts. Not a gate — implementation had no trigger of its own; authorised against the `implementation` approver list |
@@ -176,7 +178,7 @@ between repos. A missing/unparseable profile hard-blocks the per-repo roles
 |---|---|---|
 | `estate_role` | planner, release | Where this repo sits among its siblings — the source of cross-repo merge order |
 | `stack` | implementer, architect | Languages, frameworks, major libraries |
-| `branches` | implementer, release | `default` + `staging` (null when the repo has no staging train) |
+| `branches` | implementer, fasttrack, reviewer, qa, release | `default` + `staging`, the integration branch (§6a). `staging` is null unless THIS repo's branch is named differently from the org's policy file |
 | `commands` | implementer, qa | `test` / `build` / `lint` — null means "this repo has no such gate" |
 | `conventions` | implementer, architect | The patterns code must follow |
 | `review_checklist` | reviewer | Repo-specific review points beyond the generic security/conformance checks |
@@ -226,7 +228,7 @@ the GitHub usernames responsible for it:
 | `spec` | Gate G1 — approve the spec PR | Issue reaches `factory:spec-ready` | Merge the PR + apply the label, or comment `Approved` |
 | `design` | Gate G2 — approve the plan+design PR | Issue reaches `factory:design-ready` | Same |
 | `implementation` | Start implementers on ready tasks | A task reaches `factory:ready` | Comment `Approved` on the task, or Run workflow (role: implementer) |
-| `release` | Gate G3 — production go | Release Manager posts the merge list | Merge the staging→main PRs in order |
+| `release` | Gate G3 — production go | Issue reaches `factory:in-staging` and the Release Manager posts the merge list | Merge the promotion PRs (integration → default branch) in the posted order |
 
 Mechanics:
 - **Notification** = GitHub-native: the pipeline assigns the issue to the
@@ -357,7 +359,8 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:ready` | Task unblocked; implementer may start | Orchestrator | Implementer → `factory:in-review` |
 | `factory:in-review` | Draft PR under agent review | Implementer | Reviewer → `factory:in-test` (or back to `factory:ready`) |
 | `factory:in-test` | QA verifying scenarios | Reviewer | QA → `factory:ready-to-ship` |
-| `factory:ready-to-ship` | Awaiting merge order & **gate G3** | QA | Release → `factory:deployed` |
+| `factory:ready-to-ship` | Green; awaiting the integration merge onto the staging branch (§6a) | QA | Release → `factory:in-staging` |
+| `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
 | `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
 | `factory:profile` | *Kind:* this issue is the home of `.factory/profile.json` (§2c) | Factory Console's profile step, or a human | Profiler removes it when it finishes; re-apply to re-run |
@@ -380,12 +383,20 @@ Create them with `scripts/setup-labels.sh`.
   merge and apply `factory:design-approved`, or comment `Approved` on the epic.
   Note: comment approval merges the design PR in the epic's repo; sibling-repo
   design PRs still need their own merge.
-- **G3 — Merge & release:** every PR into `main` is merged **by a human via
-  the GitHub UI** — never by an agent. Promotion from `staging` to `main`
-  (production) likewise requires an explicit human go. GitHub branch
+- **G3 — Promotion to the default branch:** every PR into `main` is merged
+  **by a human via the GitHub UI** — never by an agent. By the time a human
+  sees one, the change is already merged onto the integration branch and proved
+  there (§6a), so the only PR that ever reaches `main` is a promotion PR from
+  that branch, carrying the staging evidence in its body. GitHub branch
   protection is not available on the current plan, so this is enforced
   factory-side (see §8a): agents are hard-blocked from pushing to `main` and
   from using PR-merge tools. The merge button *is* the gate.
+
+The **integration merge** that precedes G3 is deliberately *not* a gate: the
+Release Manager merges each green task PR onto the integration branch itself,
+in dependency order, and runs the repo's staging health checks after each one.
+It costs a human nothing and it is what makes G3 a decision about a proven
+build rather than a hopeful one. Its state is `factory:in-staging` (§3).
 
 Everything else runs unattended. Any human may take over any stage at any time
 by doing the work manually and setting the next label.
@@ -403,7 +414,9 @@ by doing the work manually and setting the next label.
   the only gate left. The role sizes the issue before writing any code and
   hands it back to the normal pipeline — removing the label, saying why — when
   it needs a migration, a new dependency, a new public contract, or a design
-  decision worth arguing separately.
+  decision worth arguing separately. Its PR is based on the integration branch
+  (§6a) — merging it puts the change on staging, not in production; the
+  promotion PR still carries it to the default branch.
 - **Commands (OpenSpec v1.7 core profile):** `/opsx:explore`, `/opsx:propose`,
   `/opsx:apply`, `/opsx:update`, `/opsx:sync`, `/opsx:archive`.
 - **Archive:** only the Ops Monitor archives, and only after production soak
@@ -416,7 +429,8 @@ by doing the work manually and setting the next label.
   `factory/<epic-issue>-design` (carries `tasks.md` + `design.md` in the
   epic's repo; `design.md` only in sibling repos).
 - Task branches: `factory/<task-issue-number>-<slug>` cut from the repo's
-  default branch.
+  **integration branch** (§6a) — cutting from the default branch produces a
+  diff against a base that is missing everything already merged to integration.
 - One task = one PR. PR body links its task issue (`Closes #N`) and the change
   folder, and notes any deviation from `design.md`.
 - Draft PR until the Reviewer marks it ready. CI must be green before
@@ -424,20 +438,73 @@ by doing the work manually and setting the next label.
 
 ### Where PRs merge (base branches)
 
-- **Document PRs (spec, plan+design):** into the repo's **default branch**
-  (`main`). Safe by construction: the deploy workflows now `paths-ignore` the
-  factory/document paths (`openspec/**`, `docs/**`, `FACTORY.md`,
-  `.claude/**`, factory workflow files), so a docs-only merge to main deploys
-  nothing. Merging docs to main is required so every later stage — which
-  clones the default branch — can see the approved artifacts.
-- **Implementation (task) PRs:** into **`staging`** where the repo has one
-  (backend, ui, sales), else the default branch. Merging to staging
-  auto-deploys the staging environment — that's the release train assembling.
-- **Production promotion (gate G3):** one `staging` → `main` PR per repo,
-  merged by a human in the Release Manager's posted order. That merge is the
-  production deploy.
+- **Implementation PRs — task PRs and fast-lane PRs alike:** into the repo's
+  **integration branch** (§6a), never the default branch. Merging there
+  auto-deploys the staging environment — that's the release train assembling,
+  and the change being proved before anyone is asked to ship it.
+- **Production promotion (gate G3):** one integration → default-branch PR per
+  repo, merged by a human in the Release Manager's posted order. That merge is
+  the production deploy, and it is the **only** kind of PR that ever targets
+  the default branch.
+- **Document PRs (spec, plan+design, profile):** the one exception — into the
+  repo's **default branch** directly. They are not changes to the product:
+  the deploy workflows `paths-ignore` the factory/document paths
+  (`openspec/**`, `docs/**`, `FACTORY.md`, `.claude/**`, factory workflow
+  files), so a docs-only merge deploys nothing, and there is nothing for a
+  staging environment to prove about them. Routing them through integration
+  would actively break the pipeline: every later stage clones the *default*
+  branch, so an approved spec parked on the integration branch would be
+  invisible to the planner, the architect and every implementer until the next
+  release promoted it. Gates G1 and G2 are those PRs' review.
 - During the pre-merge pilot, all PRs base on the factory development branch
   instead.
+
+## 6a. The integration branch (staging first, always)
+
+**Nothing the factory writes reaches the default branch without being merged
+to, and proved on, an integration branch first.** That branch is the org's —
+`staging`, `develop`, `qa`, `integration`, whatever the estate already calls
+it. The name is arbitrary; the step is not.
+
+The policy lives in `.github/factory-branches.json`, copied from
+`templates/factory-branches.json` and **identical across the estate** — it is
+an org decision, not a per-repo one:
+
+```json
+{ "staging": "staging", "required": true, "auto_create": true }
+```
+
+| Key | Meaning |
+|---|---|
+| `staging` | The org's integration branch name. Absent file ⇒ `"staging"` |
+| `required` | `true` (default): an implementation PR may never be based on the default branch. `false`: the pre-policy fallback — integration where a profile names one, default branch elsewhere |
+| `auto_create` | `true` (default): the branch is cut from the default branch the first time it is needed, so adopting the policy costs no manual setup. `false`: a missing branch blocks the run instead |
+
+**Resolving the branch for a repo,** which the implementer, fast-track,
+reviewer, qa and release roles all do at step 0a:
+
+1. The repo's `.factory/profile.json` `branches.staging`, when that is a
+   non-null string. This overrides **the name only** — for a repo whose branch
+   is genuinely called something else — never whether the step runs.
+2. Otherwise the policy file's `staging`.
+3. Otherwise `"staging"`.
+
+Two sources, no ambiguity: the policy file says *whether* and *what the org
+calls it*; the profile says *what this repo calls it* when that differs.
+
+**What it buys.** Every change is deployed and health-checked on staging
+before a human is asked to approve anything, so gate G3 stops being a judgement
+about a diff and becomes a decision about a build that already ran. A broken
+change is caught on a branch the factory may write to, and fixed there, instead
+of on the branch it may not. And an epic's PRs land as one train: the whole set
+is integrated and green together, or none of it is promoted.
+
+**The cost, stated plainly.** The integration branch is a real branch that
+drifts from the default branch between releases. When a promotion PR conflicts,
+the fix is to merge the default branch *into* integration and re-verify staging
+— never to rewrite integration's history and never to resolve it on the default
+branch side. Long-lived integration branches rot if releases are rare; promote
+often.
 
 ## 7. Cross-repo epics
 
@@ -449,8 +516,11 @@ by doing the work manually and setting the next label.
   profiles' `estate_role`: **schema/data-model change → the repo that owns the
   contract → the repos that consume it**. Every intermediate merge must be
   releasable.
-- The Release Manager treats the epic's PR set as one release train: nothing is
-  promoted to production until every repo's piece is green on staging.
+- The Release Manager treats the epic's PR set as one release train: every
+  repo's piece is merged onto that repo's integration branch (§6a) and green
+  there before any promotion PR is opened, and nothing is promoted to
+  production until the whole train is. One repo red on staging holds the
+  others on staging with it — that is cheap; a half-promoted estate is not.
 
 ## 8a. Protected-branch enforcement (no GitHub branch protection required)
 
@@ -471,8 +541,18 @@ factory enforces gate G3 itself, in three layers:
    fails and opens a `factory:incident` issue if a commit lands on `main`
    without an associated pull request.
 
-`staging` deliberately remains agent-pushable so the Release Manager can
-assemble release trains autonomously; production (`main`) is human-only.
+The integration branch (§6a) deliberately remains agent-pushable so the Release
+Manager can assemble release trains autonomously; production (`main`) is
+human-only. That split is what makes the staging step work: the factory has a
+branch it may write to and prove things on, and exactly one way — a human
+merging a promotion PR — for anything to leave it.
+
+Layer 3 also checks *where* a commit on `main` came from: a merge whose PR head
+was not the integration branch (and whose diff is not documents-only, §6) is
+reported on the incident issue as a change that skipped staging. It is a
+detection, not a block — a human may always merge whatever they judge necessary
+— but it is never silent.
+
 If the repos later move to a plan with branch protection/rulesets, turn them
 on and this section becomes defence-in-depth rather than the primary control.
 
@@ -498,7 +578,7 @@ on and this section becomes defence-in-depth rather than the primary control.
    point (§10); the `factory:intake` label it applies only starts the pipeline
    once the labels step below has run.
 2. **Labels** — `GITHUB_TOKEN=... bash scripts/setup-labels.sh <owner> <repo...>`
-   creates the 21 `factory:*` labels (§3). Run it once per repo.
+   creates the 22 `factory:*` labels (§3). Run it once per repo.
 3. **Secrets** — add `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN` as a
    **repository** secret (Settings → Secrets and variables → Actions).
    Environment secrets do *not* reach jobs that don't declare `environment:`,
@@ -518,10 +598,20 @@ on and this section becomes defence-in-depth rather than the primary control.
    `.github/factory-release.json` to gate intake behind milestones (§2d), and
    add a `release_scope` list to `.github/factory-approvers.json`. Leave the
    file out to keep the original behaviour.
+6a. **Integration branch** — copy `templates/factory-branches.json` to
+   `.github/factory-branches.json` and set `staging` to whatever your org calls
+   its integration/test branch. Copy the *same* file into every repo in the
+   estate: this is one org decision. Omitting the file is not opting out — the
+   defaults (`staging`, required, auto-created) apply either way; to opt out,
+   ship the file with `"required": false`. The branch itself needs no manual
+   setup while `auto_create` is on (§6a).
 7. **Install the factory** — §10.
 8. Protected-branch enforcement is factory-side (§8a) — nothing to configure on
    GitHub. If you later move to a plan with branch protection or rulesets, turn
-   them on as well: require 1 approval and green CI on `main` (and `staging`).
+   them on as well: require 1 approval and green CI on `main`, and green CI on
+   the integration branch. Do **not** protect the integration branch against
+   the factory itself — the Release Manager has to be able to merge onto it,
+   and that is the whole staging step (§6a).
 
 ## 10. How the factory is distributed
 
@@ -549,6 +639,7 @@ injects the handbook plus the role prompt into the agent's prompt directly.
 | `.github/factory-models.json` | per-repo model tuning; read from the caller's checkout |
 | `.github/factory-approvers.json` | per-repo gate approvers |
 | `.github/factory-release.json` | per-repo release gating (§2d); optional — omit it and intake runs on every filed issue |
+| `.github/factory-branches.json` | the org's integration-branch policy (§6a); optional — omit it and the defaults (`staging`, required, auto-created) apply |
 | `.github/factory-orchestrator.json` | per-repo engine choice (§2e); optional — omit it and GitHub Actions drives the repo |
 | `.github/ISSUE_TEMPLATE/factory-requirement.yml` | the intake entry point — GitHub only renders issue forms present in the repo being filed against |
 | `.claude/settings.json` | plugin `settings.json` supports only `agent` and `subagentStatusLine` — a **permissions** block cannot ship in a plugin, and the merge deny list is half of §8a |

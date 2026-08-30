@@ -24,13 +24,13 @@
       "type": "string"
     },
     "branches": {
-      "description": "Branch policy. Implementers branch from `default`; the release manager merges into `staging` when it exists.",
+      "description": "Branch facts. Implementers cut task branches from `default` and base their PRs on `staging`, the integration branch every change is proved on before it is promoted to `default` (FACTORY.md §6a).",
       "type": "object",
       "required": ["default"],
       "properties": {
         "default": { "type": "string" },
         "staging": {
-          "description": "Release-train branch, or null if the repo deploys from default.",
+          "description": "This repo's integration branch. The ORG names it in .github/factory-branches.json; set this only when THIS repo's branch is called something else, and it overrides the name (only the name — never whether the step runs). null means the repo has no integration branch yet: with `required: true` in the policy file the Release Manager cuts the org's branch on first use, and only with `required: false` does a null send implementation PRs to `default`.",
           "type": ["string", "null"]
         }
       }

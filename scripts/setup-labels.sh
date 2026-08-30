@@ -38,7 +38,8 @@ factory:design-approved|1E6B45|Design approved (G2); released for implementation
 factory:ready|B07D2B|Task unblocked; implementer may start
 factory:in-review|C98A1B|Draft PR under agent review
 factory:in-test|D4A017|QA verifying WHEN/THEN scenarios
-factory:ready-to-ship|6AA84F|Green + approved; awaiting merge order and gate G3
+factory:ready-to-ship|6AA84F|Green + approved; awaiting the integration merge onto the staging branch
+factory:in-staging|3D9970|Merged to staging and verified there; awaiting gate G3 promotion to the default branch
 factory:deployed|0B8043|In production; soak in progress
 factory:fast-track|8C8C8C|Small change: Fast-Track implements it and opens a PR
 factory:profile|5A4A7A|Repo profile issue: the Profiler drafts and re-checks .factory/profile.json (kind, not a state)

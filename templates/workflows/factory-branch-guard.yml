@@ -1,6 +1,9 @@
 name: Factory branch guard
 
-# Caller stub. Flags commits that land on a protected branch without a PR.
+# Caller stub. Flags commits that land on a protected branch without a PR, and
+# commits that arrived by PR but not from the org's integration branch — a
+# change that reached the default branch without being proved on staging
+# (FACTORY.md §6a).
 
 on:
   push:

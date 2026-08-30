@@ -14,6 +14,29 @@ source for this repo's stack, `branches`, `commands` (test/build/lint),
 values. If the file is missing or unparseable: stop, comment on the issue,
 apply `factory:blocked` — a factory repo must have a profile.
 
+## Step 0a — resolve the integration branch
+
+The fast lane skips the ceremony, not the staging step. Its PR lands on the
+org's **integration branch** like every other implementation PR, and reaches
+`branches.default` only through a promotion PR (FACTORY.md §6a). Resolve it
+before you branch:
+
+1. Read `.github/factory-branches.json`, the org's staging policy. Treat a
+   missing file as `{"staging": "staging", "required": true, "auto_create": true}`.
+2. The branch's **name** is the profile's `branches.staging` when that is a
+   non-null string, else the policy's `staging`.
+3. The step is **required** unless the policy sets `required: false`.
+   - Required: base your PR on that branch, never on `branches.default`. If it
+     does not exist on the remote and the policy's `auto_create` is not
+     `false`, cut it from `branches.default`
+     (`git push origin origin/<default>:refs/heads/<integration>`) and say so in
+     the PR body. If `auto_create` is `false` and the branch is missing: stop,
+     comment naming the branch that has to exist, apply `factory:blocked`.
+   - `required: false`: the pre-policy fallback — the profile's
+     `branches.staging` when it names one, else `branches.default`.
+
+Call the result the **integration branch** below.
+
 ## Mission
 Fast-track is the lane for a change too small to be worth OpenSpec ceremony:
 no spec, no design, no task breakdown, no gates. Skipping the ceremony does
@@ -37,7 +60,7 @@ Every other role reads it from a change folder, which does not exist here.
    The pipeline picks it up as a normal requirement from there.
    Being wrong in this direction is cheap; a fast-tracked schema change is
    not.
-3. Branch `factory/<issue-number>-<slug>` from `branches.default`.
+3. Branch `factory/<issue-number>-<slug>` from the integration branch (step 0a).
 4. Implement it, following in order of authority: the profile's
    `conventions`, then this repo's CLAUDE.md / AGENTS.md, then the
    surrounding code's existing idiom. Honour every entry in `gotchas`.
@@ -54,10 +77,13 @@ Every other role reads it from a change folder, which does not exist here.
    workspace (including those shells) is deleted.
 6. Push and open a **ready-for-review PR — not a draft.** There is no agent
    reviewer in this lane; the human is the reviewer, and a draft PR does not
-   ask anyone for anything. Base it on `branches.staging` when set, else
-   `branches.default`. Title `fix(<scope>): <what>` or `feat(<scope>): <what>`.
-   Body: `Closes #<issue>`, what changed and why, the commands you ran and
-   their result, and anything you deliberately left out.
+   ask anyone for anything. **Base it on the integration branch** from step 0a,
+   never on `branches.default`. Title `fix(<scope>): <what>` or
+   `feat(<scope>): <what>`. Body: `Closes #<issue>`, the base branch, what
+   changed and why, the commands you ran and their result, and anything you
+   deliberately left out. Say plainly that merging this PR puts the change on
+   the integration branch, and that reaching production still needs the
+   promotion PR from there — the merge here is not the ship.
 7. Comment on the issue with the PR link and a one-line summary of what you
    changed. End that comment with these two lines, in this order:
 
@@ -72,7 +98,8 @@ Every other role reads it from a change folder, which does not exist here.
 
 ## Guardrails
 - **Never push to `main`/`master`; never merge a PR.** The merge button is the
-  gate (FACTORY.md §4, G3) and it belongs to a human.
+  gate (FACTORY.md §4, G3) and it belongs to a human. That includes this lane's
+  own PR: opening it onto the integration branch is where your run ends.
 - Do not create a change folder, `proposal.md`, `specs/`, `tasks.md` or
   `design.md`. If the change needs one, it is not a fast-track (step 2).
 - Do not apply pipeline state labels (`factory:intake`, `factory:spec-ready`,

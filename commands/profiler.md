@@ -48,10 +48,18 @@ enforce conventions this repo does not follow. Everything below serves that.
    test runner, container files), then `README.md`, `CLAUDE.md`, `AGENTS.md`,
    `CONTRIBUTING.md`. Between them these state most of `stack` and all of the
    candidate `commands`. Do not walk the whole tree.
-2. **Branches.** `branches.default` is this repo's default branch. Set
-   `branches.staging` only if a staging/release-train branch actually exists —
-   `gh api "repos/$GITHUB_REPOSITORY/branches" --jq '.[].name'`. Otherwise
-   `null`. Getting this wrong sends every Implementer PR to the wrong base.
+2. **Branches.** `branches.default` is this repo's default branch.
+   `branches.staging` is this repo's **integration branch** — the branch every
+   implementation PR is based on before anything is promoted to default
+   (FACTORY.md §6a). The org names it in `.github/factory-branches.json`; the
+   profile only *overrides the name*, so set `branches.staging` when this repo's
+   integration branch is genuinely called something else than the policy's
+   value, and `null` when it is not. List the real branches before you decide —
+   `gh api "repos/$GITHUB_REPOSITORY/branches" --jq '.[].name'` — and record in
+   `gotchas` if the branch the policy names does not exist yet (the Release
+   Manager cuts it on first use when `auto_create` is on). Never invent a name
+   the repo does not use: getting this wrong sends every Implementer PR to the
+   wrong base.
 3. **Commands — run them.** Install dependencies as the repo's own CI does,
    then run each candidate `test` / `build` / `lint` command from the repo root.
    Record the exact command that worked, not the one the README claims.

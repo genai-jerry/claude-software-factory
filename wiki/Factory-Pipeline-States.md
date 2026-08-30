@@ -45,7 +45,8 @@ flowchart TB
     G["factory:ready"] -- "Implementer" --> H["factory:in-review"]
     H -- "Reviewer" --> I["factory:in-test"]
     I -- "QA" --> J["factory:ready-to-ship"]
-    J -- "G3 · merge" --> K["factory:deployed"]
+    J -- "Release Manager<br/>merges onto staging" --> S["factory:in-staging"]
+    S -- "G3 · human merges<br/>the promotion PR" --> K["factory:deployed"]
   end
 
   C -- "Planner" --> D
@@ -58,8 +59,8 @@ flowchart TB
   classDef halt fill:#F5E6E3,stroke:#A33526,stroke-width:1.5px,color:#4E1811
   classDef entry fill:#EDF0F1,stroke:#9FADB1,stroke-width:1.5px,color:#3A464B
 
-  class A,C,D,F,G,H,I,R0,R1,R3 state
-  class B,E,J,R2 gate
+  class A,C,D,F,G,H,I,J,R0,R1,R3 state
+  class B,E,S,R2 gate
   class K done
   class X halt
   class OPEN entry
@@ -80,11 +81,19 @@ moment the previous role finishes.
 | **G0** | `factory:release-ready` | Is this the right batch of work to start? | Owner comments `Approved` on the release tracker — or, in `"approval": "agent"` mode, the Scrum Master's own GO |
 | **G1** | `factory:spec-ready` | Is the spec concrete enough to plan against? | Owner comments `Approved` |
 | **G2** | `factory:design-ready` | Does the architecture actually solve it? | Owner comments `Approved` |
-| **G3** | `factory:ready-to-ship` | May this land on `main`? | A human presses Merge |
+| **G3** | `factory:in-staging` | May this land on `main`? | A human presses Merge on the promotion PR |
 
 G0 only exists with release gating on, and is the one gate that can be handed to
 an agent — the set of issues in a milestone is input a model can read
-completely, unlike a diff's consequences. G3 is not a comment. The factory has no permission to write to `main` at all —
+completely, unlike a diff's consequences.
+
+G3 is not a comment, and by the time it is asked the answer is already
+evidenced: every PR has been merged onto the org's **integration branch** —
+`staging`, `develop`, `qa`, whatever the estate calls it — and the staging
+deploy and health checks have run there. That is the `factory:in-staging` step,
+and it is the Release Manager's, not a human's. What a human merges at G3 is one
+promotion PR per repo, integration → `main`. See FACTORY.md §6a.
+The factory has no permission to write to `main` at all —
 it is enforced by the protected-branch hook, the `permissions.deny` block in
 `.claude/settings.json`, and `factory-branch-guard.yml`, which opens a
 `factory:incident` issue if a commit ever lands on `main` without a PR.
@@ -110,7 +119,8 @@ may approve," which is probably not what you want.
 | `factory:ready` | Implementer | Comment **Approved** on the task claims it |
 | `factory:in-review` | Reviewer | Code review against the approved design |
 | `factory:in-test` | QA | Test suite and acceptance criteria |
-| `factory:ready-to-ship` | — waits — | Human merges the PR · gate G3 |
+| `factory:ready-to-ship` | Release Manager | Merges the PR onto the integration branch and verifies staging |
+| `factory:in-staging` | — waits — | Human merges the promotion PR · gate G3 |
 | `factory:deployed` | Release / Ops | Terminal for the epic |
 | `factory:blocked` | — halted — | Any role may apply it; resume is manual |
 | `factory:in-progress` | — a run is live — | Applied when an agent job starts, removed when it ends |
@@ -146,6 +156,30 @@ explicitly. See [[Control Architecture]].
 strands any task that was blocked on a sibling. When a task sub-issue closes,
 the factory re-runs the Dispatcher against its parent epic and releases whatever
 was waiting. See [[Re-dispatch on Task Close]].
+
+## Staging first
+
+`factory:ready-to-ship` used to mean "awaiting the merge that ships it". It now
+means "awaiting the merge that *stages* it", and a second state,
+`factory:in-staging`, holds the gate. The step between them is the whole point:
+the Release Manager merges each green task PR onto the integration branch in
+dependency order, watches that repo's staging deploy and runs its health checks,
+and only then opens the promotion PRs. Nothing the factory writes reaches the
+default branch without passing through that branch first — implementation PRs
+are based on it, and the only PR that ever targets the default branch is a
+promotion from it.
+
+Document PRs (spec, plan+design, profile) are the one exception and still merge
+straight to the default branch. They change no product code, the deploy
+workflows ignore their paths, and every later stage clones the default branch —
+an approved spec parked on the integration branch would be invisible to the
+planner, the architect and every implementer until the next release. Gates G1
+and G2 are those PRs' review.
+
+The branch is named once per estate in `.github/factory-branches.json`
+(`{"staging": "staging", "required": true, "auto_create": true}`); a repo whose
+branch is called something else overrides the *name* in its
+`.factory/profile.json`. Full rules: FACTORY.md §6a.
 
 ## See also
 

@@ -508,6 +508,11 @@ jobs:
                       ? 'This issue is in the backlog: add it to a release milestone, then approve that ' +
                         'release\'s tracker issue.\n\n'
                       : '') +
+                    (labels.includes('factory:in-staging')
+                      ? 'This is at gate G3: it is already on the integration branch and green there, and ships when a ' +
+                        'human merges the promotion PR(s) the Release Manager listed. That merge click is the gate — ' +
+                        'there is nothing here for a comment to approve.\n\n'
+                      : '') +
                     'From any other state, use Actions → "Factory pipeline" → Run workflow with the role you want. ' +
                     'Gate G3 (production) is deliberately not comment-approvable.');
                 } else if (isPlanRelease) {
@@ -733,6 +738,7 @@ jobs:
                 const notifyOf = { 'factory:release-ready': ['release_scope', 'Gate G0 (release approval)'],
                                    'factory:spec-ready': ['spec', 'Gate G1 (spec approval)'],
                                    'factory:design-ready': ['design', 'Gate G2 (design approval)'],
+                                   'factory:in-staging': ['release', 'Gate G3 (promotion to the default branch)'],
                                    'factory:ready': ['implementation', 'Implementation start'] };
                 if (notifyOf[name]) {
                   const [gate, what] = notifyOf[name];
@@ -745,7 +751,9 @@ jobs:
                       ? 'Comment exactly "Approved" here to start it, or use Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
                       : gate === 'release_scope'
                         ? 'Read the release plan above, then comment exactly "Approved" here to release every issue in this milestone into intake.'
-                        : 'Review the linked PR, then merge it + apply the approved label, or comment exactly "Approved" here.';
+                        : gate === 'release'
+                          ? 'This is already merged onto the integration branch and green there (FACTORY.md §6a) — the Release Manager\'s integration report above is the evidence. Merge the promotion PR(s) it lists, in that order, via the GitHub UI. G3 is deliberately not comment-approvable.'
+                          : 'Review the linked PR, then merge it + apply the approved label, or comment exactly "Approved" here.';
                     await say(i.number, `${list.map(u => '@' + u).join(' ')} — **${what}** is waiting on you. ${how}`);
                   }
                 }
