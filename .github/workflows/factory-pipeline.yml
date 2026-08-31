@@ -535,14 +535,19 @@ jobs:
                 });
                 // Epic-branch policy (FACTORY.md §6b): with epics:true a gate
                 // document merges into the epic branch, not the default
-                // branch. The spec gate is also the adoption point for an
-                // in-flight epic — a spec PR still aimed at the default branch
-                // gets factory/epic-<n> created and its base retargeted before
-                // the merge (a retarget keeps the PR and its reviews). The
-                // design gate retargets only when the epic branch already
-                // exists: a spec that already merged to the default branch
-                // means this epic finishes on legacy routing. The reverse
-                // retarget handles a flip back to epics:false.
+                // branch. Both gates are adoption points for an in-flight
+                // epic, and the branch is ensured whether or not there is a PR
+                // to retarget: the gate is also reachable by a human merging
+                // the document PR themselves (the factory offers that route in
+                // as many words), and keying adoption on an open PR meant that
+                // route silently left the epic on legacy routing for the rest
+                // of its life.
+                //
+                // Cutting the branch here loses nothing even when a document
+                // has already merged to the default branch: it is cut FROM
+                // that branch, so it carries the merged spec, and no task PR
+                // can have merged yet — tasks are dispatched only after G2.
+                // The reverse retarget handles a flip back to epics:false.
                 const branchCfg = loadJson('.github/factory-branches.json');
                 const epicsOn = branchCfg.epics === true;
                 const epicBranch = `factory/epic-${i.number}`;
@@ -550,26 +555,36 @@ jobs:
                 const branchExists = (name) => github.rest.repos
                   .getBranch({ owner, repo, branch: name })
                   .then(() => true, () => false);
+                // Best-effort: a repo that refuses the branch (permissions, a
+                // protected-name rule) must still get its gate approved.
+                // Failing here would lose the approval itself, which is worse
+                // than the epic finishing on default-branch routing.
+                let epicReady = epicsOn;
+                if (epicsOn && !(await branchExists(epicBranch))) {
+                  try {
+                    const { data: def } = await github.rest.repos.getBranch({
+                      owner, repo, branch: defBranch,
+                    });
+                    await github.rest.git.createRef({
+                      owner, repo, ref: `refs/heads/${epicBranch}`, sha: def.commit.sha,
+                    });
+                    core.info(`Created epic branch ${epicBranch} from ${defBranch}`);
+                  } catch (e) {
+                    epicReady = false;
+                    core.warning(`Could not create epic branch ${epicBranch} from ${defBranch} ` +
+                      `(${e.message}) - this epic stays on default-branch routing`);
+                  }
+                }
                 let allMerged = true;
                 for (const pr of prs) {
                   try {
                     let wantBase = pr.base.ref;
-                    if (epicsOn && pr.base.ref === defBranch &&
-                        (spec || await branchExists(epicBranch))) {
+                    if (epicReady && pr.base.ref === defBranch) {
                       wantBase = epicBranch;
                     } else if (!epicsOn && pr.base.ref === epicBranch) {
                       wantBase = defBranch;
                     }
                     if (wantBase !== pr.base.ref) {
-                      if (wantBase === epicBranch && !(await branchExists(epicBranch))) {
-                        const { data: def } = await github.rest.repos.getBranch({
-                          owner, repo, branch: defBranch,
-                        });
-                        await github.rest.git.createRef({
-                          owner, repo, ref: `refs/heads/${epicBranch}`, sha: def.commit.sha,
-                        });
-                        core.info(`Created epic branch ${epicBranch} from ${defBranch}`);
-                      }
                       await github.rest.pulls.update({
                         owner, repo, pull_number: pr.number, base: wantBase,
                       });
@@ -1048,13 +1063,14 @@ jobs:
         env:
           ISSUE: ${{ matrix.issue }}
           ROLE: ${{ needs.route.outputs.role }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           # With the org policy's epics:true, an epic's approved change folder
           # lives on factory/epic-<epic> and nowhere else until promotion
           # (FACTORY.md §6b). Roles whose issue IS the epic start checked out
           # there; task-scoped roles (implementer/reviewer/qa) resolve their
-          # epic in-session per their step 0a. Missing policy, epics:false, or
-          # no epic branch (a pre-flip epic) all leave the default checkout.
+          # epic in-session per their step 0a. Missing policy or epics:false
+          # leaves the default checkout.
           case "$ROLE" in
             planner|architect|dispatch|release|ops) ;;
             *) echo "Role $ROLE resolves its own branches - default checkout kept"; exit 0 ;;
@@ -1067,12 +1083,31 @@ jobs:
             echo "Epic-branch policy off - default checkout kept"; exit 0
           fi
           BR="factory/epic-$ISSUE"
-          if git fetch origin "$BR" 2>/dev/null; then
-            git checkout -B "$BR" FETCH_HEAD
-            echo "Checked out epic branch $BR"
-          else
-            echo "No $BR on the remote (pre-flip epic?) - default checkout kept"
+          if ! git fetch origin "$BR" 2>/dev/null; then
+            # The planner and the architect both run before gate G2, so no
+            # task has been dispatched and a branch cut now strands nothing.
+            # This is the other adoption point: a gate closed by a human
+            # merging the document PR and applying the label reaches no
+            # gate-approval path, and without this the epic would keep
+            # building on the default branch. After G2 (dispatch, release,
+            # ops) a missing branch means a genuinely pre-flip epic — its
+            # tasks may already have merged onto the integration branch, so
+            # cutting one here would strand them.
+            case "$ROLE" in
+              planner|architect) ;;
+              *) echo "No $BR on the remote (pre-flip epic) - default checkout kept"; exit 0 ;;
+            esac
+            DEF="$DEFAULT_BRANCH"
+            [ -n "$DEF" ] || DEF=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | cut -d/ -f2-)
+            [ -n "$DEF" ] || DEF=main
+            if git push origin "origin/$DEF:refs/heads/$BR" && git fetch origin "$BR"; then
+              echo "Cut epic branch $BR from $DEF (§6b adoption)"
+            else
+              echo "Could not cut $BR from $DEF - default checkout kept"; exit 0
+            fi
           fi
+          git checkout -B "$BR" FETCH_HEAD
+          echo "Checked out epic branch $BR"
       - name: Load factory role definition
         id: roledef
         env:

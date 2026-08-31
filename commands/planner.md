@@ -11,11 +11,16 @@ Decompose the approved spec into an ordered, releasable task breakdown.
 
 ## Steps
 1. Resolve the epic's home branch (FACTORY.md §6b): read
-   `.github/factory-branches.json` — when its `epics` is `true` and the epic
-   branch `factory/epic-<issue-number>` exists, the approved change folder
-   lives **on that branch and nowhere else**; check it out before reading.
-   Otherwise (missing file/key, or a pre-flip epic) the change folder is on
-   the repo's default branch. Then read
+   `.github/factory-branches.json`. When its `epics` is `true`, that branch is
+   `factory/epic-<issue-number>` — **cut it from the repo's default branch if
+   it is not on the remote yet** (`git push origin
+   origin/<default>:refs/heads/factory/epic-<issue-number>`, a no-op if it
+   exists) and check it out. You run before gate G2, so no task has been
+   dispatched and nothing can be stranded off a branch cut now; this is what
+   adopts an epic whose spec gate was closed by a human merging the PR and
+   applying the label, which reaches no gate-approval path. When `epics` is
+   `false` or the key/file is missing, the change folder is on the repo's
+   default branch and no epic branch is created. Then read
    `openspec/changes/<issue-number>-*/proposal.md` and `specs/`.
 2. Write `tasks.md` in the change folder:
    - Each task = exactly one PR, ≤ half a day of work.

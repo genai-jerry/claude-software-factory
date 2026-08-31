@@ -421,29 +421,46 @@ class Router:
             head_branch = f"factory/{i['number']}-spec" if spec else f"factory/{i['number']}-design"
             prs = self.port.list_open_prs(head=f"{self.port.owner}:{head_branch}")
             # Epic-branch policy (FACTORY.md §6b): with epics:true a gate
-            # document merges into the epic branch. The spec gate is the
-            # adoption point for an in-flight epic — a spec PR still aimed at
-            # the default branch gets factory/epic-<n> created and its base
-            # retargeted before the merge. The design gate retargets only
-            # when the epic branch already exists (a spec that merged to the
-            # default branch means this epic finishes on legacy routing).
-            # The reverse retarget handles a flip back to epics:false.
+            # document merges into the epic branch, not the default branch.
+            # Both gates are adoption points for an in-flight epic, and the
+            # branch is ensured whether or not there is a PR to retarget: the
+            # gate is also reachable by a human merging the document PR
+            # themselves (the factory offers that route in as many words), and
+            # keying adoption on an open PR meant that route silently left the
+            # epic on legacy routing for the rest of its life.
+            #
+            # Cutting the branch here loses nothing even when a document has
+            # already merged to the default branch: it is cut FROM that branch,
+            # so it carries the merged spec, and no task PR can have merged yet
+            # — tasks are dispatched only after G2. The reverse retarget
+            # handles a flip back to epics:false.
             epic_branch = f"factory/epic-{i['number']}"
             def_branch = self.port.default_branch()
+            #
+            # Best-effort: a repo that refuses the branch (permissions, a
+            # protected-name rule) must still get its gate approved. Failing
+            # here would lose the approval itself, which is worse than the
+            # epic finishing on default-branch routing.
+            epic_ready = self.cfg.epics
+            if self.cfg.epics and not self.port.branch_exists(epic_branch):
+                try:
+                    self.port.create_branch(epic_branch, def_branch)
+                    log.info("Created epic branch %s from %s", epic_branch, def_branch)
+                except Exception as e:  # noqa: BLE001
+                    epic_ready = False
+                    log.warning("Could not create epic branch %s from %s (%s) - "
+                                "this epic stays on default-branch routing",
+                                epic_branch, def_branch, e)
             all_merged = True
             for pr in prs:
                 try:
                     base = (pr.get("base") or {}).get("ref")
                     want = base
-                    if self.cfg.epics and base == def_branch and (
-                            spec or self.port.branch_exists(epic_branch)):
+                    if epic_ready and base == def_branch:
                         want = epic_branch
                     elif not self.cfg.epics and base == epic_branch:
                         want = def_branch
                     if want != base:
-                        if want == epic_branch and not self.port.branch_exists(epic_branch):
-                            self.port.create_branch(epic_branch, def_branch)
-                            log.info("Created epic branch %s from %s", epic_branch, def_branch)
                         self.port.update_pr_base(pr["number"], want)
                         log.info("Retargeted gate PR #%s: base %s -> %s (epic-branch policy §6b)",
                                  pr["number"], base, want)

@@ -51,13 +51,36 @@ def test_spec_gate_merges_a_correctly_based_pr_untouched():
     assert w.branches.count("factory/epic-5") == 1
 
 
-def test_design_gate_leaves_a_legacy_epic_on_legacy_routing():
-    # Spec already merged to the default branch (no epic branch exists), so
-    # the epic finishes as it started: design merges to main, no adoption.
+def test_design_gate_adopts_an_epic_whose_spec_merged_to_the_default_branch():
+    # The spec merged to the default branch before the flip, so no epic branch
+    # exists yet. The design gate is an adoption point too: the branch is cut
+    # from the default branch — which carries that merged spec — and the design
+    # PR is retargeted onto it. No task PR can have merged yet, so the cut
+    # loses nothing.
     w = FakeRepo(issues=_issue(5, ["factory:design-ready"]))
     w.open_prs["o:factory/5-design"] = [{"number": 9, "base": {"ref": "main"}}]
     r = _router(w, EPICS_ON).route(*_approved(w, 5))
     assert r.role == "dispatch"
+    assert "factory/epic-5" in w.branches
+    assert w.merged_bases[9] == "factory/epic-5"
+
+
+def test_a_hand_merged_gate_document_still_adopts_the_epic():
+    # The gate is reachable by a human merging the document PR themselves —
+    # the factory says so on the issue — which leaves nothing open to
+    # retarget. Adoption used to hang off that PR, so this route silently
+    # condemned the epic to legacy routing and every task PR it later opened
+    # went to the integration branch instead of the epic branch.
+    w = FakeRepo(issues=_issue(5, ["factory:spec-ready"]))
+    r = _router(w, EPICS_ON).route(*_approved(w, 5))
+    assert r.role == "planner"
+    assert "factory/epic-5" in w.branches
+
+
+def test_epics_off_creates_no_epic_branch_at_a_gate():
+    w = FakeRepo(issues=_issue(5, ["factory:design-ready"]))
+    w.open_prs["o:factory/5-design"] = [{"number": 9, "base": {"ref": "main"}}]
+    _router(w).route(*_approved(w, 5))
     assert "factory/epic-5" not in w.branches
     assert w.merged_bases[9] == "main"
 
@@ -92,3 +115,19 @@ def test_approved_on_on_epic_explains_and_routes_nothing():
     assert r.role == "none"
     bodies = [c["body"] for c in w.comments.get(5, [])]
     assert any("epic branch" in b for b in bodies)
+
+
+def test_a_repo_that_refuses_the_branch_still_gets_its_gate_approved():
+    # Losing the approval is worse than the epic finishing on default-branch
+    # routing, so branch creation is best-effort — and a PR is never
+    # retargeted onto a branch that does not exist.
+    class Refuses(FakeRepo):
+        def create_branch(self, name, from_branch):
+            raise RuntimeError("refs/heads/factory/epic-5 is protected")
+
+    w = Refuses(issues=_issue(5, ["factory:spec-ready"]))
+    w.open_prs["o:factory/5-spec"] = [{"number": 9, "base": {"ref": "main"}}]
+    r = _router(w, EPICS_ON).route(*_approved(w, 5))
+    assert r.role == "planner"
+    assert "factory/epic-5" not in w.branches
+    assert w.merged_bases[9] == "main"

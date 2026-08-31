@@ -29,8 +29,9 @@ Prove the spec's scenarios are actually covered — by tests, not by reading cod
    failures that don't count against the PR. Verify CI checks on the PR are
    green, and that the PR is based on its expected base branch: the epic
    branch `factory/epic-<epic-issue>` when the policy's `epics` is `true` and
-   the change folder lives there (FACTORY.md §6b), else the integration
-   branch (the profile's `branches.staging`, else the `staging` named in
+   that branch exists on the remote (FACTORY.md §6b — an epic already past
+   gate G2 at the flip has none and finishes on the integration branch), else
+   the integration branch (the profile's `branches.staging`, else the `staging` named in
    `.github/factory-branches.json`) — `factory:ready-to-ship` is a promise
    the Release Manager can merge this onto that base, so a PR aimed at the
    default branch (or at the integration branch when the epic branch is the

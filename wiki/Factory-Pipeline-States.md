@@ -201,9 +201,11 @@ The branches are named once per estate in `.github/factory-branches.json`
 (`{"staging": "staging", "required": true, "auto_create": true, "epics":
 true}`); a repo whose integration branch is called something else overrides
 the *name* in its `.factory/profile.json`. Flipping `epics` is safe at any
-moment: an in-flight epic whose gate documents are still unmerged is adopted
-(branch created, open document PRs retargeted); one past a gate merge
-finishes as it started. Full rules: FACTORY.md §6a–§6b.
+moment: an epic short of gate G2 is adopted at its next gate approval (branch
+created, any open document PR retargeted — whether or not one is still open);
+one already past G2 finishes as it started, because its tasks are dispatched
+and may already have merged onto the integration branch. Full rules:
+FACTORY.md §6a–§6b.
 
 ## See also
 

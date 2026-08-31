@@ -602,13 +602,24 @@ time — after the promotion PR carrying the epic has merged (or the epic issue
 closes unshipped) — never earlier.
 
 **Adoption and the flip.** An epic is on epic-branch routing when
-`epics: true` **and** none of its gate documents has merged to the default
-branch. Flipping the key is therefore safe at any moment: an in-flight epic
-whose spec/design PRs are still open is adopted automatically — the next
-stage run or gate approval creates its epic branch and retargets the open
-document PRs' base onto it (a retarget keeps the PR, its reviews and its head
-branch). An epic already past a gate merge finishes on the routing it
-started with. The same rule runs in reverse on a flip back to `false`.
+`epics: true` **and** it has not been dispatched yet — that is, until gate G2
+releases its tasks. Flipping the key is therefore safe at any moment: any
+epic still short of G2 is adopted at its next gate approval, which creates
+`factory/epic-<n>` (cut from the default branch, so it carries whatever the
+epic has already merged there) and retargets any open document PR onto it —
+a retarget keeps the PR, its reviews and its head branch.
+
+Adoption does **not** depend on a document PR still being open. Either gate
+can be reached by a human merging the document themselves, which is a route
+this factory offers in as many words (§4); hanging adoption off an open PR
+meant that route left the epic on default-branch routing for the rest of its
+life, and its task PRs then based on the integration branch. The branch is
+ensured at the gate whether or not there is anything left to retarget.
+
+An epic **past G2** finishes on the routing it started with: its tasks are
+already dispatched and some may have merged onto the integration branch, so a
+fresh epic branch cut from the default branch would not carry them. The same
+rule runs in reverse on a flip back to `false`.
 
 **Writability.** Epic branches, like the integration branch, are
 agent-writable (§8a); only the default branch is human-only. The fast lane is
