@@ -37,15 +37,24 @@ test branch — and only a promotion PR reaches `branches.default`
      comment naming the branch that has to exist, apply `factory:blocked`.
    - `required: false`: the pre-policy fallback — the profile's
      `branches.staging` when it names one, else `branches.default`.
-4. **Epic branch** (FACTORY.md §6b): when the policy's `epics` is `true` and
-   your task belongs to an epic whose gate documents merged onto an epic
-   branch, that branch is `factory/epic-<epic-issue-number>` — the epic issue
+4. **Epic branch** (FACTORY.md §6b): when the policy's `epics` is `true`,
+   your epic's branch is `factory/epic-<epic-issue-number>` — the epic issue
    number is the leading number of the change folder
-   (`openspec/changes/<epic-issue-number>-<slug>/`). Your **base branch** is
-   the epic branch; it holds the approved spec and design, so read the change
-   folder from it. With `epics: false`, or for an epic that started before
-   the flip (its change folder sits on `branches.default`, not on an epic
-   branch), the base branch is the integration branch as before.
+   (`openspec/changes/<epic-issue-number>-<slug>/`). Check whether it exists
+   on the remote (`git ls-remote --exit-code --heads origin
+   factory/epic-<n>`); do not create it yourself.
+   - **It exists:** that is your **base branch**. It holds the approved spec
+     and design, so read the change folder from it.
+   - **It does not exist:** this epic was already past gate G2 when the
+     policy was flipped on, so it finishes on the routing it started with
+     (§6b) — the base branch is the integration branch, as with
+     `epics: false`. Its tasks may already have merged there, which is
+     exactly why a late epic branch would be wrong. Say which case you are in
+     in the PR body.
+
+   The branch is cut for the epic at gate G1 or G2, before any task is
+   dispatched; a task-stage role never cuts one, because by then merged task
+   work could be stranded off it.
 
 Call the results the **integration branch** and your **base branch** below.
 

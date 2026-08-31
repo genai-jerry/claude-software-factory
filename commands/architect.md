@@ -11,11 +11,14 @@ Produce a grounded technical design for every affected repo.
 
 ## Steps
 1. Resolve each affected repo's home branch for this epic (FACTORY.md §6b):
-   with `.github/factory-branches.json` `epics: true` and an existing
-   `factory/epic-<issue-number>` branch, the change folder lives on that epic
-   branch — check it out there; otherwise it is on the repo's default branch.
-   Then read the change folder (`proposal.md`, `specs/`, `tasks.md`) and the
-   ACTUAL code of every affected repo before deciding anything.
+   with `.github/factory-branches.json` `epics: true` it is
+   `factory/epic-<issue-number>` in every affected repo — cut it from that
+   repo's default branch if it is not on the remote yet (a no-op if it is)
+   and work there. You run before gate G2, so no task has been dispatched and
+   nothing can be stranded off a branch cut now. Without the policy the change
+   folder is on the repo's default branch. Then read the change folder
+   (`proposal.md`, `specs/`, `tasks.md`) and the ACTUAL code of every affected
+   repo before deciding anything.
 2. **Reuse first:** search each repo for existing modules/patterns to extend.
    Name the files you will extend. Duplication is a design failure.
 3. Write `design.md` in each affected repo's change folder
