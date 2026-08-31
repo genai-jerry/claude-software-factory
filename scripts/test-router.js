@@ -719,15 +719,28 @@ function check(label, cond, extra) {
     check('already-targeted spec PR merges without a retarget',
       w2.state.pulls[0].merged_base === 'factory/epic-5' && !w2.state.log.some(l => l.startsWith('retarget')), w2.state.log);
 
-    // G2 on an epic past a gate merge (spec merged to main, no epic branch)
-    // finishes on legacy routing: no adoption at design time.
+    // G2 on an epic whose spec merged to the default branch (no epic branch
+    // yet) adopts it too: the branch is cut from the default branch, which
+    // carries that merged spec, and the design PR is retargeted onto it. No
+    // task PR can have merged yet — tasks are dispatched only after G2.
     const w3 = makeWorld({ files: filesEpics, branches: ['main'],
       pulls: [{ number: 9, head: { ref: 'factory/5-design' }, base: { ref: 'main' } }],
       issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:design-ready' }], user: { type: 'User' } } } });
     const out3 = await run(routeSrc, { world: w3, context: ctx('issue_comment', approvedBy(w3.state.issues[5])) });
     check('G2 -> dispatch', out3.role === 'dispatch', out3);
-    check('legacy epic stays legacy: design merges to main, no epic branch created',
-      w3.state.pulls[0].merged_base === 'main' && !w3.state.branches.includes('factory/epic-5'), w3.state.log);
+    check('G2 adopts an epic whose spec merged to the default branch',
+      w3.state.pulls[0].merged_base === 'factory/epic-5' && w3.state.branches.includes('factory/epic-5'), w3.state.log);
+
+    // The gate is also reachable by a human merging the document PR
+    // themselves, which leaves nothing open to retarget. Adoption used to
+    // hang off that PR, so this route silently condemned the epic to legacy
+    // routing and every task PR it later opened went to the integration
+    // branch instead of the epic branch.
+    const w3b = makeWorld({ files: filesEpics, branches: ['main'], pulls: [],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
+    const out3b = await run(routeSrc, { world: w3b, context: ctx('issue_comment', approvedBy(w3b.state.issues[5])) });
+    check('a hand-merged gate document still adopts the epic',
+      out3b.role === 'planner' && w3b.state.branches.includes('factory/epic-5'), w3b.state.log);
 
     // G2 on an adopted epic (epic branch exists): a design PR aimed at main is
     // retargeted onto the epic branch before merging.
@@ -746,6 +759,14 @@ function check(label, cond, extra) {
     await run(routeSrc, { world: w5, context: ctx('issue_comment', approvedBy(w5.state.issues[5])) });
     check('epics:false retargets back to the default branch',
       w5.state.pulls[0].merged_base === 'main', w5.state.log);
+
+    // ...and cuts no epic branch of its own at a gate.
+    const w5b = makeWorld({ files: filesOpen, branches: ['main'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-design' }, base: { ref: 'main' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:design-ready' }], user: { type: 'User' } } } });
+    await run(routeSrc, { world: w5b, context: ctx('issue_comment', approvedBy(w5b.state.issues[5])) });
+    check('epics:false creates no epic branch at a gate',
+      !w5b.state.branches.includes('factory/epic-5') && w5b.state.pulls[0].merged_base === 'main', w5b.state.log);
 
     // Legacy estates (no policy file at all) are byte-for-byte unaffected.
     const w6 = makeWorld({ files: filesOpen, branches: ['main'],

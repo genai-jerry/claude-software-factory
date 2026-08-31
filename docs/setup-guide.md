@@ -330,18 +330,21 @@ An estate already delivering through the factory turns the epic-branch layer
    `factory:on-epic` exists (the pipeline also self-heals the label on first
    use).
 3. **In-flight epics sort themselves.** The flip is safe at any moment; an
-   epic's routing is decided by one observable fact — has any of its gate
-   documents merged to the default branch?
-   - Spec/design PRs still **open**: the epic is adopted automatically. At
-     its next stage run or gate approval the factory creates
-     `factory/epic-<n>` and retargets the open document PR onto it — the PR,
-     its reviews and its head branch survive.
-   - A gate document already **merged** to the default branch: that epic
-     finishes on the routing it started with; only epics entering intake
-     after the flip (and adoptable in-flight ones) use epic branches.
-4. **Rollback.** Set `"epics": false` (or drop the key). Epics not yet past a
-   gate merge are retargeted back to the default branch the same way; an epic
-   already assembling on its branch finishes under epic-branch routing or is
+   epic's routing is decided by one observable fact — has gate G2 dispatched
+   its tasks yet?
+   - **Not past G2**: the epic is adopted automatically at its next gate
+     approval. The factory creates `factory/epic-<n>`, cut from the default
+     branch so it carries any document the epic has already merged there, and
+     retargets any open document PR onto it — the PR, its reviews and its
+     head branch survive. This does not need the document PR to be open: a
+     gate you close by merging the PR yourself adopts the epic just the same.
+   - **Past G2**: that epic finishes on the routing it started with. Its
+     tasks are dispatched and some may already have merged onto the
+     integration branch, which a fresh epic branch cut from the default
+     branch would not carry.
+4. **Rollback.** Set `"epics": false` (or drop the key). Epics not yet past
+   G2 are retargeted back to the default branch the same way; an epic already
+   assembling on its branch finishes under epic-branch routing or is
    re-intaken.
 
 ## Footprint summary

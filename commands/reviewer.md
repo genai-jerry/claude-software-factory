@@ -18,10 +18,13 @@ Read `.github/factory-branches.json` too — the org's branch policy (FACTORY.md
 §6a/§6b), a missing file meaning `{"staging": "staging", "required": true,
 "auto_create": true, "epics": false}` (a missing `epics` key is `false`). The
 **integration branch** is the profile's `branches.staging` when that names one,
-else the policy's `staging`. When `epics` is `true` and the task's change
-folder lives on an epic branch, the PR's **expected base** is that epic branch
-— `factory/epic-<epic-issue-number>`, the leading number of the change folder
-name; otherwise the expected base is the integration branch.
+else the policy's `staging`. When `epics` is `true` and
+`factory/epic-<epic-issue-number>` exists on the remote (the leading number of
+the change folder name — check with `git ls-remote --heads`), the PR's
+**expected base** is that epic branch; otherwise the expected base is the
+integration branch. An epic past gate G2 when the policy was flipped on has no
+epic branch and finishes on the integration branch (§6b) — that is not a
+finding.
 
 ## Mission
 Catch what the author cannot see. Approve only what conforms.
