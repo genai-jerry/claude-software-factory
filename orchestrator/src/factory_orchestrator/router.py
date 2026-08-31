@@ -321,6 +321,21 @@ class Router:
         elif is_approval and "factory:ready" in labels:
             if not authorized("implementation"):
                 refuse("implementation", "starting implementation")
+            elif IN_PROGRESS in labels:
+                # A second start is the one thing the state cannot refuse on its
+                # own: the implementer only leaves factory:ready when it flips to
+                # factory:in-review at the end, so the label still reads "ready"
+                # for the whole run and a second Approved would route a second
+                # implementer onto the same task and the same branch. The run
+                # marker is the fact that answers it.
+                self.say(i["number"],
+                         "`Approved` has no effect right now — a factory run is already live on this "
+                         "issue (`factory:in-progress`).\n\n"
+                         "The implementer is still working; approving again would start a second one on "
+                         "the same task and the same branch. The marker is removed when the run ends, "
+                         "whatever the outcome — if this task is still `factory:ready` then, approve "
+                         "again to restart it.")
+                log.info("A run is already live on #%s - not starting a second implementer", i["number"])
             else:
                 r.role = "implementer"
                 log.info("Implementation approved via comment - starting implementer")

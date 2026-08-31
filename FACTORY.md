@@ -87,7 +87,7 @@ events, so **filing a plain issue is all a requester does**:
 | `factory:in-staging` applied by the Release Manager | Nothing runs — the `release` approvers are assigned and @-mentioned to merge the promotion PRs. Gate G3 is a merge click, not a role (§6a) |
 | Owner/collaborator comments exactly `Approved` on an issue in `factory:spec-ready` or `factory:design-ready` | The gate's document PR(s) in this repo are squash-merged, the label flips to the approved state, and the next stage (Planner→Architect, or Dispatcher) runs in the same workflow run. Strict match — "Approved, but..." is just a comment. G3 is deliberately not comment-approvable |
 | The same comment on a release tracker in `factory:release-ready` | Gate G0 — the label flips to `factory:release-approved` and the milestone's issues are released (there is no document PR to merge) |
-| Owner/collaborator comments exactly `Approved` on a task sub-issue in `factory:ready` | That task's **Implementer** starts. Not a gate — implementation had no trigger of its own; authorised against the `implementation` approver list |
+| Owner/collaborator comments exactly `Approved` on a task sub-issue in `factory:ready` | That task's **Implementer** starts. Not a gate — implementation had no trigger of its own; authorised against the `implementation` approver list. Declined while the task already carries `factory:in-progress`: the label stays `factory:ready` for the whole run, so a second `Approved` would put a second implementer on the same task and branch. The pipeline replies saying so and starts nothing |
 | A task sub-issue closes (its PR merged) while its epic is `factory:design-approved` | **Dispatcher** re-runs on the epic, releasing any task the merge just unblocked. Without this, tasks freed by a later merge sit with no `factory:*` label at all |
 | Human replies on a `factory:blocked` issue | `factory:blocked` is cleared and the blocked stage re-runs, re-reading the whole thread (agent comments carry an `<!-- factory-agent -->` marker so they never self-trigger) |
 | Actions → "Factory pipeline" → *Run workflow* | Any role on any issue/PR number (the manual/retry path; used for reviewer/qa/release/ops until those are event-wired) |
@@ -98,9 +98,13 @@ removes it when the job ends, whatever the outcome. A role takes minutes, and
 without the marker an issue being worked on right now looks exactly like one
 nothing has started on; the only way to tell them apart was to open the Actions
 tab. It is a marker, not a state: it sits alongside whatever `factory:*` state
-the issue is in, every routing decision ignores it, and no role should ever add
-or remove it. If a runner dies hard enough that the cleanup step never runs, a
-stale marker is cosmetic only — remove the label by hand.
+the issue is in, no routing decision reads it as one, and no role should ever
+add or remove it. One decision does consult it — the implementation start
+above, because `factory:ready` stays on a task for the whole implementer run
+and is therefore the one trigger a live run can be confused with. If a runner
+dies hard enough that the cleanup step never runs, remove the label by hand:
+until then the issue merely looks busy, except that an `Approved` on a ready
+task will be declined.
 
 ### Events the factory itself raises
 

@@ -139,7 +139,11 @@ every declared engine value exactly one engine acts.
 
 - `factory:in-progress` application/removal, snapshots, and the no-op guard
   — run-lifecycle guards, specified in `orchestration/engine-contract` and
-  tested per engine, not per routing decision.
+  tested per engine, not per routing decision. The marker as *pre-existing
+  repo state* is fair game and is pinned here, because engines must agree on
+  what it means for a route: it does not block the fast lane
+  (`labeled-fast-track-ignores-marker`) and it does decline a second
+  implementation start (`approved-ready-task-run-live`).
 - Model resolution, prompt assembly, workspace isolation — execution
   concerns with their own tests.
 - The `<!-- factory-agent -->` marker on router-posted comments IS asserted

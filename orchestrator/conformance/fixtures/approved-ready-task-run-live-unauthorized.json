@@ -1,0 +1,56 @@
+{
+  "name": "approved-ready-task-run-live-unauthorized",
+  "description": "An unauthorized Approved on a ready task with a live run still gets the approver answer",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(3): add endpoint",
+        "labels": [
+          "factory:ready",
+          "factory:in-progress"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "randal",
+      "authorAssociation": "NONE"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "@boss"
+        ],
+        "notContains": [
+          "already live"
+        ]
+      }
+    }
+  }
+}

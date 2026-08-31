@@ -198,9 +198,12 @@ role starts and removes it in an `always()` step when the job ends — so it als
 comes off on a failure, on a no-op-guard failure and on the 45-minute timeout.
 The marker is applied with the workflow token, whose label changes emit no
 events, so a cosmetic label can never trigger another run. Everywhere the
-router reads `factory:*` labels it ignores this one: a marked issue is still
-"not started" to a release batch, still eligible for the fast lane, and the
-explanatory replies still name the real state.
+router reads `factory:*` labels as *state* it ignores this one: a marked issue
+is still "not started" to a release batch, still eligible for the fast lane,
+and the explanatory replies still name the real state. It is read as itself in
+exactly one place — the implementation start, where `factory:ready` stays put
+for the whole run and a second `Approved` would otherwise start a second
+implementer on the same task and branch.
 
 ### The silent green
 

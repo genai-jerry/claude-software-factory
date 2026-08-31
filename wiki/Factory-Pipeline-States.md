@@ -148,7 +148,11 @@ marks the issue on the way in and clears it on the way out, from an `always()`
 step so the marker also comes off on a failure, a no-op-guard failure or the
 45-minute timeout. Routing looks straight through it: a marked issue is still
 "not started" to a release batch, still eligible for the fast lane, and the
-router's explanatory replies name the real state, never the marker.
+router's explanatory replies name the real state, never the marker. One
+decision reads it deliberately — the implementation start. `factory:ready`
+stays on a task for the whole implementer run, so an `Approved` arriving while
+the marker is up is declined with a reply instead of putting a second
+implementer on the same task and branch.
 
 ## Two things worth saying out loud
 
