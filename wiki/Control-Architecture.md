@@ -205,6 +205,26 @@ exactly one place — the implementation start, where `factory:ready` stays put
 for the whole run and a second `Approved` would otherwise start a second
 implementer on the same task and branch.
 
+### The factory reverting its own gate
+
+**Symptom.** An epic ends up carrying **no** `factory:*` label at all — not
+design-approved, not design-ready, nothing — with a router comment saying
+"`factory:design-approved` was applied by @…[bot], but this gate requires @…
+Reverted." Everything behind it stalls: no dispatcher, and a closing task
+finds no design-approved epic to re-dispatch.
+
+**Cause.** The revert exists to stop a person hand-applying an approved label
+to walk past a gate. The Actions engine never fires it on its own writes,
+because labels applied with the workflow token emit no events. The
+orchestrator acts as a GitHub App, whose writes *do* emit events — so the
+router received its own gate flip, found the App on no approver list, and
+reverted the label it had itself applied a second earlier.
+
+**Guard.** A sender that is an App is exempt from the revert — its write is
+the factory's own, and the factory only applies these labels after it has
+authorised the gate. A person hand-applying one is still reverted, which is
+the case the guard was written for.
+
 ### The silent hand-off
 
 **Symptom.** A role finishes, the label moves, and the thread goes quiet. The

@@ -139,6 +139,10 @@ jobs:
         env:
           DISPATCH_ROLE: ${{ inputs.role }}
           DISPATCH_ISSUE: ${{ inputs.issue_number }}
+          # Read-and-dispatch access to the epic's repo, for a cross-repo epic
+          # (FACTORY.md §7). Absent is fine: the router then says on the task
+          # what to run over there instead of guessing.
+          CROSS_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN }}
         with:
           script: |
             const fs = require('fs');
@@ -215,6 +219,15 @@ jobs:
 
             const namesOf = (ls) => (ls || []).map(l => (typeof l === 'string' ? l : l.name));
             const isTaskTitle = (t) => /^task\(\d+\)/.test(t || '');
+            // "Part of owner/repo#250" — the qualified parent marker (FACTORY.md §7).
+            // The unqualified forms mean the issue's own repo.
+            const epicRefFromBody = (body) => {
+              const m = /(?:^|\n)\s*(?:part of|parent|epic)\s*:?\s*(?:https?:\/\/[^/\s]+\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)|([\w.-]+)\/([\w.-]+)#(\d+)|#(\d+))/i.exec(body || '');
+              if (!m) return { repo: null, number: null };
+              if (m[3]) return { repo: `${m[1]}/${m[2]}`, number: Number(m[3]) };
+              if (m[6]) return { repo: `${m[4]}/${m[5]}`, number: Number(m[6]) };
+              return { repo: null, number: Number(m[7]) };
+            };
             const say = (n, body) => github.rest.issues.createComment({
               owner, repo, issue_number: n, body: `${body}\n\n<!-- factory-agent -->`,
             });
@@ -740,18 +753,64 @@ jobs:
                   core.info('Not a factory task sub-issue - nothing to re-dispatch');
                 } else {
                   const epic = m[1];
-                  // Only while the epic is in its implementation phase. Once it has
-                  // moved on (or never got through G2) a re-dispatch is meaningless.
-                  const { data: parent } = await github.rest.issues.get({
-                    owner, repo, issue_number: Number(epic),
-                  }).catch(() => ({ data: null })) || {};
-                  const parentLabels = parent ? namesOf(parent.labels) : [];
-                  if (!parentLabels.includes('factory:design-approved')) {
-                    core.info(`Epic #${epic} is not factory:design-approved - not re-dispatching`);
+                  // The epic is not necessarily in this repo. A cross-repo epic
+                  // (FACTORY.md §7) keeps its tasks in the repos that implement them
+                  // and the epic where it was filed; the task body carries the
+                  // qualified "Part of owner/repo#N" marker for exactly this.
+                  // Looking #N up here instead found nothing — or an unrelated issue
+                  // that happens to have that number — so the dependents of every
+                  // closed task in a cross-repo epic were never released, silently.
+                  const ref = epicRefFromBody(i.body);
+                  const elsewhere = ref.repo && ref.repo !== `${owner}/${repo}` &&
+                                    (ref.number === null || String(ref.number) === epic)
+                                      ? ref.repo : null;
+                  const [epicOwner, epicRepo] = (elsewhere || `${owner}/${repo}`).split('/');
+                  // A PAT is the only way out of this repo. Without one, say on the
+                  // task what has to be run over there rather than failing quietly.
+                  const client = elsewhere
+                    ? (process.env.CROSS_TOKEN ? require('@actions/github').getOctokit(process.env.CROSS_TOKEN) : null)
+                    : github;
+                  if (elsewhere && !client) {
+                    await say(i.number,
+                      `This task belongs to epic **${elsewhere}#${epic}**, in another repository, ` +
+                      'and this pipeline has no cross-repo access (`FACTORY_CROSS_REPO_TOKEN` is not set), ' +
+                      'so it cannot release the tasks this one unblocks.\n\n' +
+                      `On **${elsewhere}**: Actions → "Factory pipeline" → Run workflow (role: \`dispatch\`, issue \`${epic}\`), ` +
+                      'or press **Start factory run** on that epic in the Factory Console.');
+                    core.info(`Epic ${elsewhere}#${epic} is in another repo and no cross-repo token is set`);
                   } else {
-                    role = 'dispatch';
-                    issue = epic;
-                    core.info(`Task #${i.number} closed - re-dispatching epic #${epic} to release dependents`);
+                    // Only while the epic is in its implementation phase. Once it has
+                    // moved on (or never got through G2) a re-dispatch is meaningless.
+                    const { data: parent } = await client.rest.issues.get({
+                      owner: epicOwner, repo: epicRepo, issue_number: Number(epic),
+                    }).catch(() => ({ data: null })) || {};
+                    const parentLabels = parent ? namesOf(parent.labels) : [];
+                    if (!parentLabels.includes('factory:design-approved')) {
+                      core.info(`Epic ${epicOwner}/${epicRepo}#${epic} is not factory:design-approved - not re-dispatching`);
+                    } else if (elsewhere) {
+                      // The dispatcher has to run over there, in that repo's own
+                      // pipeline — this run cannot check out another repo's factory
+                      // config and act as it.
+                      await client.rest.actions.createWorkflowDispatch({
+                        owner: epicOwner, repo: epicRepo,
+                        workflow_id: 'factory-pipeline.yml',
+                        ref: 'main',
+                        inputs: { role: 'dispatch', issue_number: epic },
+                      }).then(() => {
+                        core.info(`Task #${i.number} closed - dispatched ${elsewhere}#${epic} to release dependents`);
+                      }).catch(async (e) => {
+                        await say(i.number,
+                          `This task belongs to epic **${elsewhere}#${epic}**, and starting its dispatcher ` +
+                          `over there failed: ${e.message}.\n\n` +
+                          `On **${elsewhere}**: Actions → "Factory pipeline" → Run workflow (role: \`dispatch\`, issue \`${epic}\`), ` +
+                          'or press **Start factory run** on that epic in the Factory Console.');
+                        core.info(`Cross-repo dispatch to ${elsewhere} failed: ${e.message}`);
+                      });
+                    } else {
+                      role = 'dispatch';
+                      issue = epic;
+                      core.info(`Task #${i.number} closed - re-dispatching epic #${epic} to release dependents`);
+                    }
                   }
                 }
               } else if (action === 'labeled') {
@@ -760,6 +819,15 @@ jobs:
                 // the architect when PAT label flips emit events).
                 const name = context.payload.label.name;
                 const sender = context.payload.sender.login;
+                // An App's write is the factory's own, not a person walking
+                // past a gate. This engine's workflow token emits no events so
+                // it never saw the problem, but a PAT-driven repo does — and
+                // the orchestrator engine, which acts as an App, reverted the
+                // very label it had just applied after a gate approval and
+                // left the epic carrying no state at all. Same rule as the
+                // comment router skipping Bot authors.
+                const senderIsApp = context.payload.sender.type === 'Bot' ||
+                                    /\[bot\]$/.test(sender || '');
                 if (name === IN_PROGRESS) {
                   // The pipeline's own "a run is live" marker. It is applied
                   // with the workflow token, which emits no events — but a repo
@@ -778,7 +846,7 @@ jobs:
                 const map = { 'factory:spec-approved': 'planner', 'factory:design-approved': 'dispatch' };
                 if (gateOf[name]) {
                   const list = approverList(gateOf[name]);
-                  if (list.length && !list.includes(sender)) {
+                  if (list.length && !list.includes(sender) && !senderIsApp) {
                     // Unauthorized gate flip: revert and explain.
                     await dropLabel(i.number, name);
                     await say(i.number,

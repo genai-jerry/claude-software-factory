@@ -152,10 +152,13 @@ class Engine:
 def build_graph(engine: Engine, checkpointer=None):
     def route_node(state: PipelineState) -> dict[str, Any]:
         port = engine.port(state["owner"], state["repo"])
-        result = Router(port, engine.repo_config(port)).route(
+        result = Router(port, engine.repo_config(port), port_for=engine.port).route(
             state["event_name"], state["payload"])
-        pending = [{"role": result.role, "issue": int(n)} for n in result.issues] \
-            if result.role != "none" else []
+        # `result.repo` is set only for a cross-repo epic (FACTORY.md §7):
+        # the task that closed lives here, the epic and its dispatcher live
+        # there. Everything else runs in the repo the event came from.
+        pending = [{"role": result.role, "issue": int(n), "repo": result.repo}
+                   for n in result.issues] if result.role != "none" else []
         log.info(
             "route event=%s repo=%s/%s role=%s issues=%s release=%s",
             state["event_name"], state["owner"], state["repo"],
@@ -204,8 +207,15 @@ def build_graph(engine: Engine, checkpointer=None):
             return END
         items = state.get("pending") or []
         if items:
+            def target(i: dict[str, Any]) -> tuple[str, str]:
+                full = i.get("repo") or ""
+                if full and "/" in full:
+                    owner, name = full.split("/", 1)
+                    return owner, name
+                return state["owner"], state["repo"]
+
             return [Send("run_role", RunItem(
-                owner=state["owner"], repo=state["repo"], role=i["role"],
+                owner=target(i)[0], repo=target(i)[1], role=i["role"],
                 issue=i["issue"], trigger=state.get("trigger", state["event_name"]),
             ) | {"round": state["round"]}) for i in items]
         if state.get("release_issue") and not state.get("release_dispatched"):

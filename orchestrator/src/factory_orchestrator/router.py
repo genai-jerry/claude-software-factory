@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -41,6 +42,11 @@ class RouteResult:
     issue: str = ""
     issues: list[str] = field(default_factory=list)
     release_issue: str = ""
+    #: owner/name the role runs against, when that is not the event's own
+    #: repo. A cross-repo epic (FACTORY.md §7) keeps its tasks in one repo and
+    #: the epic in another, and the role that answers a task event then has to
+    #: run over there. Empty means "the repo the event came from".
+    repo: str = ""
 
 
 @dataclass
@@ -74,6 +80,40 @@ class RepoConfig:
         return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
 
 
+#: "Part of owner/repo#250" — the qualified parent marker (FACTORY.md §7).
+#: The unqualified forms mean the task's own repo.
+_EPIC_REF_RE = re.compile(
+    r"(?:^|\n)\s*(?:part of|parent|epic)\s*:?\s*"
+    r"(?:https?://[^/\s]+/([\w.-]+)/([\w.-]+)/issues/(\d+)"
+    r"|([\w.-]+)/([\w.-]+)#(\d+)"
+    r"|#(\d+))",
+    re.IGNORECASE,
+)
+
+
+def epic_ref_from_body(body: str | None) -> tuple[str | None, int | None]:
+    """The epic an issue body points at, as (owner/repo or None, number)."""
+    m = _EPIC_REF_RE.search(body or "")
+    if not m:
+        return None, None
+    if m.group(3):
+        return f"{m.group(1)}/{m.group(2)}", int(m.group(3))
+    if m.group(6):
+        return f"{m.group(4)}/{m.group(5)}", int(m.group(6))
+    return None, int(m.group(7))
+
+
+def _sender_is_app(payload: dict[str, Any]) -> bool:
+    """True when the actor is a GitHub App rather than a person.
+
+    `sender.type` is what GitHub sets; the `[bot]` login suffix is the
+    fallback for payloads (and fixtures) that carry only a login.
+    """
+    sender = payload.get("sender") or {}
+    login = sender.get("login") or ""
+    return sender.get("type") == "Bot" or login.endswith("[bot]")
+
+
 def _names(labels: list[Any] | None) -> list[str]:
     return [(l if isinstance(l, str) else l.get("name")) for l in (labels or [])]
 
@@ -83,9 +123,13 @@ def _is_task_title(title: str | None) -> bool:
 
 
 class Router:
-    def __init__(self, port: RepoPort, config: RepoConfig):
+    def __init__(self, port: RepoPort, config: RepoConfig,
+                 port_for: Callable[[str, str], RepoPort] | None = None):
         self.port = port
         self.cfg = config
+        #: How to reach a repo that is not this event's own. Without it a
+        #: cross-repo lookup is skipped rather than guessed at.
+        self.port_for = port_for
 
     # -- helpers mirroring the JS router ----------------------------------
     def say(self, n: int, body: str) -> None:
@@ -551,16 +595,43 @@ class Router:
             if not m:
                 log.info("Not a factory task sub-issue - nothing to re-dispatch")
             else:
+                # The epic is not necessarily in this repo. A cross-repo epic
+                # (FACTORY.md §7) keeps its tasks in the repos that implement
+                # them and the epic where it was filed; the task body carries
+                # the qualified "Part of owner/repo#N" marker for exactly
+                # this. Looking #N up here instead found nothing — or, worse,
+                # a completely unrelated issue that happens to have that
+                # number — so the dependents of every closed task in a
+                # cross-repo epic were silently never released.
                 epic = m.group(1)
-                parent = self.port.get_issue(int(epic))
+                epic_repo, body_number = epic_ref_from_body(i.get("body"))
+                if body_number is not None and str(body_number) != epic:
+                    # The title's task(N) is authoritative for the number.
+                    log.info("Task #%s body points at #%s but its title says task(%s) - "
+                             "trusting the title", i["number"], body_number, epic)
+                    epic_repo = None
+                port = self.port
+                if epic_repo and epic_repo != f"{self.port.owner}/{self.port.repo}":
+                    if self.port_for is None:
+                        log.warning("Task #%s belongs to epic %s#%s in another repo and this "
+                                    "engine has no cross-repo access - not re-dispatching",
+                                    i["number"], epic_repo, epic)
+                        return
+                    owner, name = epic_repo.split("/", 1)
+                    port = self.port_for(owner, name)
+                parent = port.get_issue(int(epic))
                 parent_labels = _names(parent.get("labels")) if parent else []
+                where = epic_repo or f"{self.port.owner}/{self.port.repo}"
                 if "factory:design-approved" not in parent_labels:
-                    log.info("Epic #%s is not factory:design-approved - not re-dispatching", epic)
+                    log.info("Epic %s#%s is not factory:design-approved - not re-dispatching",
+                             where, epic)
                 else:
                     r.role = "dispatch"
                     r.issue = epic
-                    log.info("Task #%s closed - re-dispatching epic #%s to release dependents",
-                             i["number"], epic)
+                    if port is not self.port:
+                        r.repo = epic_repo
+                    log.info("Task #%s closed - re-dispatching epic %s#%s to release dependents",
+                             i["number"], where, epic)
 
         elif action == "labeled":
             name = (payload.get("label") or {}).get("name")
@@ -576,7 +647,19 @@ class Router:
             role_map = {"factory:spec-approved": "planner", "factory:design-approved": "dispatch"}
             if name in gate_of:
                 lst = cfg.approver_list(gate_of[name])
-                if lst and sender not in lst:
+                # The revert exists to stop a person hand-applying an approved
+                # label to walk past a gate. It must not fire on the factory's
+                # own writes: this engine acts as a GitHub App, whose label
+                # changes DO emit events (the Actions engine's workflow token
+                # does not, which is why only this side ever saw it). Without
+                # the exemption the router reverted the very label it had just
+                # applied after a gate approval, and the epic ended up
+                # carrying no state at all — not design-approved, not
+                # design-ready, nothing, with the whole chain silently
+                # stranded behind it. Same reasoning as the comment router
+                # skipping Bot authors: an App's write is the factory's, and
+                # the factory only applies these after it has authorised them.
+                if lst and sender not in lst and not _sender_is_app(payload):
                     self.drop_label(i["number"], name)
                     self.say(i["number"],
                              f"`{name}` was applied by @{sender}, but this gate requires "

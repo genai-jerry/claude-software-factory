@@ -625,6 +625,14 @@ integration branch.
   these forms, so prose mentions of an issue never create an edge.
 - The Architect keeps one shared API contract snippet **identical** across the
   repos' `design.md` files.
+- A sub-issue closing re-dispatches its epic **in the epic's own repo**, read
+  from that `Part of <owner>/<repo>#<epic>` marker — the task's title
+  (`task(<epic>)`) gives the number, the marker gives the repo, and the title
+  wins when the two disagree. The Actions engine needs
+  `FACTORY_CROSS_REPO_TOKEN` to reach out of its own repository; without it
+  the closing task gets a comment naming the epic and the dispatch to run
+  over there, rather than a silent stop. The orchestrator engine acts for
+  every repo it is installed on and needs nothing extra.
 - Merge order is enforced by sub-issue dependencies and derived from the
   profiles' `estate_role`: **schema/data-model change → the repo that owns the
   contract → the repos that consume it**. Every intermediate merge must be

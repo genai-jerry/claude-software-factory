@@ -1,0 +1,26 @@
+{
+  "name": "task-closed-parent-marker-same-repo",
+  "description": "a task whose body names its epic unqualified still re-dispatches in its own repo",
+  "config": {
+    "approvers": {
+      "release_scope": ["boss"],
+      "spec": ["boss"],
+      "design": ["boss"],
+      "implementation": ["boss"]
+    }
+  },
+  "repo": {
+    "issues": [
+      { "number": 5, "title": "Epic", "labels": ["factory:design-approved"] },
+      {
+        "number": 8,
+        "title": "task(5): step one",
+        "body": "Parent: #5\n\nDo the thing.",
+        "labels": [],
+        "state": "closed"
+      }
+    ]
+  },
+  "event": { "name": "issues", "action": "closed", "issue": 8 },
+  "expect": { "role": "dispatch", "issues": ["5"] }
+}
