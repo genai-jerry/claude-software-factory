@@ -26,6 +26,12 @@ only covers *doing* the install. Where the two disagree, `FACTORY.md` wins.
     You name it once, in `.github/factory-branches.json`, identically across the
     estate. The branch itself does not have to exist yet: `auto_create` cuts it
     from the default branch the first time it is needed.
+  - **Do you want a branch per epic?** With `"epics": true` in the same file
+    (the template's default), every epic gets `factory/epic-<n>`: its spec,
+    design and task PRs merge there first, the epic is tested in isolation,
+    and one integration PR carries the finished epic to staging
+    (FACTORY.md §6b). Drop the key for the pre-epic behaviour, where document
+    PRs merge to the default branch and task PRs go straight to staging.
   - **Is this repo part of a multi-repo estate?** If so, pick one repo as the
     **coordination repo** — the one that owns the shared contract — and plan
     to get `FACTORY_CROSS_REPO_TOKEN` (a fine-grained PAT with Issues +
@@ -124,7 +130,7 @@ in this repo and adjust as noted.
 | `.github/factory-models.json` | `templates/factory-models.json` | Optional — retune the model preference chain per role |
 | `.github/factory-approvers.json` | `templates/factory-approvers.json` | Required — replace `genai-jerry` with real GitHub usernames per gate |
 | `.github/factory-release.json` | `templates/factory-release.json` | Optional — release gating. Omit the file and a filed issue goes straight to intake |
-| `.github/factory-branches.json` | `templates/factory-branches.json` | The org's integration branch (FACTORY.md §6a). Set `staging` to its name and copy the *same* file into every repo. Omitting it is not opting out — the defaults apply; ship `"required": false` to opt out |
+| `.github/factory-branches.json` | `templates/factory-branches.json` | The org's integration branch (FACTORY.md §6a) and epic-branch policy (§6b). Set `staging` to its name and copy the *same* file into every repo. Omitting it is not opting out of staging — the defaults apply; ship `"required": false` to opt out. `"epics": true` (the template's value) adds the per-epic branch layer; the absent-key default is `false` |
 | `.claude/settings.json` | `templates/settings.json` | Merge into an existing file if one is present; keep the `permissions.deny` block — it's half of gate G3 |
 
 ```bash
@@ -309,6 +315,34 @@ later moves to a plan with branch protection or rulesets, turn them on too
 but never protect that branch against the factory, which has to merge onto it);
 the factory's own
 controls then become defence-in-depth rather than the primary enforcement.
+
+## 10. Adopting epic branches on a running estate
+
+An estate already delivering through the factory turns the epic-branch layer
+(FACTORY.md §6b) on with one config change — no data or label migration:
+
+1. **Flip the policy estate-wide.** Add `"epics": true` to
+   `.github/factory-branches.json` in **every** repo (one PR per repo, merged
+   by a human like any config change). It is an org decision: the file stays
+   identical across the estate, and a half-flipped estate would give one
+   cross-repo epic two routings.
+2. **Labels.** Re-run `scripts/setup-labels.sh` on each repo so
+   `factory:on-epic` exists (the pipeline also self-heals the label on first
+   use).
+3. **In-flight epics sort themselves.** The flip is safe at any moment; an
+   epic's routing is decided by one observable fact — has any of its gate
+   documents merged to the default branch?
+   - Spec/design PRs still **open**: the epic is adopted automatically. At
+     its next stage run or gate approval the factory creates
+     `factory/epic-<n>` and retargets the open document PR onto it — the PR,
+     its reviews and its head branch survive.
+   - A gate document already **merged** to the default branch: that epic
+     finishes on the routing it started with; only epics entering intake
+     after the flip (and adoptable in-flight ones) use epic branches.
+4. **Rollback.** Set `"epics": false` (or drop the key). Epics not yet past a
+   gate merge are retargeted back to the default branch the same way; an epic
+   already assembling on its branch finishes under epic-branch routing or is
+   re-intaken.
 
 ## Footprint summary
 

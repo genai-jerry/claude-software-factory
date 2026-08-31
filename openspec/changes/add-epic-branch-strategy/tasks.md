@@ -101,11 +101,11 @@
 
 ## 6. Docs and migration
 
-- [ ] 6.1 Update `docs/setup-guide.md` and the wiki pages
+- [x] 6.1 Update `docs/setup-guide.md` and the wiki pages
       (Factory-Pipeline-States, Release-Gating, Home) for the epic layer and
       the policy switch, including the migration note (in-flight epics finish
       on legacy routing); verify wiki publish script picks the pages up.
-- [ ] 6.2 Write the estate migration checklist (flip `epics: true`
+- [x] 6.2 Write the estate migration checklist (flip `epics: true`
       estate-wide, label creation, automatic adoption of in-flight epics with
       unmerged gate documents vs. legacy finish for epics past a gate merge,
       rollback) as part of the setup guide; verify it matches design.md's
