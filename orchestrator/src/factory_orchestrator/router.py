@@ -407,15 +407,27 @@ class Router:
             # handles a flip back to epics:false.
             epic_branch = f"factory/epic-{i['number']}"
             def_branch = self.port.default_branch()
+            #
+            # Best-effort: a repo that refuses the branch (permissions, a
+            # protected-name rule) must still get its gate approved. Failing
+            # here would lose the approval itself, which is worse than the
+            # epic finishing on default-branch routing.
+            epic_ready = self.cfg.epics
             if self.cfg.epics and not self.port.branch_exists(epic_branch):
-                self.port.create_branch(epic_branch, def_branch)
-                log.info("Created epic branch %s from %s", epic_branch, def_branch)
+                try:
+                    self.port.create_branch(epic_branch, def_branch)
+                    log.info("Created epic branch %s from %s", epic_branch, def_branch)
+                except Exception as e:  # noqa: BLE001
+                    epic_ready = False
+                    log.warning("Could not create epic branch %s from %s (%s) - "
+                                "this epic stays on default-branch routing",
+                                epic_branch, def_branch, e)
             all_merged = True
             for pr in prs:
                 try:
                     base = (pr.get("base") or {}).get("ref")
                     want = base
-                    if self.cfg.epics and base == def_branch:
+                    if epic_ready and base == def_branch:
                         want = epic_branch
                     elif not self.cfg.epics and base == epic_branch:
                         want = def_branch

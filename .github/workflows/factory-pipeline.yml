@@ -522,20 +522,31 @@ jobs:
                 const branchExists = (name) => github.rest.repos
                   .getBranch({ owner, repo, branch: name })
                   .then(() => true, () => false);
+                // Best-effort: a repo that refuses the branch (permissions, a
+                // protected-name rule) must still get its gate approved.
+                // Failing here would lose the approval itself, which is worse
+                // than the epic finishing on default-branch routing.
+                let epicReady = epicsOn;
                 if (epicsOn && !(await branchExists(epicBranch))) {
-                  const { data: def } = await github.rest.repos.getBranch({
-                    owner, repo, branch: defBranch,
-                  });
-                  await github.rest.git.createRef({
-                    owner, repo, ref: `refs/heads/${epicBranch}`, sha: def.commit.sha,
-                  });
-                  core.info(`Created epic branch ${epicBranch} from ${defBranch}`);
+                  try {
+                    const { data: def } = await github.rest.repos.getBranch({
+                      owner, repo, branch: defBranch,
+                    });
+                    await github.rest.git.createRef({
+                      owner, repo, ref: `refs/heads/${epicBranch}`, sha: def.commit.sha,
+                    });
+                    core.info(`Created epic branch ${epicBranch} from ${defBranch}`);
+                  } catch (e) {
+                    epicReady = false;
+                    core.warning(`Could not create epic branch ${epicBranch} from ${defBranch} ` +
+                      `(${e.message}) - this epic stays on default-branch routing`);
+                  }
                 }
                 let allMerged = true;
                 for (const pr of prs) {
                   try {
                     let wantBase = pr.base.ref;
-                    if (epicsOn && pr.base.ref === defBranch) {
+                    if (epicReady && pr.base.ref === defBranch) {
                       wantBase = epicBranch;
                     } else if (!epicsOn && pr.base.ref === epicBranch) {
                       wantBase = defBranch;

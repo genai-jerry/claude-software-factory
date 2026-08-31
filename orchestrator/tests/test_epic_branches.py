@@ -115,3 +115,19 @@ def test_approved_on_on_epic_explains_and_routes_nothing():
     assert r.role == "none"
     bodies = [c["body"] for c in w.comments.get(5, [])]
     assert any("epic branch" in b for b in bodies)
+
+
+def test_a_repo_that_refuses_the_branch_still_gets_its_gate_approved():
+    # Losing the approval is worse than the epic finishing on default-branch
+    # routing, so branch creation is best-effort — and a PR is never
+    # retargeted onto a branch that does not exist.
+    class Refuses(FakeRepo):
+        def create_branch(self, name, from_branch):
+            raise RuntimeError("refs/heads/factory/epic-5 is protected")
+
+    w = Refuses(issues=_issue(5, ["factory:spec-ready"]))
+    w.open_prs["o:factory/5-spec"] = [{"number": 9, "base": {"ref": "main"}}]
+    r = _router(w, EPICS_ON).route(*_approved(w, 5))
+    assert r.role == "planner"
+    assert "factory/epic-5" not in w.branches
+    assert w.merged_bases[9] == "main"
