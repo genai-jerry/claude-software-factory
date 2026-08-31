@@ -36,6 +36,9 @@ name: Factory pipeline (reusable)
 # - A comment of exactly "Approved" from the owner/a collaborator on an issue
 #   in factory:spec-ready or factory:design-ready merges that gate's document
 #   PR(s) in that repo, flips the label, and continues the next stage in-run.
+#   With the branch policy's epics:true the merge lands on the epic branch
+#   factory/epic-<n> (FACTORY.md §6b) — the spec gate creates it and retargets
+#   a default-branch-based document PR onto it (in-flight adoption).
 #   On a release tracker in factory:release-ready it opens gate G0.
 #   G3 (production) is deliberately NOT comment-approvable.
 # - Closing a task sub-issue re-dispatches its epic, so tasks the merge just
@@ -470,9 +473,48 @@ jobs:
                 const { data: prs } = await github.rest.pulls.list({
                   owner, repo, state: 'open', head: `${owner}:${headBranch}`,
                 });
+                // Epic-branch policy (FACTORY.md §6b): with epics:true a gate
+                // document merges into the epic branch, not the default
+                // branch. The spec gate is also the adoption point for an
+                // in-flight epic — a spec PR still aimed at the default branch
+                // gets factory/epic-<n> created and its base retargeted before
+                // the merge (a retarget keeps the PR and its reviews). The
+                // design gate retargets only when the epic branch already
+                // exists: a spec that already merged to the default branch
+                // means this epic finishes on legacy routing. The reverse
+                // retarget handles a flip back to epics:false.
+                const branchCfg = loadJson('.github/factory-branches.json');
+                const epicsOn = branchCfg.epics === true;
+                const epicBranch = `factory/epic-${i.number}`;
+                const defBranch = (context.payload.repository || {}).default_branch || 'main';
+                const branchExists = (name) => github.rest.repos
+                  .getBranch({ owner, repo, branch: name })
+                  .then(() => true, () => false);
                 let allMerged = true;
                 for (const pr of prs) {
                   try {
+                    let wantBase = pr.base.ref;
+                    if (epicsOn && pr.base.ref === defBranch &&
+                        (spec || await branchExists(epicBranch))) {
+                      wantBase = epicBranch;
+                    } else if (!epicsOn && pr.base.ref === epicBranch) {
+                      wantBase = defBranch;
+                    }
+                    if (wantBase !== pr.base.ref) {
+                      if (wantBase === epicBranch && !(await branchExists(epicBranch))) {
+                        const { data: def } = await github.rest.repos.getBranch({
+                          owner, repo, branch: defBranch,
+                        });
+                        await github.rest.git.createRef({
+                          owner, repo, ref: `refs/heads/${epicBranch}`, sha: def.commit.sha,
+                        });
+                        core.info(`Created epic branch ${epicBranch} from ${defBranch}`);
+                      }
+                      await github.rest.pulls.update({
+                        owner, repo, pull_number: pr.number, base: wantBase,
+                      });
+                      core.info(`Retargeted gate PR #${pr.number}: base ${pr.base.ref} -> ${wantBase} (epic-branch policy §6b)`);
+                    }
                     await github.rest.pulls.merge({
                       owner, repo, pull_number: pr.number, merge_method: 'squash',
                     });
@@ -507,6 +549,11 @@ jobs:
                     (labels.includes('factory:backlog')
                       ? 'This issue is in the backlog: add it to a release milestone, then approve that ' +
                         'release\'s tracker issue.\n\n'
+                      : '') +
+                    (labels.includes('factory:on-epic')
+                      ? 'This is merged onto its epic branch and green there (FACTORY.md §6b). The Release Manager ' +
+                        'carries the completed epic to the integration branch with the integration PR — nothing here ' +
+                        'needs a comment approval.\n\n'
                       : '') +
                     (labels.includes('factory:in-staging')
                       ? 'This is at gate G3: it is already on the integration branch and green there, and ships when a ' +
@@ -877,6 +924,35 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Start epic-scoped roles on the epic branch (§6b)
+        env:
+          ISSUE: ${{ matrix.issue }}
+          ROLE: ${{ needs.route.outputs.role }}
+        run: |
+          # With the org policy's epics:true, an epic's approved change folder
+          # lives on factory/epic-<epic> and nowhere else until promotion
+          # (FACTORY.md §6b). Roles whose issue IS the epic start checked out
+          # there; task-scoped roles (implementer/reviewer/qa) resolve their
+          # epic in-session per their step 0a. Missing policy, epics:false, or
+          # no epic branch (a pre-flip epic) all leave the default checkout.
+          case "$ROLE" in
+            planner|architect|dispatch|release|ops) ;;
+            *) echo "Role $ROLE resolves its own branches - default checkout kept"; exit 0 ;;
+          esac
+          EPICS=$(python3 -c "
+          import json
+          try: print(json.load(open('.github/factory-branches.json')).get('epics') is True)
+          except Exception: print(False)" 2>/dev/null || echo False)
+          if [ "$EPICS" != "True" ]; then
+            echo "Epic-branch policy off - default checkout kept"; exit 0
+          fi
+          BR="factory/epic-$ISSUE"
+          if git fetch origin "$BR" 2>/dev/null; then
+            git checkout -B "$BR" FETCH_HEAD
+            echo "Checked out epic branch $BR"
+          else
+            echo "No $BR on the remote (pre-flip epic?) - default checkout kept"
+          fi
       - name: Load factory role definition
         id: roledef
         env:
@@ -1523,6 +1599,27 @@ jobs:
         if: steps.gate.outputs.proceed == 'true'
         with:
           fetch-depth: 0
+      - name: Start the architect on the epic branch (§6b)
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          # Same rule as the agent job: with epics:true the change folder
+          # lives on factory/epic-<epic> (FACTORY.md §6b).
+          EPICS=$(python3 -c "
+          import json
+          try: print(json.load(open('.github/factory-branches.json')).get('epics') is True)
+          except Exception: print(False)" 2>/dev/null || echo False)
+          if [ "$EPICS" != "True" ]; then
+            echo "Epic-branch policy off - default checkout kept"; exit 0
+          fi
+          BR="factory/epic-$ISSUE"
+          if git fetch origin "$BR" 2>/dev/null; then
+            git checkout -B "$BR" FETCH_HEAD
+            echo "Checked out epic branch $BR"
+          else
+            echo "No $BR on the remote (pre-flip epic?) - default checkout kept"
+          fi
       - name: Load factory role definition
         if: steps.gate.outputs.proceed == 'true'
         id: roledef

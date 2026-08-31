@@ -31,6 +31,8 @@ function makeWorld(opts) {
     created: [],
     log: [],
     files: opts.files || {},
+    pulls: opts.pulls || [],          // [{number, head:{ref}, base:{ref}, state}]
+    branches: opts.branches || [],    // branch names that exist on the remote
   };
   const L = n => state.issues[n].labels.map(l => l.name || l);
   const github = {
@@ -71,7 +73,40 @@ function makeWorld(opts) {
         listComments: async (p) => ({ data: state.comments[p.issue_number] || [] }),
         addAssignees: async (p) => { state.log.push(`assign #${p.issue_number} ${p.assignees.join(',')}`); },
       },
-      pulls: { list: async () => ({ data: [] }), merge: async () => ({}) },
+      pulls: {
+        // PRs: opts.pulls = [{number, head:{ref}, base:{ref}, state}]
+        list: async (p) => ({ data: (state.pulls || []).filter(pr =>
+          (pr.state || 'open') === (p.state || 'open') &&
+          (!p.head || `o:${pr.head.ref}` === p.head)) }),
+        merge: async (p) => {
+          const pr = (state.pulls || []).find(x => x.number === p.pull_number);
+          if (pr) { pr.state = 'merged'; pr.merged_base = pr.base.ref; }
+          state.log.push(`merge PR #${p.pull_number} -> ${pr ? pr.base.ref : '?'}`);
+          return {};
+        },
+        update: async (p) => {
+          const pr = (state.pulls || []).find(x => x.number === p.pull_number);
+          if (pr && p.base) pr.base = { ref: p.base };
+          state.log.push(`retarget PR #${p.pull_number} base=${p.base}`);
+          return {};
+        },
+      },
+      repos: {
+        // Branches: opts.branches = ['main', 'factory/epic-5', ...]
+        getBranch: async (p) => {
+          if (!(state.branches || []).includes(p.branch)) {
+            const e = new Error('not found'); e.status = 404; throw e;
+          }
+          return { data: { name: p.branch, commit: { sha: 'sha-' + p.branch } } };
+        },
+      },
+      git: {
+        createRef: async (p) => {
+          (state.branches ||= []).push(p.ref.replace('refs/heads/', ''));
+          state.log.push(`create-branch ${p.ref} @ ${p.sha}`);
+          return {};
+        },
+      },
     },
   };
   const outputs = {};
@@ -652,6 +687,81 @@ function check(label, cond, extra) {
       { ref: 'refs/heads/feature-x', repository: { default_branch: 'main' } }) });
     check('non-default branch routes nowhere', out5.role === 'none', out5);
     check('and files nothing', w5.state.created.length === 0, w5.state.created);
+  }
+
+  // --------------------------------------------------------------- scenario 20
+  console.log('\n20. epic-branch policy (§6b) — gate merges land on factory/epic-<n>');
+  {
+    const filesEpics = { ...filesOpen,
+      '.github/factory-branches.json': JSON.stringify({ staging: 'staging', required: true, auto_create: true, epics: true }) };
+    const approvedBy = (i) => ({ action: 'created', issue: i,
+      repository: { default_branch: 'main' },
+      comment: { body: 'Approved', user: { login: 'boss', type: 'User' }, author_association: 'OWNER' } });
+
+    // G1 with epics:true is the adoption point: a spec PR still based on the
+    // default branch gets the epic branch created and its base retargeted
+    // before the squash merge.
+    const w = makeWorld({ files: filesEpics, branches: ['main'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'main' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
+    const out = await run(routeSrc, { world: w, context: ctx('issue_comment', approvedBy(w.state.issues[5])) });
+    check('G1 -> planner', out.role === 'planner', out);
+    check('epic branch created', w.state.branches.includes('factory/epic-5'), w.state.log);
+    check('spec PR retargeted + merged into the epic branch',
+      w.state.pulls[0].state === 'merged' && w.state.pulls[0].merged_base === 'factory/epic-5', w.state.log);
+
+    // A spec PR already based on the epic branch (intake did its job) merges
+    // as-is — no retarget, no duplicate branch creation.
+    const w2 = makeWorld({ files: filesEpics, branches: ['main', 'factory/epic-5'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'factory/epic-5' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
+    await run(routeSrc, { world: w2, context: ctx('issue_comment', approvedBy(w2.state.issues[5])) });
+    check('already-targeted spec PR merges without a retarget',
+      w2.state.pulls[0].merged_base === 'factory/epic-5' && !w2.state.log.some(l => l.startsWith('retarget')), w2.state.log);
+
+    // G2 on an epic past a gate merge (spec merged to main, no epic branch)
+    // finishes on legacy routing: no adoption at design time.
+    const w3 = makeWorld({ files: filesEpics, branches: ['main'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-design' }, base: { ref: 'main' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:design-ready' }], user: { type: 'User' } } } });
+    const out3 = await run(routeSrc, { world: w3, context: ctx('issue_comment', approvedBy(w3.state.issues[5])) });
+    check('G2 -> dispatch', out3.role === 'dispatch', out3);
+    check('legacy epic stays legacy: design merges to main, no epic branch created',
+      w3.state.pulls[0].merged_base === 'main' && !w3.state.branches.includes('factory/epic-5'), w3.state.log);
+
+    // G2 on an adopted epic (epic branch exists): a design PR aimed at main is
+    // retargeted onto the epic branch before merging.
+    const w4 = makeWorld({ files: filesEpics, branches: ['main', 'factory/epic-5'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-design' }, base: { ref: 'main' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:design-ready' }], user: { type: 'User' } } } });
+    await run(routeSrc, { world: w4, context: ctx('issue_comment', approvedBy(w4.state.issues[5])) });
+    check('design PR follows the existing epic branch',
+      w4.state.pulls[0].merged_base === 'factory/epic-5', w4.state.log);
+
+    // Rollback: epics:false retargets an epic-branch-based document PR back to
+    // the default branch before merging.
+    const w5 = makeWorld({ files: filesOpen, branches: ['main', 'factory/epic-5'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'factory/epic-5' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
+    await run(routeSrc, { world: w5, context: ctx('issue_comment', approvedBy(w5.state.issues[5])) });
+    check('epics:false retargets back to the default branch',
+      w5.state.pulls[0].merged_base === 'main', w5.state.log);
+
+    // Legacy estates (no policy file at all) are byte-for-byte unaffected.
+    const w6 = makeWorld({ files: filesOpen, branches: ['main'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'main' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
+    await run(routeSrc, { world: w6, context: ctx('issue_comment', approvedBy(w6.state.issues[5])) });
+    check('no policy file: spec merges to main, nothing retargeted, no branch created',
+      w6.state.pulls[0].merged_base === 'main' && w6.state.branches.length === 1, w6.state.log);
+
+    // factory:on-epic is release-managed: an Approved comment there explains
+    // itself and routes nothing.
+    const w7 = makeWorld({ files: filesEpics, issues: {
+      5: { number: 5, title: 'Epic', labels: [{ name: 'factory:on-epic' }], user: { type: 'User' } } } });
+    const out7 = await run(routeSrc, { world: w7, context: ctx('issue_comment', approvedBy(w7.state.issues[5])) });
+    check('Approved on factory:on-epic routes nothing and explains',
+      out7.role === 'none' && (w7.state.comments[5] || []).some(c => c.body.includes('epic branch')), w7.state.log);
   }
 
   // ------------------------------------------------------------------ fixtures

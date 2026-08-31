@@ -51,22 +51,22 @@
 
 ## 3. Pipeline workflow (.github/workflows/factory-pipeline.yml)
 
-- [ ] 3.1 Add a policy-read helper step (parse `.github/factory-branches.json`
+- [x] 3.1 Add a policy-read helper step (parse `.github/factory-branches.json`
       including `epics`) and epic-branch creation at intake trigger time;
       verify with a workflow-lint run (`actionlint` or push to a test repo)
       and that creation is a no-op when the branch exists.
-- [ ] 3.2 Point the `Approved`-comment gate merges at the document PR whose
+- [x] 3.2 Point the `Approved`-comment gate merges at the document PR whose
       base is the epic branch, and check agent stages out from the epic
       branch when `epics: true` (default branch otherwise); verify the
       squash-merge lands on `factory/epic-<n>` in a test repo.
-- [ ] 3.3 Handle `factory:on-epic` in the label routing/authorization tables
+- [x] 3.3 Handle `factory:on-epic` in the label routing/authorization tables
       (no gate attached; `factory:in-staging` handling unchanged); verify
       `scripts/test-router.js` passes with new cases added for both policy
       values.
-- [ ] 3.4 Extend the layer-3 provenance check description (§8a) so a `main`
+- [x] 3.4 Extend the layer-3 provenance check description (§8a) so a `main`
       merge whose head is an epic branch is reported as skipping staging;
       verify the guard/audit wording matches FACTORY.md.
-- [ ] 3.5 Implement in-flight adoption: when `epics: true` and an epic has no
+- [x] 3.5 Implement in-flight adoption: when `epics: true` and an epic has no
       merged gate document, the gate-approval and stage-run paths create the
       epic branch if missing and retarget any open document PR base onto it
       before merging (and the reverse retarget on rollback to
@@ -76,11 +76,11 @@
 
 ## 4. Verification and conformance
 
-- [ ] 4.1 Add routing-matrix cases (document PR base, task PR base, stage
+- [x] 4.1 Add routing-matrix cases (document PR base, task PR base, stage
       checkout ref, integration/promotion targets × `epics` true/false) to
       `scripts/test-router.js` and/or `orchestrator/conformance`; verify all
       pass.
-- [ ] 4.2 Run `hooks/protect-branches.py` unit checks against epic-branch
+- [x] 4.2 Run `hooks/protect-branches.py` unit checks against epic-branch
       pushes (allowed) and default-branch pushes (denied); add cases if the
       hook has none for `factory/epic-*`.
 - [ ] 4.3 End-to-end dry run on a sandbox repo with `epics: true`: file an

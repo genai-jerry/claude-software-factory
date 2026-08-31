@@ -49,10 +49,16 @@ class RepoConfig:
 
     release: dict[str, Any] = field(default_factory=dict)
     approvers: dict[str, Any] = field(default_factory=dict)
+    branches: dict[str, Any] = field(default_factory=dict)
 
     @property
     def gating(self) -> bool:
         return (self.release.get("gating") or "none") == "milestone"
+
+    @property
+    def epics(self) -> bool:
+        """Epic-branch policy (FACTORY.md §6b): absent file or key is False."""
+        return self.branches.get("epics") is True
 
     @property
     def exempt_labels(self) -> list[str]:
@@ -326,9 +332,33 @@ class Router:
                 return
             head_branch = f"factory/{i['number']}-spec" if spec else f"factory/{i['number']}-design"
             prs = self.port.list_open_prs(head=f"{self.port.owner}:{head_branch}")
+            # Epic-branch policy (FACTORY.md §6b): with epics:true a gate
+            # document merges into the epic branch. The spec gate is the
+            # adoption point for an in-flight epic — a spec PR still aimed at
+            # the default branch gets factory/epic-<n> created and its base
+            # retargeted before the merge. The design gate retargets only
+            # when the epic branch already exists (a spec that merged to the
+            # default branch means this epic finishes on legacy routing).
+            # The reverse retarget handles a flip back to epics:false.
+            epic_branch = f"factory/epic-{i['number']}"
+            def_branch = self.port.default_branch()
             all_merged = True
             for pr in prs:
                 try:
+                    base = (pr.get("base") or {}).get("ref")
+                    want = base
+                    if self.cfg.epics and base == def_branch and (
+                            spec or self.port.branch_exists(epic_branch)):
+                        want = epic_branch
+                    elif not self.cfg.epics and base == epic_branch:
+                        want = def_branch
+                    if want != base:
+                        if want == epic_branch and not self.port.branch_exists(epic_branch):
+                            self.port.create_branch(epic_branch, def_branch)
+                            log.info("Created epic branch %s from %s", epic_branch, def_branch)
+                        self.port.update_pr_base(pr["number"], want)
+                        log.info("Retargeted gate PR #%s: base %s -> %s (epic-branch policy §6b)",
+                                 pr["number"], base, want)
                     self.port.merge_pr(pr["number"], "squash")
                     log.info("Merged gate PR #%s", pr["number"])
                 except Exception as e:  # noqa: BLE001
@@ -355,6 +385,10 @@ class Router:
                          "- `factory:ready` (a task sub-issue) — starts its implementer\n\n"
                          + ("This issue is in the backlog: add it to a release milestone, then approve that "
                             "release's tracker issue.\n\n" if "factory:backlog" in labels else "")
+                         + ("This is merged onto its epic branch and green there (FACTORY.md §6b). The "
+                            "Release Manager carries the completed epic to the integration branch with the "
+                            "integration PR — nothing here needs a comment approval.\n\n"
+                            if "factory:on-epic" in labels else "")
                          + ("This is at gate G3: it is already on the integration branch and green there, and "
                             "ships when a human merges the promotion PR(s) the Release Manager listed. That "
                             "merge click is the gate — there is nothing here for a comment to approve.\n\n"

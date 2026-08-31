@@ -80,6 +80,9 @@ class RepoPort(Protocol):
     def add_assignees(self, number: int, assignees: list[str]) -> None: ...
     def list_open_prs(self, head: str) -> list[dict[str, Any]]: ...
     def merge_pr(self, number: int, method: str = "squash") -> None: ...
+    def update_pr_base(self, number: int, base: str) -> None: ...
+    def branch_exists(self, name: str) -> bool: ...
+    def create_branch(self, name: str, from_branch: str) -> None: ...
     def get_file(self, path: str, ref: str | None = None) -> str | None: ...
     def default_branch(self) -> str: ...
 
@@ -325,6 +328,17 @@ class RepoClient:
 
     def merge_pr(self, number, method="squash"):
         self._req("PUT", f"/pulls/{number}/merge", json={"merge_method": method})
+
+    def update_pr_base(self, number, base):
+        self._req("PATCH", f"/pulls/{number}", json={"base": base})
+
+    def branch_exists(self, name):
+        return self._req("GET", f"/branches/{name}", ok404=True) is not None
+
+    def create_branch(self, name, from_branch):
+        r = self._req("GET", f"/branches/{from_branch}")
+        sha = r.json()["commit"]["sha"]
+        self._req("POST", "/git/refs", json={"ref": f"refs/heads/{name}", "sha": sha})
 
     def get_file(self, path, ref=None):
         params = {"ref": ref} if ref else {}
