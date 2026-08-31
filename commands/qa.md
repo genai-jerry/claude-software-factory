@@ -27,11 +27,14 @@ Prove the spec's scenarios are actually covered — by tests, not by reading cod
 4. Run the profile's `commands.test` (and `commands.build` when non-null) —
    the delta must be green; the profile's `gotchas` name any pre-existing
    failures that don't count against the PR. Verify CI checks on the PR are
-   green, and that the PR is based on the integration branch (the profile's
-   `branches.staging`, else the `staging` named in
-   `.github/factory-branches.json`) — `factory:ready-to-ship` is a promise the
-   Release Manager can merge this onto staging, so a PR aimed at the default
-   branch goes back to `factory:ready` with that reason, not forward.
+   green, and that the PR is based on its expected base branch: the epic
+   branch `factory/epic-<epic-issue>` when the policy's `epics` is `true` and
+   the change folder lives there (FACTORY.md §6b), else the integration
+   branch (the profile's `branches.staging`, else the `staging` named in
+   `.github/factory-branches.json`) — `factory:ready-to-ship` is a promise
+   the Release Manager can merge this onto that base, so a PR aimed at the
+   default branch (or at the integration branch when the epic branch is the
+   base) goes back to `factory:ready` with that reason, not forward.
 5. Post the mapping table as a **test report comment** on the PR.
 6. Verdict:
    - All green → remove `factory:in-test`, apply `factory:ready-to-ship`.

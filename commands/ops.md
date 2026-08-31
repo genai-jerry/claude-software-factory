@@ -31,6 +31,14 @@ Prove the release is healthy, then close the loop.
    - Run `/opsx:archive` for the change in each affected repo (change folder →
      `openspec/changes/archive/`, durable requirements folded into
      `openspec/specs/`), committed via PR or direct per repo convention.
+   - Delete the epic's branch `factory/epic-<epic-issue>` in each affected
+     repo, if it has one (FACTORY.md §6b) — its content is on the default
+     branch now, and archive time is the only time it is ever deleted.
+   - Check the OTHER live `factory/epic-*` branches in each repo were
+     refreshed after this promotion (the Release Manager merges the default
+     branch into them, §6b). Any still behind the default branch: merge it in
+     yourself — a merge, never a rebase; a conflict marks that epic
+     `factory:blocked` with the conflicting files named.
    - Close the epic and its sub-issues with a verification summary:
      scenario → evidence.
    - Remove `factory:deployed`.

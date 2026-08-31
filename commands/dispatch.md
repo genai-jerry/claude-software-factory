@@ -9,7 +9,11 @@ This is a mechanical coordination role — no design or code.
 
 ## Steps
 1. Read `tasks.md` in the epic's change folder
-   (`openspec/changes/<issue>-<slug>/`) and list the epic's task sub-issues
+   (`openspec/changes/<issue>-<slug>/`) — on the epic's branch
+   `factory/epic-<issue>` when `.github/factory-branches.json` sets
+   `epics: true` and that branch exists (the approved documents live only
+   there until promotion, FACTORY.md §6b), else on the default branch — and
+   list the epic's task sub-issues
    (`task(<epic>): ...`) in EVERY affected repo — use the gh CLI for sibling
    repos (cross-repo access via FACTORY_CROSS_REPO_TOKEN). If a sibling repo
    is unreachable, say so explicitly in the summary instead of skipping

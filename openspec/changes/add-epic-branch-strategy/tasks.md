@@ -20,30 +20,30 @@
 
 ## 2. Role prompts (commands/)
 
-- [ ] 2.1 Extend the shared "step 0a" prose to resolve the epic branch
+- [x] 2.1 Extend the shared "step 0a" prose to resolve the epic branch
       (policy `epics` → `factory/epic-<epic-issue>` else none) and apply it
       in `implementer.md`, `fasttrack.md` (explicit "fast lane has no epic
       branch" note), `reviewer.md` (wrong-base finding now names the epic
       branch) and `qa.md` (ready-to-ship promises mergeable onto the epic
       branch); verify each file names the correct base for both policy
       values.
-- [ ] 2.2 Update `intake.md`: create `factory/epic-<n>` from the default
+- [x] 2.2 Update `intake.md`: create `factory/epic-<n>` from the default
       branch (no-op if present) before opening the spec PR, and base the spec
       PR on it when `epics: true`; verify the prompt states the legacy base
       for `epics: false`.
-- [ ] 2.3 Update `planner.md` and `architect.md`: cut
+- [x] 2.3 Update `planner.md` and `architect.md`: cut
       `factory/<epic>-design` from the epic branch and base its PR there
       when `epics: true`; read the approved spec from the epic branch;
       verify both prompts drop the "create from the repo's default branch"
       wording under the new policy.
-- [ ] 2.4 Update `release.md`: retarget phase 1 at the epic branch (epic
+- [x] 2.4 Update `release.md`: retarget phase 1 at the epic branch (epic
       assembly, `factory:on-epic` labelling), add the integration-PR step
       (merge staging into epic, re-verify, open/merge epic → staging PR with
       a merge commit, flip to `factory:in-staging`), keep G3 promotion
       unchanged, and add the staging-failure demotion path (revert the
       epic's merge commit → back to `factory:on-epic`); verify the prompt's
       failure section matches `branching/epic-promotion` scenarios.
-- [ ] 2.5 Update `dispatch.md` and `ops.md`: dispatcher re-runs on task
+- [x] 2.5 Update `dispatch.md` and `ops.md`: dispatcher re-runs on task
       close against the epic branch state; ops deletes the epic branch at
       archive and merges the default branch into live epic branches after a
       promotion (conflict ⇒ `factory:blocked` with file list); verify both

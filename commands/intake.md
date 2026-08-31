@@ -25,8 +25,20 @@ Turn the raw requirement into a structured, testable OpenSpec change proposal.
      repositories, data/privacy notes.
    - `specs/` — requirements as WHEN/THEN scenarios, each individually testable.
      These become the acceptance criteria QA verifies later.
-5. Commit on branch `factory/<issue-number>-spec`, open a PR titled
-   `spec(<issue-number>): <slug>` linking the issue.
+5. Resolve where the spec lands (FACTORY.md §6b). Read
+   `.github/factory-branches.json`; a missing file or key means
+   `epics: false`.
+   - `epics: true`: ensure the **epic branch** `factory/epic-<issue-number>`
+     exists, cut from the repo's default branch
+     (`git push origin origin/<default>:refs/heads/factory/epic-<issue-number>`
+     — a no-op if it already exists). Commit on branch
+     `factory/<issue-number>-spec` cut from the epic branch, and open the PR
+     **based on the epic branch**.
+   - `epics: false`: commit on branch `factory/<issue-number>-spec` cut from
+     the default branch, and open the PR based on the default branch — the
+     pre-epic behaviour.
+   Either way the PR is titled `spec(<issue-number>): <slug>` and links the
+   issue, and its body names its base branch.
 6. On the issue: post a 5-line summary + link to the PR, remove
    `factory:intake`, apply `factory:spec-ready`. If
    `.github/factory-approvers.json` lists `spec` approvers, cc them

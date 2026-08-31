@@ -17,9 +17,11 @@ apply `factory:blocked` — a factory repo must have a profile.
 ## Step 0a — resolve the integration branch
 
 The fast lane skips the ceremony, not the staging step. Its PR lands on the
-org's **integration branch** like every other implementation PR, and reaches
-`branches.default` only through a promotion PR (FACTORY.md §6a). Resolve it
-before you branch:
+org's **integration branch**, and reaches `branches.default` only through a
+promotion PR (FACTORY.md §6a). The epic-branch layer (§6b, the policy's
+`epics` key) never applies here: a fast-track change has no epic and no epic
+branch, under either policy value. Resolve the integration branch before you
+branch:
 
 1. Read `.github/factory-branches.json`, the org's staging policy. Treat a
    missing file as `{"staging": "staging", "required": true, "auto_create": true}`.
