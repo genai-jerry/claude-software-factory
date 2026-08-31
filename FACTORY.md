@@ -510,6 +510,11 @@ often.
 
 - The epic issue lives in the **coordination repo**, with sub-issues in each
   affected repo and an OpenSpec change folder in each affected repo.
+- Dependency links are machine-readable body markers, one per line: `Blocked
+  by #N` inside a repo, `Blocked by <owner>/<repo>#N` across repos; a
+  sub-issue in a sibling repo names its epic with `Part of
+  <owner>/<repo>#<epic>`. The Dispatcher and the Console both parse exactly
+  these forms, so prose mentions of an issue never create an edge.
 - The Architect keeps one shared API contract snippet **identical** across the
   repos' `design.md` files.
 - Merge order is enforced by sub-issue dependencies and derived from the

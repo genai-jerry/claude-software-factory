@@ -63,6 +63,11 @@ class ConsoleTokenSource:
     def can_refresh(self, owner: str, repo: str) -> bool:
         return bool(self.dispatch_token) and f"{owner}/{repo}" in self._installations
 
+    def console_origin(self, owner: str, repo: str) -> str | None:
+        """The Console origin that dispatched this repo, if one has registered."""
+        entry = self._installations.get(f"{owner}/{repo}")
+        return entry[0] if entry else None
+
     def mint(self, owner: str, repo: str) -> tuple[str, str | None]:
         """Return ``(token, expires_at_iso)``. Raises :class:`TokenRefreshError`."""
         key = f"{owner}/{repo}"

@@ -22,8 +22,12 @@ Decompose the approved spec into an ordered, releasable task breakdown.
    - Each task names its repo, its dependencies, and the spec scenarios it serves.
 3. Mirror `tasks.md` 1:1 into GitHub sub-issues (in each task's target repo,
    for cross-repo epics): title `task(<epic>): <task name>`, body links the
-   change folder and lists dependencies ("Blocked by #N"). No spec content in
-   the body.
+   change folder and lists dependencies — machine-readable, one marker per
+   line: `Blocked by #N` for a same-repo dependency, `Blocked by
+   <owner>/<repo>#N` when the dependency lives in a sibling repo. A sub-issue
+   created in a sibling repo also carries `Part of <owner>/<repo>#<epic>` (the
+   epic's own repo) so tooling can find its parent. No spec content in the
+   body.
 4. Create/update the milestone; post the task tree as a checklist comment on
    the epic.
 5. Commit `tasks.md` to the change folder on branch

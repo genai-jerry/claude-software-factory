@@ -24,7 +24,7 @@
       "type": "string"
     },
     "branches": {
-      "description": "Branch facts. Implementers cut task branches from `default` and base their PRs on `staging`, the integration branch every change is proved on before it is promoted to `default` (FACTORY.md §6a).",
+      "description": "Branch facts. Implementers cut task branches from the integration branch (`staging`) and base their PRs on it; every change is proved there before it is promoted to `default` (FACTORY.md §6a).",
       "type": "object",
       "required": ["default"],
       "properties": {

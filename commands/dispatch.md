@@ -14,9 +14,13 @@ This is a mechanical coordination role — no design or code.
    repos (cross-repo access via FACTORY_CROSS_REPO_TOKEN). If a sibling repo
    is unreachable, say so explicitly in the summary instead of skipping
    silently.
-2. For each task sub-issue (in whichever repo) whose dependencies
-   ("Blocked by #N") are all closed or merged, and which carries no
-   `factory:*` state label yet: apply `factory:ready` and comment:
+2. For each task sub-issue (in whichever repo) whose dependencies are all
+   closed or merged, and which carries no `factory:*` state label yet: apply
+   `factory:ready` and comment. Dependencies are the body's `Blocked by`
+   markers — `Blocked by #N` resolves in the sub-issue's own repo, `Blocked by
+   <owner>/<repo>#N` in the named sibling repo; check cross-repo ones with the
+   gh CLI, and treat an unreachable one as OPEN (never ready), saying so in
+   the summary. The ready comment:
    "Unblocked — an implementer can start. Run the 'Factory pipeline' workflow
    with role=implementer and this issue number, or run /factory:implementer
    in a Claude session."

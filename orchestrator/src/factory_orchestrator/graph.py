@@ -221,13 +221,29 @@ def build_graph(engine: Engine, checkpointer=None):
     return builder.compile(checkpointer=checkpointer)
 
 
+def run_link_base(engine: Engine, owner: str, repo: str) -> str:
+    """Origin for the human-facing run link posted in GitHub comments.
+
+    The Console renders a real page at /runs/{id}; the orchestrator's own
+    endpoint is JSON-first (with an HTML fallback for browsers). Prefer the
+    Console origin the dispatch registered for this repo, fall back to
+    PUBLIC_BASE_URL.
+    """
+    origin_of = getattr(getattr(engine.app, "console", None), "console_origin", None)
+    if callable(origin_of):
+        origin = origin_of(owner, repo)
+        if origin:
+            return origin
+    return engine.cfg.public_base_url
+
+
 def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
     """One guarded role run — the whole Actions agent job as a function."""
     owner, repo, role, issue = item["owner"], item["repo"], item["role"], item["issue"]
     port = engine.port(owner, repo)
     run_id = engine.ledger.start_run(repo=f"{owner}/{repo}", issue=issue, role=role,
                                      trigger=item.get("trigger", ""))
-    run_url = f"{engine.cfg.public_base_url}/runs/{run_id}"
+    run_url = f"{run_link_base(engine, owner, repo)}/runs/{run_id}"
     summary: dict[str, Any] = {"role": role, "issue": issue, "run_id": run_id,
                                "round": item.get("round", 0)}
     log.info("role start role=%s repo=%s/%s#%s run=%s log=%s",
