@@ -2,20 +2,20 @@
 
 ## 1. Policy and canon (FACTORY.md, templates)
 
-- [ ] 1.1 Add `"epics": true` to `templates/factory-branches.json` and
+- [x] 1.1 Add `"epics": true` to `templates/factory-branches.json` and
       document the key (default `false` when absent) in FACTORY.md's policy
       table; verify the JSON parses and the table lists all four keys.
-- [ ] 1.2 Write the new FACTORY.md §6b "The epic branch" (naming, cut point,
+- [x] 1.2 Write the new FACTORY.md §6b "The epic branch" (naming, cut point,
       agent writability, refresh-on-promotion, deletion at archive) and
       rewrite §6 "Branching and PRs" / "Where PRs merge" for both policy
       values, per the three delta specs; verify every routing case in
       `branching/artifact-routing` appears in the tables.
-- [ ] 1.3 Update FACTORY.md §2 stage table, §2a trigger table, §3 states
+- [x] 1.3 Update FACTORY.md §2 stage table, §2a trigger table, §3 states
       table (insert `factory:on-epic` between `factory:ready-to-ship` and
       `factory:in-staging`), §7 cross-repo epics, and §10 setup step 6a;
       verify the state diagram/table transitions match
       `branching/epic-promotion`.
-- [ ] 1.4 Add the `factory:on-epic` label to `scripts/setup-labels.sh`;
+- [x] 1.4 Add the `factory:on-epic` label to `scripts/setup-labels.sh`;
       verify the script is idempotent by dry-reading its label list.
 
 ## 2. Role prompts (commands/)
