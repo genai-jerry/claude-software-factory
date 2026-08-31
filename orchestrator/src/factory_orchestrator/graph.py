@@ -38,6 +38,7 @@ from .guards import (
     mark_in_progress,
     no_op_reason,
     report_failure,
+    report_next_step,
     report_start,
     snapshot,
     verify_no_op,
@@ -151,10 +152,13 @@ class Engine:
 def build_graph(engine: Engine, checkpointer=None):
     def route_node(state: PipelineState) -> dict[str, Any]:
         port = engine.port(state["owner"], state["repo"])
-        result = Router(port, engine.repo_config(port)).route(
+        result = Router(port, engine.repo_config(port), port_for=engine.port).route(
             state["event_name"], state["payload"])
-        pending = [{"role": result.role, "issue": int(n)} for n in result.issues] \
-            if result.role != "none" else []
+        # `result.repo` is set only for a cross-repo epic (FACTORY.md §7):
+        # the task that closed lives here, the epic and its dispatcher live
+        # there. Everything else runs in the repo the event came from.
+        pending = [{"role": result.role, "issue": int(n), "repo": result.repo}
+                   for n in result.issues] if result.role != "none" else []
         log.info(
             "route event=%s repo=%s/%s role=%s issues=%s release=%s",
             state["event_name"], state["owner"], state["repo"],
@@ -203,8 +207,15 @@ def build_graph(engine: Engine, checkpointer=None):
             return END
         items = state.get("pending") or []
         if items:
+            def target(i: dict[str, Any]) -> tuple[str, str]:
+                full = i.get("repo") or ""
+                if full and "/" in full:
+                    owner, name = full.split("/", 1)
+                    return owner, name
+                return state["owner"], state["repo"]
+
             return [Send("run_role", RunItem(
-                owner=state["owner"], repo=state["repo"], role=i["role"],
+                owner=target(i)[0], repo=target(i)[1], role=i["role"],
                 issue=i["issue"], trigger=state.get("trigger", state["event_name"]),
             ) | {"round": state["round"]}) for i in items]
         if state.get("release_issue") and not state.get("release_dispatched"):
@@ -236,6 +247,18 @@ def run_link_base(engine: Engine, owner: str, repo: str) -> str:
         if origin:
             return origin
     return engine.cfg.public_base_url
+
+
+def factory_checkout(engine: Engine):
+    """Where this engine's pinned factory checkout is, when it has one.
+
+    The hand-off table ships with the factory repo, so it is read from the
+    same checkout the role prompt comes from. A runner without a source (the
+    fakes in the tests, a future runner that assembles prompts elsewhere)
+    simply gets no table and no notice.
+    """
+    source = getattr(engine.runner, "source", None)
+    return source.path() if source is not None and hasattr(source, "path") else None
 
 
 def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
@@ -323,6 +346,12 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
                                  transcript_path=str(transcript_path), error=error)
         if status != "success":
             report_failure(port, issue, role, run_url, reason=error)
+        else:
+            # Every run leaves the issue saying what is expected next. The
+            # role has just moved the label (or deliberately not), so this
+            # reads the state it actually ended in rather than the one the
+            # run started from.
+            report_next_step(port, issue, role, factory_checkout(engine))
         summary["status"] = status
         log.info("role finish role=%s repo=%s/%s#%s run=%s status=%s traced=%s",
                  role, owner, repo, issue, run_id, status, traced)

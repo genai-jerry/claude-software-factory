@@ -139,6 +139,10 @@ jobs:
         env:
           DISPATCH_ROLE: ${{ inputs.role }}
           DISPATCH_ISSUE: ${{ inputs.issue_number }}
+          # Read-and-dispatch access to the epic's repo, for a cross-repo epic
+          # (FACTORY.md §7). Absent is fine: the router then says on the task
+          # what to run over there instead of guessing.
+          CROSS_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN }}
         with:
           script: |
             const fs = require('fs');
@@ -215,6 +219,15 @@ jobs:
 
             const namesOf = (ls) => (ls || []).map(l => (typeof l === 'string' ? l : l.name));
             const isTaskTitle = (t) => /^task\(\d+\)/.test(t || '');
+            // "Part of owner/repo#250" — the qualified parent marker (FACTORY.md §7).
+            // The unqualified forms mean the issue's own repo.
+            const epicRefFromBody = (body) => {
+              const m = /(?:^|\n)\s*(?:part of|parent|epic)\s*:?\s*(?:https?:\/\/[^/\s]+\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)|([\w.-]+)\/([\w.-]+)#(\d+)|#(\d+))/i.exec(body || '');
+              if (!m) return { repo: null, number: null };
+              if (m[3]) return { repo: `${m[1]}/${m[2]}`, number: Number(m[3]) };
+              if (m[6]) return { repo: `${m[4]}/${m[5]}`, number: Number(m[6]) };
+              return { repo: null, number: Number(m[7]) };
+            };
             const say = (n, body) => github.rest.issues.createComment({
               owner, repo, issue_number: n, body: `${body}\n\n<!-- factory-agent -->`,
             });
@@ -454,6 +467,20 @@ jobs:
                 // router only chooses the role.
                 if (!authorized('implementation')) {
                   await refuse('implementation', 'starting implementation');
+                } else if (labels.includes(IN_PROGRESS)) {
+                  // A second start is the one thing the state cannot refuse on
+                  // its own: the implementer only leaves factory:ready when it
+                  // flips to factory:in-review at the end, so the label still
+                  // reads "ready" for the whole run and a second Approved would
+                  // route a second implementer onto the same task and the same
+                  // branch. The run marker is the fact that answers it.
+                  await say(i.number,
+                    '`Approved` has no effect right now — a factory run is already live on this issue ' +
+                    '(`factory:in-progress`).\n\n' +
+                    'The implementer is still working; approving again would start a second one on the same ' +
+                    'task and the same branch. The marker is removed when the run ends, whatever the outcome — ' +
+                    'if this task is still `factory:ready` then, approve again to restart it.');
+                  core.info(`A run is already live on #${i.number} - not starting a second implementer`);
                 } else {
                   role = 'implementer';
                   core.info('Implementation approved via comment - starting implementer');
@@ -726,18 +753,64 @@ jobs:
                   core.info('Not a factory task sub-issue - nothing to re-dispatch');
                 } else {
                   const epic = m[1];
-                  // Only while the epic is in its implementation phase. Once it has
-                  // moved on (or never got through G2) a re-dispatch is meaningless.
-                  const { data: parent } = await github.rest.issues.get({
-                    owner, repo, issue_number: Number(epic),
-                  }).catch(() => ({ data: null })) || {};
-                  const parentLabels = parent ? namesOf(parent.labels) : [];
-                  if (!parentLabels.includes('factory:design-approved')) {
-                    core.info(`Epic #${epic} is not factory:design-approved - not re-dispatching`);
+                  // The epic is not necessarily in this repo. A cross-repo epic
+                  // (FACTORY.md §7) keeps its tasks in the repos that implement them
+                  // and the epic where it was filed; the task body carries the
+                  // qualified "Part of owner/repo#N" marker for exactly this.
+                  // Looking #N up here instead found nothing — or an unrelated issue
+                  // that happens to have that number — so the dependents of every
+                  // closed task in a cross-repo epic were never released, silently.
+                  const ref = epicRefFromBody(i.body);
+                  const elsewhere = ref.repo && ref.repo !== `${owner}/${repo}` &&
+                                    (ref.number === null || String(ref.number) === epic)
+                                      ? ref.repo : null;
+                  const [epicOwner, epicRepo] = (elsewhere || `${owner}/${repo}`).split('/');
+                  // A PAT is the only way out of this repo. Without one, say on the
+                  // task what has to be run over there rather than failing quietly.
+                  const client = elsewhere
+                    ? (process.env.CROSS_TOKEN ? require('@actions/github').getOctokit(process.env.CROSS_TOKEN) : null)
+                    : github;
+                  if (elsewhere && !client) {
+                    await say(i.number,
+                      `This task belongs to epic **${elsewhere}#${epic}**, in another repository, ` +
+                      'and this pipeline has no cross-repo access (`FACTORY_CROSS_REPO_TOKEN` is not set), ' +
+                      'so it cannot release the tasks this one unblocks.\n\n' +
+                      `On **${elsewhere}**: Actions → "Factory pipeline" → Run workflow (role: \`dispatch\`, issue \`${epic}\`), ` +
+                      'or press **Start factory run** on that epic in the Factory Console.');
+                    core.info(`Epic ${elsewhere}#${epic} is in another repo and no cross-repo token is set`);
                   } else {
-                    role = 'dispatch';
-                    issue = epic;
-                    core.info(`Task #${i.number} closed - re-dispatching epic #${epic} to release dependents`);
+                    // Only while the epic is in its implementation phase. Once it has
+                    // moved on (or never got through G2) a re-dispatch is meaningless.
+                    const { data: parent } = await client.rest.issues.get({
+                      owner: epicOwner, repo: epicRepo, issue_number: Number(epic),
+                    }).catch(() => ({ data: null })) || {};
+                    const parentLabels = parent ? namesOf(parent.labels) : [];
+                    if (!parentLabels.includes('factory:design-approved')) {
+                      core.info(`Epic ${epicOwner}/${epicRepo}#${epic} is not factory:design-approved - not re-dispatching`);
+                    } else if (elsewhere) {
+                      // The dispatcher has to run over there, in that repo's own
+                      // pipeline — this run cannot check out another repo's factory
+                      // config and act as it.
+                      await client.rest.actions.createWorkflowDispatch({
+                        owner: epicOwner, repo: epicRepo,
+                        workflow_id: 'factory-pipeline.yml',
+                        ref: 'main',
+                        inputs: { role: 'dispatch', issue_number: epic },
+                      }).then(() => {
+                        core.info(`Task #${i.number} closed - dispatched ${elsewhere}#${epic} to release dependents`);
+                      }).catch(async (e) => {
+                        await say(i.number,
+                          `This task belongs to epic **${elsewhere}#${epic}**, and starting its dispatcher ` +
+                          `over there failed: ${e.message}.\n\n` +
+                          `On **${elsewhere}**: Actions → "Factory pipeline" → Run workflow (role: \`dispatch\`, issue \`${epic}\`), ` +
+                          'or press **Start factory run** on that epic in the Factory Console.');
+                        core.info(`Cross-repo dispatch to ${elsewhere} failed: ${e.message}`);
+                      });
+                    } else {
+                      role = 'dispatch';
+                      issue = epic;
+                      core.info(`Task #${i.number} closed - re-dispatching epic #${epic} to release dependents`);
+                    }
                   }
                 }
               } else if (action === 'labeled') {
@@ -746,6 +819,15 @@ jobs:
                 // the architect when PAT label flips emit events).
                 const name = context.payload.label.name;
                 const sender = context.payload.sender.login;
+                // An App's write is the factory's own, not a person walking
+                // past a gate. This engine's workflow token emits no events so
+                // it never saw the problem, but a PAT-driven repo does — and
+                // the orchestrator engine, which acts as an App, reverted the
+                // very label it had just applied after a gate approval and
+                // left the epic carrying no state at all. Same rule as the
+                // comment router skipping Bot authors.
+                const senderIsApp = context.payload.sender.type === 'Bot' ||
+                                    /\[bot\]$/.test(sender || '');
                 if (name === IN_PROGRESS) {
                   // The pipeline's own "a run is live" marker. It is applied
                   // with the workflow token, which emits no events — but a repo
@@ -764,7 +846,7 @@ jobs:
                 const map = { 'factory:spec-approved': 'planner', 'factory:design-approved': 'dispatch' };
                 if (gateOf[name]) {
                   const list = approverList(gateOf[name]);
-                  if (list.length && !list.includes(sender)) {
+                  if (list.length && !list.includes(sender) && !senderIsApp) {
                     // Unauthorized gate flip: revert and explain.
                     await dropLabel(i.number, name);
                     await say(i.number,
@@ -1225,6 +1307,24 @@ jobs:
           fi
           echo "::error::Role '$ROLE' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
           exit 1
+      - name: Say what happens next
+        # Every run leaves the issue saying what is expected of the next
+        # actor. A role that finished cleanly used to say nothing at all: the
+        # label moved and the thread went quiet, and the states with no
+        # trigger of their own (in-review, in-test, ready-to-ship) were the
+        # pipeline waiting on a human with nothing on the issue to say so.
+        #
+        # After the no-op guard on purpose — this comment must never be the
+        # "visible trace" that lets a role which did nothing pass for one that
+        # worked. github.token, like every other notice here: a comment from
+        # the workflow token emits no events and can never trigger a run.
+        if: success() && matrix.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ matrix.issue }}
+          ROLE: ${{ needs.route.outputs.role }}
+        run: python3 "$RUNNER_TEMP/factory/scripts/say_next_step.py"
       - name: Report the failure on the issue
         # A dead run is otherwise a red X on an Actions tab nobody watches: the
         # issue thread is where the humans (and the Factory Console) already
@@ -1549,6 +1649,24 @@ jobs:
           fi
           echo "::error::Role 'intake' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
           exit 1
+      - name: Say what happens next
+        # Every run leaves the issue saying what is expected of the next
+        # actor. A role that finished cleanly used to say nothing at all: the
+        # label moved and the thread went quiet, and the states with no
+        # trigger of their own (in-review, in-test, ready-to-ship) were the
+        # pipeline waiting on a human with nothing on the issue to say so.
+        #
+        # After the no-op guard on purpose — this comment must never be the
+        # "visible trace" that lets a role which did nothing pass for one that
+        # worked. github.token, like every other notice here: a comment from
+        # the workflow token emits no events and can never trigger a run.
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ matrix.issue }}
+          ROLE: intake
+        run: python3 "$RUNNER_TEMP/factory/scripts/say_next_step.py"
       - name: Clear the in-progress marker
         if: always()
         continue-on-error: true
@@ -1729,6 +1847,27 @@ jobs:
             --model ${{ steps.model.outputs.model }}
             --permission-mode acceptEdits
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Say what happens next
+        # Every run leaves the issue saying what is expected of the next
+        # actor. A role that finished cleanly used to say nothing at all: the
+        # label moved and the thread went quiet, and the states with no
+        # trigger of their own (in-review, in-test, ready-to-ship) were the
+        # pipeline waiting on a human with nothing on the issue to say so.
+        #
+        # After the no-op guard on purpose — this comment must never be the
+        # "visible trace" that lets a role which did nothing pass for one that
+        # worked. github.token, like every other notice here: a comment from
+        # the workflow token emits no events and can never trigger a run.
+        # The gate is part of the condition: when the planner did not reach
+        # factory:planned this job skips the architect entirely, and the
+        # planner's own run already said what happens next.
+        if: success() && steps.gate.outputs.proceed == 'true' && needs.route.outputs.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+          ROLE: architect
+        run: python3 "$RUNNER_TEMP/factory/scripts/say_next_step.py"
       - name: Clear the in-progress marker
         if: always() && needs.route.outputs.issue != ''
         continue-on-error: true

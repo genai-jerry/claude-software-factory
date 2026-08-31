@@ -47,7 +47,7 @@ def build_world(fx: dict) -> tuple[FakeRepo, dict[int, dict]]:
     issues, comments = {}, {}
     for i in fx.get("repo", {}).get("issues", []):
         issues[i["number"]] = {
-            "number": i["number"], "title": i["title"],
+            "number": i["number"], "title": i["title"], "body": i.get("body", ""),
             "labels": [{"name": x} for x in i.get("labels", [])],
             "user": {"type": i.get("authorType", "User")},
             "state": i.get("state", "open"),
@@ -70,7 +70,8 @@ def build_event(fx: dict, world: FakeRepo, milestones: dict) -> tuple[str, dict]
         if "label" in ev:
             payload["label"] = {"name": ev["label"]}
         if "sender" in ev:
-            payload["sender"] = {"login": ev["sender"]}
+            payload["sender"] = {"login": ev["sender"],
+                                 "type": ev.get("senderType", "User")}
         if "milestone" in ev:
             payload["milestone"] = ms(ev["milestone"])
         return "issues", payload

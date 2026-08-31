@@ -198,9 +198,53 @@ role starts and removes it in an `always()` step when the job ends — so it als
 comes off on a failure, on a no-op-guard failure and on the 45-minute timeout.
 The marker is applied with the workflow token, whose label changes emit no
 events, so a cosmetic label can never trigger another run. Everywhere the
-router reads `factory:*` labels it ignores this one: a marked issue is still
-"not started" to a release batch, still eligible for the fast lane, and the
-explanatory replies still name the real state.
+router reads `factory:*` labels as *state* it ignores this one: a marked issue
+is still "not started" to a release batch, still eligible for the fast lane,
+and the explanatory replies still name the real state. It is read as itself in
+exactly one place — the implementation start, where `factory:ready` stays put
+for the whole run and a second `Approved` would otherwise start a second
+implementer on the same task and branch.
+
+### The factory reverting its own gate
+
+**Symptom.** An epic ends up carrying **no** `factory:*` label at all — not
+design-approved, not design-ready, nothing — with a router comment saying
+"`factory:design-approved` was applied by @…[bot], but this gate requires @…
+Reverted." Everything behind it stalls: no dispatcher, and a closing task
+finds no design-approved epic to re-dispatch.
+
+**Cause.** The revert exists to stop a person hand-applying an approved label
+to walk past a gate. The Actions engine never fires it on its own writes,
+because labels applied with the workflow token emit no events. The
+orchestrator acts as a GitHub App, whose writes *do* emit events — so the
+router received its own gate flip, found the App on no approver list, and
+reverted the label it had itself applied a second earlier.
+
+**Guard.** A sender that is an App is exempt from the revert — its write is
+the factory's own, and the factory only applies these labels after it has
+authorised the gate. A person hand-applying one is still reverted, which is
+the case the guard was written for.
+
+### The silent hand-off
+
+**Symptom.** A role finishes, the label moves, and the thread goes quiet. The
+issue is now at `factory:in-review` (or `in-test`, or `ready-to-ship`) and
+nothing on it says whose turn it is — least of all that those three states
+start nothing on their own and are *waiting for a human to start the next
+role*. Reading the state machine by heart was the only way to know.
+
+**Cause.** The pipeline said plenty when it refused something and nothing when
+it succeeded. Hand-off notices existed only for labels applied by a human
+(`notifyOf` on the `labeled` event), and labels applied by a run emit no
+events.
+
+**Guard.** Every role run ends with one comment on the issue naming the state
+it left behind, the next actor, and the exact control that actor uses. The
+wording is data — `handbook/next-step.json`, one entry per state — rendered by
+both engines so they cannot drift, and said once per state entry so a re-run
+does not repeat it while a genuine re-entry (review → ready → review) does.
+It posts *after* the no-op guard, so it can never be the visible trace that
+lets a role which did nothing pass for one that worked.
 
 ### The silent green
 

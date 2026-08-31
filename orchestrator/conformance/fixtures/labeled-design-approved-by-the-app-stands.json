@@ -1,0 +1,35 @@
+{
+  "name": "labeled-design-approved-by-the-app-stands",
+  "description": "The factory's own gate-label write is not reverted as an unauthorized flip",
+  "config": {
+    "approvers": {
+      "release_scope": ["boss"],
+      "spec": ["boss"],
+      "design": ["boss"],
+      "implementation": ["boss"]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": ["factory:design-approved"]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:design-approved",
+    "sender": "genai-people-swfactory-console[bot]",
+    "senderType": "Bot"
+  },
+  "expect": {
+    "role": "dispatch",
+    "issues": ["5"],
+    "labels": { "5": { "has": ["factory:design-approved"] } },
+    "comments": { "5": { "count": 0 } }
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "_comment": [
+    "What is expected of the next actor, one entry per factory:* state.",
+    "",
+    "This is FACTORY.md §3's 'Advanced by' column as data, so that the two",
+    "engines say the same thing and say it every time. Both read this file",
+    "out of the factory checkout they already make: the Actions pipeline via",
+    "scripts/say_next_step.py, the orchestrator via",
+    "factory_orchestrator.next_step. Change the wording here and both engines",
+    "change together — never copy a line into an engine.",
+    "",
+    "Placeholders: {issue} the issue number, {approvers} the gate's approver",
+    "list rendered as '@a, @b' (or 'any owner, member or collaborator' when",
+    "the list is empty). 'who' is the actor; 'how' is the exact move, and it",
+    "must name a real control — a comment to type, a PR to merge, a button,",
+    "or a role to start. 'An agent will pick it up' is only true where the",
+    "pipeline actually routes the state on its own."
+  ],
+  "states": {
+    "factory:backlog": {
+      "who": "gate G0, on this issue's release tracker",
+      "how": "This issue is parked until its milestone is approved. On the tracker issue for its milestone, a release_scope approver comments exactly `Approved`; every backlog issue in that milestone then moves into intake together."
+    },
+    "factory:release-planning": {
+      "who": "any owner, member or collaborator",
+      "how": "Comment exactly `Plan release` on this tracker. The Scrum Master reads the milestone, posts the release plan here and moves the tracker to `factory:release-ready`, which is gate G0."
+    },
+    "factory:release-ready": {
+      "who": "gate G0 — {approvers}",
+      "how": "Read the release plan above, then comment exactly `Approved` here. That releases every issue in the milestone into intake. There is no document PR at G0."
+    },
+    "factory:release-approved": {
+      "who": "the factory",
+      "how": "The milestone's issues are being moved into intake and their Intake Analysts started. Nothing to do."
+    },
+    "factory:intake": {
+      "who": "the factory",
+      "how": "The Intake Analyst is analysing the requirement and will open the spec PR. Nothing to do until it does."
+    },
+    "factory:spec-ready": {
+      "who": "gate G1 — {approvers}",
+      "how": "Review the spec PR this issue links, then either merge it, or comment exactly `Approved` here — the factory then merges it for you and starts the Planner. Strict match: \"Approved, but…\" is just a comment."
+    },
+    "factory:spec-approved": {
+      "who": "the factory",
+      "how": "The Planner is breaking the spec into task sub-issues, and chains the Architect in the same run. Nothing to do."
+    },
+    "factory:planned": {
+      "who": "the factory",
+      "how": "The Architect writes design.md and opens its PR — normally inside the Planner's own run. If this issue sits here with no run live, start it: the Factory Console's **Start the Architect** button on this issue, or Actions → \"Factory pipeline\" → Run workflow (role: `architect`, issue `{issue}`)."
+    },
+    "factory:design-ready": {
+      "who": "gate G2 — {approvers}",
+      "how": "Review the design PR(s) this issue links, then either merge them, or comment exactly `Approved` here — the factory then merges and releases the unblocked tasks for implementation."
+    },
+    "factory:design-approved": {
+      "who": "the factory",
+      "how": "The Dispatcher is marking every unblocked task `factory:ready`. Nothing to do until a task asks for its start approval."
+    },
+    "factory:ready": {
+      "who": "the implementation approvers — {approvers}",
+      "how": "Comment exactly `Approved` on this task to start its Implementer, or press **Approve** on it in the Factory Console. Only one start per task: while a run is live the approval is declined, because a second one would put a second Implementer on the same branch."
+    },
+    "factory:in-review": {
+      "who": "a human, then the Reviewer",
+      "how": "`factory:in-review` starts nothing on its own. Start the review — the Factory Console's **Start the Reviewer** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `reviewer`, issue `{issue}`). The Reviewer reads the draft PR this task links and moves it to `factory:in-test`, or back to `factory:ready` with changes requested. Do not merge the draft PR yourself: review and QA are what make it mergeable, and the Release Manager merges it."
+    },
+    "factory:in-test": {
+      "who": "a human, then QA",
+      "how": "`factory:in-test` starts nothing on its own. Start QA — the Factory Console's **Start QA** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `qa`, issue `{issue}`). QA verifies the WHEN/THEN scenarios, posts the test report here and moves the task to `factory:ready-to-ship`."
+    },
+    "factory:ready-to-ship": {
+      "who": "a human, then the Release Manager",
+      "how": "`factory:ready-to-ship` starts nothing on its own. Start the Release Manager — the Factory Console's **Start the Release Manager** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `release`, issue `{issue}`). It merges this task onto its epic branch (or onto the integration branch when the epic has none) and verifies it there."
+    },
+    "factory:on-epic": {
+      "who": "the epic, then the Release Manager",
+      "how": "This task is merged onto its epic branch and green there. It waits for the rest of the epic: once every task is `factory:on-epic`, the Release Manager carries the whole epic to the integration branch in one PR. Start that on the **epic** issue, not here."
+    },
+    "factory:in-staging": {
+      "who": "gate G3 — {approvers}",
+      "how": "The Release Manager's integration report above lists the promotion PR(s) and the order to merge them. Merge them through the GitHub UI, in that order. G3 is deliberately not comment-approvable — `Approved` does nothing here."
+    },
+    "factory:deployed": {
+      "who": "Ops",
+      "how": "In production and soaking. Ops verifies health, archives the change folder and closes this issue — the Factory Console's **Start Ops** button, or Actions → \"Factory pipeline\" → Run workflow (role: `ops`, issue `{issue}`). File `factory:incident` instead if the deploy regressed."
+    },
+    "factory:fast-track": {
+      "who": "any owner, member or collaborator",
+      "how": "The fast lane has no gate and no reviewer: read the PR this issue links and merge it, or say what needs changing here. Nothing else runs on this issue."
+    },
+    "factory:blocked": {
+      "who": "any owner, member or collaborator",
+      "how": "An agent stopped and asked a question — it is the newest agent comment on this thread. Reply here with the answer: the factory clears `factory:blocked` and re-runs the stage that halted, re-reading the whole thread."
+    },
+    "factory:incident": {
+      "who": "a human, with the Release Manager",
+      "how": "A post-deploy regression is open. Decide rollback or fix-forward and say which here; the Release Manager carries it out."
+    },
+    "factory:profile": {
+      "who": "the Profiler",
+      "how": "The Profiler is drafting `.factory/profile.json` and removes this label when it finishes. Re-apply the label to ask for a redraft."
+    }
+  },
+  "none": {
+    "who": "nobody — this issue is off the rail",
+    "how": "It carries no `factory:*` state label, so nothing routes it. Apply the state it belongs in (`factory:intake` to start it from the top), or leave it: an issue without a state is not the factory's."
+  }
+}

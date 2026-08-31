@@ -12,7 +12,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from .github_app import RepoPort
+from .github_app import RepoPort, parse_json_or_empty
+from .next_step import (
+    GATE_OF_STATE,
+    already_said,
+    load_table,
+    render,
+    state_of,
+)
 from .router import AGENT_MARK, IN_PROGRESS
 
 log = logging.getLogger("factory-orchestrator.guards")
@@ -106,3 +113,34 @@ def report_failure(port: RepoPort, issue: int, role: str, run_url: str,
         log.info("posted failure comment for %s on #%s log=%s", role, issue, run_url)
     except Exception:  # noqa: BLE001 - failing to report must not mask the failure
         log.warning("could not report the failed %s run on #%s", role, issue, exc_info=True)
+
+
+def report_next_step(port: RepoPort, issue: int, role: str, factory_checkout) -> None:
+    """Say what the next actor is expected to do, on the issue, after the run.
+
+    Called only on the success path: a failed run already has its own report,
+    and a hand-off notice under it would name a state the role never reached.
+    Best-effort like every other notice here — a run that worked must not be
+    reported as failed because a comment did not post.
+    """
+    table = load_table(factory_checkout)
+    if table is None:
+        return
+    try:
+        iss = port.get_issue(issue) or {}
+        labels = [(l if isinstance(l, str) else l.get("name"))
+                  for l in iss.get("labels", [])]
+        state = state_of(labels)
+        if already_said(port.list_comments(issue), state):
+            log.info("#%s already carries the hand-off notice for %s", issue, state)
+            return
+        gate = GATE_OF_STATE.get(state or "")
+        approvers = []
+        if gate:
+            cfg = parse_json_or_empty(port.get_file(".github/factory-approvers.json"))
+            value = cfg.get(gate)
+            approvers = [x for x in value if isinstance(x, str)] if isinstance(value, list) else []
+        port.create_comment(issue, f"{render(table, role, issue, state, approvers)}\n{AGENT_MARK}")
+        log.info("said what happens next on #%s (%s)", issue, state or "no state")
+    except Exception:  # noqa: BLE001 - a missing notice must not fail a good run
+        log.warning("could not post the hand-off notice on #%s", issue, exc_info=True)

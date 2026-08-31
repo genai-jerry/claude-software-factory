@@ -1,0 +1,64 @@
+{
+  "name": "approved-ready-task-run-live",
+  "description": "Approved on a ready task whose run is already live starts no second implementer, and says why",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(3): add endpoint",
+        "labels": [
+          "factory:ready",
+          "factory:in-progress"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "`Approved` has no effect right now \u2014 a factory run is already live on this issue (`factory:in-progress`).",
+          "approving again would start a second one on the same task and the same branch",
+          "if this task is still `factory:ready` then, approve again to restart it",
+          "<!-- factory-agent -->"
+        ]
+      }
+    },
+    "labels": {
+      "5": {
+        "has": [
+          "factory:ready",
+          "factory:in-progress"
+        ]
+      }
+    }
+  }
+}

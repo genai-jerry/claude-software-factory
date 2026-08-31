@@ -764,6 +764,36 @@ function check(label, cond, extra) {
       out7.role === 'none' && (w7.state.comments[5] || []).some(c => c.body.includes('epic branch')), w7.state.log);
   }
 
+  // --------------------------------------------------------------- scenario 21
+  console.log('\n21. a cross-repo epic (FACTORY.md §7) — the dispatcher has to run over there');
+  {
+    // The task lives here; the epic lives in another repo and the body says so.
+    // Looking #250 up here found nothing (or an unrelated issue with that
+    // number), so the tasks this one unblocks were never released.
+    const task = { number: 198, title: 'task(250): contact column',
+                   body: 'Part of o/backend#250\n\nChange folder: ...',
+                   labels: [], user: { type: 'User' }, state: 'closed' };
+    const w = makeWorld({ files: filesOpen, issues: { 198: task } });
+    const out = await run(routeSrc, { world: w, context: ctx('issues', { action: 'closed', issue: task }) });
+    check('nothing routed in this repo', out.role === 'none', out);
+    const said = (w.state.comments[198] || [])[0] || { body: '' };
+    check('says the epic is elsewhere', said.body.includes('o/backend#250'), w.state.log);
+    check('names the control to use over there',
+      said.body.includes('role: `dispatch`, issue `250`'), w.state.log);
+    check('and says why it could not do it itself',
+      said.body.includes('FACTORY_CROSS_REPO_TOKEN'), w.state.log);
+
+    // The same-repo case is untouched: no comment, dispatch here.
+    const w2 = makeWorld({ files: filesOpen, issues: {
+      5: { number: 5, title: 'Epic', labels: [{ name: 'factory:design-approved' }], user: { type: 'User' } },
+      8: { number: 8, title: 'task(5): step one', body: 'Part of o/r#5',
+           labels: [], user: { type: 'User' }, state: 'closed' } } });
+    const out2 = await run(routeSrc, { world: w2, context: ctx('issues', { action: 'closed', issue: w2.state.issues[8] }) });
+    check('a marker naming this repo dispatches here',
+      out2.role === 'dispatch' && out2.issue === '5', out2);
+    check('and says nothing', (w2.state.comments[8] || []).length === 0, w2.state.log);
+  }
+
   // ------------------------------------------------------------------ fixtures
   // The JSON conformance fixtures are the canonical routing decision table,
   // shared with the orchestrator's Python router (orchestrator/conformance/).
@@ -800,6 +830,7 @@ function fixtureWorld(fx) {
     issues[i.number] = {
       number: i.number,
       title: i.title,
+      body: i.body || '',
       labels: (i.labels || []).map(name => ({ name })),
       user: { type: i.authorType || 'User' },
       state: i.state || 'open',
@@ -817,7 +848,9 @@ function fixtureContext(fx, world, msObj) {
   if (ev.name === 'issues') {
     const payload = { action: ev.action, issue: iss(ev.issue) };
     if (ev.label !== undefined) payload.label = { name: ev.label };
-    if (ev.sender !== undefined) payload.sender = { login: ev.sender };
+    if (ev.sender !== undefined) {
+      payload.sender = { login: ev.sender, type: ev.senderType || 'User' };
+    }
     if (ev.milestone !== undefined) payload.milestone = msObj(ev.milestone);
     return ctx('issues', payload);
   }

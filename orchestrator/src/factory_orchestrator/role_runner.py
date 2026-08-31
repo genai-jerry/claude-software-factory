@@ -215,6 +215,10 @@ class FactorySource:
                     env={"GIT_TERMINAL_PROMPT": "0", "PATH": "/usr/local/bin:/usr/bin:/bin"})
         return dest
 
+    def path(self) -> Path:
+        """The pinned checkout itself — shared data files live beside FACTORY.md."""
+        return self._checkout()
+
     def handbook(self) -> str:
         return (self._checkout() / "FACTORY.md").read_text()
 
