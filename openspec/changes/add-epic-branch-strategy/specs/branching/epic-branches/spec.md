@@ -19,6 +19,15 @@ change: document PRs base on the default branch and implementation PRs base on
 the integration branch. The shipped template `templates/factory-branches.json`
 SHALL set `epics: true`; the absent-file default SHALL remain `epics: false`.
 
+An epic's routing SHALL be decided per epic, not per run: an epic is on
+epic-branch routing when `epics` is `true` **and** none of its gate documents
+(spec, plan+design) has merged to the default branch. An in-flight epic that
+satisfies this — its document PRs open but unmerged — SHALL be adopted: its
+epic branch is created and the open document PR bases are retargeted onto it
+at the epic's next stage run or gate approval, whichever comes first. An epic
+with any gate document already merged to the default branch SHALL finish on
+legacy routing.
+
 #### Scenario: Policy absent keeps legacy behavior
 
 - **WHEN** a repo has no `.github/factory-branches.json`, or the file omits the
@@ -32,12 +41,21 @@ SHALL set `epics: true`; the absent-file default SHALL remain `epics: false`.
 - **THEN** an epic branch exists for that epic before its spec PR is opened,
   and all of the epic's subsequent PRs base on it
 
-#### Scenario: Flipping the policy does not disturb in-flight epics
+#### Scenario: In-flight epic with only open document PRs is adopted
 
-- **WHEN** `epics` is flipped from `false` to `true` while an epic is already
-  past intake
-- **THEN** that epic continues on its original (legacy) routing, and only
-  epics entering intake after the flip get epic branches
+- **WHEN** `epics` is flipped from `false` to `true` while an epic has a spec
+  or design PR open but no gate document of that epic has merged to the
+  default branch yet
+- **THEN** the next stage run or gate approval for that epic creates its epic
+  branch and retargets the open document PR(s) base onto it before any gate
+  merge happens, and the epic proceeds on epic-branch routing
+
+#### Scenario: Epic past a merged gate finishes on legacy routing
+
+- **WHEN** `epics` is flipped from `false` to `true` while any gate document
+  of an epic (spec or plan+design) has already merged to the default branch
+- **THEN** that epic continues on its original (legacy) routing to completion,
+  and no epic branch is created for it
 
 ### Requirement: Epic branch naming and creation
 

@@ -101,6 +101,9 @@ remains the staging → default-branch promotion a human merges at gate G3.
   phase mapping and gate table in `packages/core/src/factory.ts` /
   `phases.ts`, plus board/workspace UI that renders the new state.
 - **Docs/wiki**: setup guide, Factory-Pipeline-States, Release-Gating pages.
-- **Migration**: estates with in-flight epics keep `epics: false` until those
-  epics ship; flipping the policy affects only epics entering intake after
-  the flip.
+- **Migration**: flipping `epics: true` is safe at any moment. An in-flight
+  epic whose gate documents are all still unmerged (e.g. an open spec PR
+  aimed at `main`) is adopted automatically — its epic branch is created and
+  the open document PR is retargeted onto it at the epic's next stage run or
+  gate approval. Only an epic with a gate document already merged to the
+  default branch finishes on legacy routing.

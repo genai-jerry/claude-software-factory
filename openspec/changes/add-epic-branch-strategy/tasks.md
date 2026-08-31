@@ -66,6 +66,13 @@
 - [ ] 3.4 Extend the layer-3 provenance check description (§8a) so a `main`
       merge whose head is an epic branch is reported as skipping staging;
       verify the guard/audit wording matches FACTORY.md.
+- [ ] 3.5 Implement in-flight adoption: when `epics: true` and an epic has no
+      merged gate document, the gate-approval and stage-run paths create the
+      epic branch if missing and retarget any open document PR base onto it
+      before merging (and the reverse retarget on rollback to
+      `epics: false`); verify against a test repo with a spec PR open against
+      the default branch — after the flip, gate approval merges it into
+      `factory/epic-<n>`, not `main`.
 
 ## 4. Verification and conformance
 
@@ -99,6 +106,8 @@
       the policy switch, including the migration note (in-flight epics finish
       on legacy routing); verify wiki publish script picks the pages up.
 - [ ] 6.2 Write the estate migration checklist (flip `epics: true`
-      estate-wide, label creation, what happens to in-flight epics, rollback)
-      as part of the setup guide; verify it matches design.md's Migration
-      Plan.
+      estate-wide, label creation, automatic adoption of in-flight epics with
+      unmerged gate documents vs. legacy finish for epics past a gate merge,
+      rollback) as part of the setup guide; verify it matches design.md's
+      Migration Plan and the adoption scenarios in
+      `branching/epic-branches`.

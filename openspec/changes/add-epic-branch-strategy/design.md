@@ -92,9 +92,20 @@ Absent file or absent key ⇒ `false` (legacy). The shipped template sets
 `true` so new adopters get epic branches. Like the rest of the file it is an
 org decision, identical across the estate; a per-epic or per-repo override is
 deliberately not offered — mixed routing inside one epic is unreasonable to
-support. Epics are keyed to the policy value at the moment they enter intake
-(observable from where their spec PR bases), so flipping the switch never
-re-routes an in-flight epic.
+support.
+
+An epic's routing is keyed to one observable fact: **has any of its gate
+documents merged to the default branch?** If not (document PRs open or not yet
+opened) and `epics` is `true`, the epic is on epic-branch routing — including
+an in-flight epic whose spec PR was opened against `main` before the flip:
+the next stage run or gate approval for it creates `factory/epic-<n>` and
+retargets the open document PR's base onto it (a base retarget preserves the
+PR, its review thread and its head branch; nothing is closed or reopened).
+Once any gate document has merged to `main`, the epic finishes on legacy
+routing — unwinding a merged spec from the default branch is not worth
+supporting. This makes the flip safe at any moment and gives the common
+stuck case — "my spec PR is aimed at main and hasn't merged yet" — an
+automatic upgrade path instead of a wait.
 
 ### D4. Roles resolve branches through one extended "step 0a"
 
@@ -167,12 +178,16 @@ untouched. Legacy estates simply never emit the label.
    change on upgrade).
 2. An adopting org flips `epics: true` in `.github/factory-branches.json`
    estate-wide (one PR per repo, or the setup step for new repos).
-3. In-flight epics finish on legacy routing; epics entering intake after the
-   flip route through epic branches. No data or label migration is needed —
-   `factory:on-epic` only ever appears on new-style epics.
-4. Rollback: flip the policy back; new epics revert to legacy routing.
-   In-flight epic-branch epics either finish under their original routing
-   (roles key off where the spec PR based, per D3) or are re-intaken.
+3. Epics with a gate document already merged to the default branch finish on
+   legacy routing. Every other epic — new intakes and in-flight epics whose
+   document PRs are still open — routes through an epic branch; open document
+   PRs are adopted by base-retarget at the epic's next stage run or gate
+   approval (D3). No data or label migration is needed — `factory:on-epic`
+   only ever appears on epic-branch epics.
+4. Rollback: flip the policy back; epics not yet past a gate merge revert to
+   legacy routing (their open document PRs are retargeted back to the default
+   branch at the next stage run). Epics already assembling on an epic branch
+   finish under epic-branch routing or are re-intaken.
 
 ## Open Questions
 
