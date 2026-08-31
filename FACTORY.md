@@ -41,7 +41,7 @@ body.** This prevents the two-sources-of-truth drift.
 | 4 | Implement | `/factory:implementer` | Branch + commits + draft PR per task via `/opsx:apply` |
 | 5 | Review | `/factory:reviewer` | Line-level review; approve or request changes |
 | 6 | Test | `/factory:qa` | Scenario→test mapping, full suites green, test report on PR |
-| 7 | Deploy | `/factory:release` | Dependency-ordered merges onto the **integration branch**, staging verification, then the promotion PRs a human merges at gate G3 (§6a) |
+| 7 | Deploy | `/factory:release` | Dependency-ordered merges onto the **epic branch** (§6b) and the epic's integration PR onto the **integration branch** — or straight onto integration when the epic has no epic branch — staging verification, then the promotion PRs a human merges at gate G3 (§6a) |
 | 8 | Verify | `/factory:ops` | Health/smoke checks, soak, `/opsx:archive`, issue closure |
 
 Stage 0 is optional and off by default: with release gating disabled a filed
@@ -53,7 +53,8 @@ labelled `factory:fast-track` and produces a branch, a test and a
 ready-for-review PR in a single run — no proposal, no `tasks.md`, no `design.md`
 and no gate but G3. It is the whole pipeline for changes too small to be worth
 the ceremony (§5). It skips the ceremony, not the staging step: its PR is based
-on the integration branch like every other implementation PR (§6a).
+on the integration branch (§6a) — the fast lane has no epic and so no epic
+branch (§6b).
 
 One more role sits outside the pipeline entirely: `/factory:profiler` writes and
 maintains `.factory/profile.json` (§2c), the file the stage roles above depend
@@ -359,7 +360,8 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:ready` | Task unblocked; implementer may start | Orchestrator | Implementer → `factory:in-review` |
 | `factory:in-review` | Draft PR under agent review | Implementer | Reviewer → `factory:in-test` (or back to `factory:ready`) |
 | `factory:in-test` | QA verifying scenarios | Reviewer | QA → `factory:ready-to-ship` |
-| `factory:ready-to-ship` | Green; awaiting the integration merge onto the staging branch (§6a) | QA | Release → `factory:in-staging` |
+| `factory:ready-to-ship` | Green; awaiting the merge onto the epic branch (§6b), or onto the staging branch when the epic has no epic branch (§6a) | QA | Release → `factory:on-epic` (or `factory:in-staging`) |
+| `factory:on-epic` | Merged onto the epic branch and green there; awaiting the epic → integration merge (§6b). Only with `epics: true` | Release | Release merges the integration PR → `factory:in-staging` |
 | `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
 | `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
@@ -393,10 +395,12 @@ Create them with `scripts/setup-labels.sh`.
   from using PR-merge tools. The merge button *is* the gate.
 
 The **integration merge** that precedes G3 is deliberately *not* a gate: the
-Release Manager merges each green task PR onto the integration branch itself,
-in dependency order, and runs the repo's staging health checks after each one.
-It costs a human nothing and it is what makes G3 a decision about a proven
-build rather than a hopeful one. Its state is `factory:in-staging` (§3).
+Release Manager merges each green task PR onto the epic branch (§6b) — or
+directly onto the integration branch when the epic has none (§6a) — in
+dependency order, running the repo's checks after each one, and carries the
+completed epic to the integration branch as one train. It costs a human
+nothing and it is what makes G3 a decision about a proven build rather than a
+hopeful one. Its states are `factory:on-epic` and `factory:in-staging` (§3).
 
 Everything else runs unattended. Any human may take over any stage at any time
 by doing the work manually and setting the next label.
@@ -425,12 +429,17 @@ by doing the work manually and setting the next label.
 
 ## 6. Branching and PRs
 
+- Epic branch (only with `epics: true`, §6b): `factory/epic-<epic-issue>`,
+  cut from the repo's default branch at intake. It is the epic's home: every
+  spec, design and task PR of that epic merges into it first.
 - Spec branch: `factory/<epic-issue>-spec`; shared plan+design branch:
   `factory/<epic-issue>-design` (carries `tasks.md` + `design.md` in the
-  epic's repo; `design.md` only in sibling repos).
-- Task branches: `factory/<task-issue-number>-<slug>` cut from the repo's
-  **integration branch** (§6a) — cutting from the default branch produces a
-  diff against a base that is missing everything already merged to integration.
+  epic's repo; `design.md` only in sibling repos). With `epics: true` both
+  are cut from the epic branch; otherwise from the default branch.
+- Task branches: `factory/<task-issue-number>-<slug>` cut from the epic
+  branch (§6b) when the epic has one, else from the repo's **integration
+  branch** (§6a) — cutting from the default branch produces a diff against a
+  base that is missing everything already merged ahead of it.
 - One task = one PR. PR body links its task issue (`Closes #N`) and the change
   folder, and notes any deviation from `design.md`.
 - Draft PR until the Reviewer marks it ready. CI must be green before
@@ -438,24 +447,48 @@ by doing the work manually and setting the next label.
 
 ### Where PRs merge (base branches)
 
+With `epics: true` (§6b), for every epic-pipeline PR:
+
+- **Document PRs (spec, plan+design):** into the **epic branch**. Gate G1/G2
+  approval squash-merges them there, so the approved change folder lives on
+  the epic branch — where every later stage of that epic reads it — and
+  reaches the default branch with the code, via staging, in the promotion
+  merge. Documents and code travel as one unit.
+- **Task PRs:** into the **epic branch**, merged by the Release Manager in
+  dependency order (§6b). A task PR based on the default or integration
+  branch is a blocking review finding.
+- **Integration PR:** one epic-branch → integration-branch PR per repo, opened
+  and merged by the Release Manager once the epic is complete and green on its
+  branch. Merging it puts the whole epic on staging — the release train
+  assembling.
+- **Production promotion (gate G3):** unchanged — one
+  integration → default-branch PR per repo, merged by a human.
+
+Under `epics: false` (and always, for the PR kinds below):
+
 - **Implementation PRs — task PRs and fast-lane PRs alike:** into the repo's
   **integration branch** (§6a), never the default branch. Merging there
   auto-deploys the staging environment — that's the release train assembling,
-  and the change being proved before anyone is asked to ship it.
+  and the change being proved before anyone is asked to ship it. Fast-lane
+  PRs take this route under either policy: the fast lane has no epic and no
+  epic branch.
 - **Production promotion (gate G3):** one integration → default-branch PR per
   repo, merged by a human in the Release Manager's posted order. That merge is
   the production deploy, and it is the **only** kind of PR that ever targets
   the default branch.
-- **Document PRs (spec, plan+design, profile):** the one exception — into the
-  repo's **default branch** directly. They are not changes to the product:
-  the deploy workflows `paths-ignore` the factory/document paths
-  (`openspec/**`, `docs/**`, `FACTORY.md`, `.claude/**`, factory workflow
-  files), so a docs-only merge deploys nothing, and there is nothing for a
-  staging environment to prove about them. Routing them through integration
-  would actively break the pipeline: every later stage clones the *default*
+- **Document PRs (spec, plan+design, profile) under `epics: false`** — and
+  profile PRs always, having no epic: into the repo's **default branch**
+  directly. They are not changes to the product: the deploy workflows
+  `paths-ignore` the factory/document paths (`openspec/**`, `docs/**`,
+  `FACTORY.md`, `.claude/**`, factory workflow files), so a docs-only merge
+  deploys nothing, and there is nothing for a staging environment to prove
+  about them. Routing them through integration would actively break the
+  pipeline: every later stage of a no-epic-branch epic clones the *default*
   branch, so an approved spec parked on the integration branch would be
-  invisible to the planner, the architect and every implementer until the next
-  release promoted it. Gates G1 and G2 are those PRs' review.
+  invisible to the planner, the architect and every implementer until the
+  next release promoted it. Gates G1 and G2 are those PRs' review. (With
+  `epics: true` the same two halves move together: documents merge to the
+  epic branch *and* stages read from it — §6b.)
 - During the pre-merge pilot, all PRs base on the factory development branch
   instead.
 
@@ -471,7 +504,7 @@ The policy lives in `.github/factory-branches.json`, copied from
 an org decision, not a per-repo one:
 
 ```json
-{ "staging": "staging", "required": true, "auto_create": true }
+{ "staging": "staging", "required": true, "auto_create": true, "epics": true }
 ```
 
 | Key | Meaning |
@@ -479,6 +512,7 @@ an org decision, not a per-repo one:
 | `staging` | The org's integration branch name. Absent file ⇒ `"staging"` |
 | `required` | `true` (default): an implementation PR may never be based on the default branch. `false`: the pre-policy fallback — integration where a profile names one, default branch elsewhere |
 | `auto_create` | `true` (default): the branch is cut from the default branch the first time it is needed, so adopting the policy costs no manual setup. `false`: a missing branch blocks the run instead |
+| `epics` | `true`: every epic gets a dedicated `factory/epic-<n>` branch that all of its artifacts merge into first (§6b). `false` (the default, and the absent-file/absent-key value): the pre-epic behaviour above |
 
 **Resolving the branch for a repo,** which the implementer, fast-track,
 reviewer, qa and release roles all do at step 0a:
@@ -506,6 +540,63 @@ the fix is to merge the default branch *into* integration and re-verify staging
 branch side. Long-lived integration branches rot if releases are rare; promote
 often.
 
+## 6b. The epic branch (each epic isolated, testable on its own)
+
+With `epics: true` in the policy file (§6a), each epic gets **one branch that
+holds everything the epic produces**: `factory/epic-<epic-issue-number>`, cut
+from the repo's **default branch** the first time the epic needs it — at
+intake, before the spec PR opens (creating it when it already exists is a
+no-op). For a cross-repo epic the number is the epic issue's number in the
+coordination repo, so the branch name is identical in every affected repo.
+
+**What routes through it.** The spec PR, the plan+design PR and every task PR
+of the epic base on the epic branch (§6); every post-intake stage of the epic
+— planner, architect, implementer, reviewer, qa, release phase 1, ops — checks
+out the epic branch, because the approved change folder lives there and
+nowhere else until promotion. The Release Manager assembles the epic's task
+PRs onto it in dependency order, verifying after each merge (and against a
+per-epic preview environment when the repo profile defines one). Tasks merged
+and green there carry `factory:on-epic` (§3).
+
+**Why cut from the default branch, not staging.** Cutting from staging would
+leak every other in-flight epic into this epic's test surface. Cut from the
+released baseline, each epic is provable on its own; the reconciliation with
+staging is paid exactly once, at the integration PR. To keep parallel epics
+from rotting, after any promotion PR merges, the default branch is merged
+*into* every live epic branch (a merge, never a rebase — epic branch history
+is never rewritten). A refresh conflict marks the epic `factory:blocked` with
+the conflicting files named; it is resolved on the epic branch, never
+silently.
+
+**Leaving the epic branch.** When every task is `factory:on-epic` and the
+epic branch's full suite is green, the Release Manager merges the integration
+branch into the epic branch (re-verifying if they diverged), then opens and
+merges **one integration PR per repo** — head the epic branch, base the
+integration branch, a merge commit so task history and a single-revert
+demotion path survive. That merge is the release train assembling; from there
+§6a applies unchanged: staging verification, then the human-merged promotion
+PR at gate G3. If staging goes red and the diagnosis lands on this epic, its
+integration merge commit is reverted and the epic returns to
+`factory:on-epic` — one epic demoted, not the estate.
+
+**Lifecycle end.** The epic branch is deleted by the Ops Monitor at archive
+time — after the promotion PR carrying the epic has merged (or the epic issue
+closes unshipped) — never earlier.
+
+**Adoption and the flip.** An epic is on epic-branch routing when
+`epics: true` **and** none of its gate documents has merged to the default
+branch. Flipping the key is therefore safe at any moment: an in-flight epic
+whose spec/design PRs are still open is adopted automatically — the next
+stage run or gate approval creates its epic branch and retargets the open
+document PRs' base onto it (a retarget keeps the PR, its reviews and its head
+branch). An epic already past a gate merge finishes on the routing it
+started with. The same rule runs in reverse on a flip back to `false`.
+
+**Writability.** Epic branches, like the integration branch, are
+agent-writable (§8a); only the default branch is human-only. The fast lane is
+unaffected: `factory:fast-track` changes have no epic and keep basing on the
+integration branch.
+
 ## 7. Cross-repo epics
 
 - The epic issue lives in the **coordination repo**, with sub-issues in each
@@ -521,11 +612,14 @@ often.
   profiles' `estate_role`: **schema/data-model change → the repo that owns the
   contract → the repos that consume it**. Every intermediate merge must be
   releasable.
-- The Release Manager treats the epic's PR set as one release train: every
-  repo's piece is merged onto that repo's integration branch (§6a) and green
-  there before any promotion PR is opened, and nothing is promoted to
-  production until the whole train is. One repo red on staging holds the
-  others on staging with it — that is cheap; a half-promoted estate is not.
+- The Release Manager treats the epic's PR set as one release train: with
+  `epics: true`, every repo's `factory/epic-<n>` branch (same name in each
+  affected repo, §6b) is complete and green before any repo's integration PR
+  merges, and integration merges follow the contract-first order above; then
+  every repo's piece is green on its integration branch (§6a) before any
+  promotion PR is opened, and nothing is promoted to production until the
+  whole train is. One repo red on staging holds the others on staging with it
+  — that is cheap; a half-promoted estate is not.
 
 ## 8a. Protected-branch enforcement (no GitHub branch protection required)
 
@@ -546,15 +640,17 @@ factory enforces gate G3 itself, in three layers:
    fails and opens a `factory:incident` issue if a commit lands on `main`
    without an associated pull request.
 
-The integration branch (§6a) deliberately remains agent-pushable so the Release
-Manager can assemble release trains autonomously; production (`main`) is
-human-only. That split is what makes the staging step work: the factory has a
+The integration branch (§6a) and the epic branches (§6b) deliberately remain
+agent-pushable so the Release Manager can assemble epics and release trains
+autonomously; production (`main`) is human-only. That split is what makes the staging step work: the factory has a
 branch it may write to and prove things on, and exactly one way — a human
 merging a promotion PR — for anything to leave it.
 
 Layer 3 also checks *where* a commit on `main` came from: a merge whose PR head
 was not the integration branch (and whose diff is not documents-only, §6) is
-reported on the incident issue as a change that skipped staging. It is a
+reported on the incident issue as a change that skipped staging — an epic
+branch merged straight to `main` is exactly that case: epic branches reach
+`main` only through the integration branch (§6b). It is a
 detection, not a block — a human may always merge whatever they judge necessary
 — but it is never silent.
 
@@ -583,7 +679,7 @@ on and this section becomes defence-in-depth rather than the primary control.
    point (§10); the `factory:intake` label it applies only starts the pipeline
    once the labels step below has run.
 2. **Labels** — `GITHUB_TOKEN=... bash scripts/setup-labels.sh <owner> <repo...>`
-   creates the 22 `factory:*` labels (§3). Run it once per repo.
+   creates the 23 `factory:*` labels (§3). Run it once per repo.
 3. **Secrets** — add `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN` as a
    **repository** secret (Settings → Secrets and variables → Actions).
    Environment secrets do *not* reach jobs that don't declare `environment:`,
@@ -603,13 +699,18 @@ on and this section becomes defence-in-depth rather than the primary control.
    `.github/factory-release.json` to gate intake behind milestones (§2d), and
    add a `release_scope` list to `.github/factory-approvers.json`. Leave the
    file out to keep the original behaviour.
-6a. **Integration branch** — copy `templates/factory-branches.json` to
-   `.github/factory-branches.json` and set `staging` to whatever your org calls
-   its integration/test branch. Copy the *same* file into every repo in the
-   estate: this is one org decision. Omitting the file is not opting out — the
-   defaults (`staging`, required, auto-created) apply either way; to opt out,
-   ship the file with `"required": false`. The branch itself needs no manual
-   setup while `auto_create` is on (§6a).
+6a. **Integration branch and epic branches** — copy
+   `templates/factory-branches.json` to `.github/factory-branches.json` and
+   set `staging` to whatever your org calls its integration/test branch. Copy
+   the *same* file into every repo in the estate: this is one org decision.
+   Omitting the file is not opting out — the defaults (`staging`, required,
+   auto-created, no epic branches) apply either way; to opt out of staging,
+   ship the file with `"required": false`. The template ships with
+   `"epics": true`, giving every epic its own `factory/epic-<n>` branch
+   (§6b); drop the key (or set `false`) for the pre-epic behaviour. Flipping
+   `epics` later is safe at any moment: an epic only follows the new value
+   while none of its gate documents has merged (§6b). Neither branch needs
+   manual setup while `auto_create` is on (§6a).
 7. **Install the factory** — §10.
 8. Protected-branch enforcement is factory-side (§8a) — nothing to configure on
    GitHub. If you later move to a plan with branch protection or rulesets, turn

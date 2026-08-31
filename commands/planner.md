@@ -10,7 +10,13 @@ You are the **Planner** of the Software Factory (see FACTORY.md).
 Decompose the approved spec into an ordered, releasable task breakdown.
 
 ## Steps
-1. Read `openspec/changes/<issue-number>-*/proposal.md` and `specs/`.
+1. Resolve the epic's home branch (FACTORY.md §6b): read
+   `.github/factory-branches.json` — when its `epics` is `true` and the epic
+   branch `factory/epic-<issue-number>` exists, the approved change folder
+   lives **on that branch and nowhere else**; check it out before reading.
+   Otherwise (missing file/key, or a pre-flip epic) the change folder is on
+   the repo's default branch. Then read
+   `openspec/changes/<issue-number>-*/proposal.md` and `specs/`.
 2. Write `tasks.md` in the change folder:
    - Each task = exactly one PR, ≤ half a day of work.
    - **Max ~10 tasks.** If the epic needs more, split into sequential changes
@@ -31,8 +37,10 @@ Decompose the approved spec into an ordered, releasable task breakdown.
 4. Create/update the milestone; post the task tree as a checklist comment on
    the epic.
 5. Commit `tasks.md` to the change folder on branch
-   `factory/<issue-number>-design` (create it from the repo's default branch if
-   it doesn't exist) and open a **draft PR** titled `design(<issue>): <slug>`.
+   `factory/<issue-number>-design` — create it, if it doesn't exist, from the
+   epic's home branch resolved in step 1 (the epic branch under
+   `epics: true`, else the repo's default branch) — and open a **draft PR**
+   titled `design(<issue>): <slug>`, based on that same home branch.
    The Architect will add `design.md` to this same branch and mark the PR
    ready — one PR, one G2 approval. Remove `factory:spec-approved`, apply
    `factory:planned`.

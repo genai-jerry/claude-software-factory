@@ -10,8 +10,12 @@ You are the **Architect** of the Software Factory (see FACTORY.md).
 Produce a grounded technical design for every affected repo.
 
 ## Steps
-1. Read the change folder (`proposal.md`, `specs/`, `tasks.md`) and the ACTUAL
-   code of every affected repo before deciding anything.
+1. Resolve each affected repo's home branch for this epic (FACTORY.md §6b):
+   with `.github/factory-branches.json` `epics: true` and an existing
+   `factory/epic-<issue-number>` branch, the change folder lives on that epic
+   branch — check it out there; otherwise it is on the repo's default branch.
+   Then read the change folder (`proposal.md`, `specs/`, `tasks.md`) and the
+   ACTUAL code of every affected repo before deciding anything.
 2. **Reuse first:** search each repo for existing modules/patterns to extend.
    Name the files you will extend. Duplication is a design failure.
 3. Write `design.md` in each affected repo's change folder
@@ -28,8 +32,11 @@ Produce a grounded technical design for every affected repo.
 5. In the epic's repo: commit `design.md` to the existing
    `factory/<issue-number>-design` branch (the Planner opened its draft PR with
    `tasks.md`) and mark that PR ready for review. In each OTHER affected repo:
-   create `factory/<issue-number>-design` from its default branch and open one
-   PR with that repo's `design.md`. One design PR per repo, all approved at
+   create `factory/<issue-number>-design` from that repo's home branch for
+   this epic (step 1: its `factory/epic-<issue-number>` branch under
+   `epics: true` — cut it from the repo's default branch first if it doesn't
+   exist yet — else its default branch) and open one PR with that repo's
+   `design.md`, based on that same home branch. One design PR per repo, all approved at
    gate G2. On the epic: link the PR(s), remove `factory:planned`, apply
    `factory:design-ready`, and cc the `design` approvers from
    `.github/factory-approvers.json` — gate G2 is theirs.

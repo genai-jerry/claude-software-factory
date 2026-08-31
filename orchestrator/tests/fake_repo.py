@@ -17,7 +17,10 @@ class FakeRepo:
         self.created: list[dict[str, Any]] = []
         self.assigned: list[tuple[int, list[str]]] = []
         self.merged_prs: list[int] = []
+        # PR number -> base branch it was merged into (epic-branch routing).
+        self.merged_bases: dict[int, str] = {}
         self.open_prs: dict[str, list[dict[str, Any]]] = {}
+        self.branches: list[str] = ["main"]
 
     # -- helpers -----------------------------------------------------------
     def labels_of(self, n: int) -> list[str]:
@@ -73,6 +76,23 @@ class FakeRepo:
 
     def merge_pr(self, number, method="squash"):
         self.merged_prs.append(number)
+        for prs in self.open_prs.values():
+            for pr in prs:
+                if pr.get("number") == number:
+                    self.merged_bases[number] = (pr.get("base") or {}).get("ref", "main")
+
+    def update_pr_base(self, number, base):
+        for prs in self.open_prs.values():
+            for pr in prs:
+                if pr.get("number") == number:
+                    pr["base"] = {"ref": base}
+
+    def branch_exists(self, name):
+        return name in self.branches
+
+    def create_branch(self, name, from_branch):
+        if name not in self.branches:
+            self.branches.append(name)
 
     def get_file(self, path, ref=None):
         return None

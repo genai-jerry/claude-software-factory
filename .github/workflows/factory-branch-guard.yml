@@ -100,6 +100,10 @@ jobs:
                 core.info(`OK: PR #${pr.number} is a documents-only PR (${files.length} files)`);
                 return;
               }
+              // An epic branch merged straight to the default branch is the
+              // §6b variant of the same skip: epics reach the default branch
+              // only through the integration branch.
+              const epicHead = /^factory\/epic-\d+$/.test(pr.head.ref);
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -109,6 +113,12 @@ jobs:
                   `A code change reached \`${branch}\` from \`${pr.head.ref}\` rather than from the`,
                   `integration branch \`${integration}\`, so it was never proved on staging.`,
                   ``,
+                  ...(epicHead ? [
+                    `\`${pr.head.ref}\` is an **epic branch** (FACTORY.md §6b): a completed epic merges to`,
+                    `\`${integration}\` via its integration PR and reaches \`${branch}\` only in a promotion PR.`,
+                    `Merging the epic branch here skipped the staging proof entirely.`,
+                    ``,
+                  ] : []),
                   `- Commit: ${sha}`,
                   `- Pull request: #${pr.number}`,
                   `- Head branch: \`${pr.head.ref}\``,

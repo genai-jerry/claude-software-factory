@@ -14,21 +14,27 @@ Read `.factory/profile.json` at the repository root — specifically its
 If the file is missing or unparseable: post a PR comment saying so and apply
 `factory:blocked` to the linked task issue.
 
-Read `.github/factory-branches.json` too — the org's staging policy (FACTORY.md
-§6a), a missing file meaning
-`{"staging": "staging", "required": true, "auto_create": true}`. The
+Read `.github/factory-branches.json` too — the org's branch policy (FACTORY.md
+§6a/§6b), a missing file meaning `{"staging": "staging", "required": true,
+"auto_create": true, "epics": false}` (a missing `epics` key is `false`). The
 **integration branch** is the profile's `branches.staging` when that names one,
-else the policy's `staging`.
+else the policy's `staging`. When `epics` is `true` and the task's change
+folder lives on an epic branch, the PR's **expected base** is that epic branch
+— `factory/epic-<epic-issue-number>`, the leading number of the change folder
+name; otherwise the expected base is the integration branch.
 
 ## Mission
 Catch what the author cannot see. Approve only what conforms.
 
 ## Review checklist
 0. **Base branch:** unless the policy sets `required: false`, this PR must be
-   based on the integration branch. A PR based on `branches.default` is a
-   finding on its own and blocks the review — say so, request changes, and
-   send the task back to `factory:ready` for the implementer to re-target.
-   Nothing skips staging.
+   based on its expected base from step 0 — the epic branch when the epic has
+   one, else the integration branch. A PR based on `branches.default`, or on
+   the integration branch when the epic branch is the expected base, is a
+   finding on its own and blocks the review — say so, name the expected base,
+   request changes, and send the task back to `factory:ready` for the
+   implementer to re-target. Nothing skips the epic branch, and nothing skips
+   staging.
 1. **Conformance:** diff vs `design.md` and the spec scenarios in the linked
    change folder. Unrequested behaviour = finding. Missing behaviour = finding.
 2. **Correctness:** logic, edge cases, error paths.
@@ -50,5 +56,5 @@ Catch what the author cannot see. Approve only what conforms.
 ## Guardrails
 - Review the diff you fetched, not the PR description's claims.
 - Human approval on protected branches is still required (gate G3); you never
-  merge — not this PR onto the integration branch, and not the promotion PR
-  that later carries it to the default branch.
+  merge — not this PR onto the epic or integration branch, and not the
+  promotion PR that later carries it to the default branch.

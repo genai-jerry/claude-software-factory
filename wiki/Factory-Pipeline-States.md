@@ -45,7 +45,8 @@ flowchart TB
     G["factory:ready"] -- "Implementer" --> H["factory:in-review"]
     H -- "Reviewer" --> I["factory:in-test"]
     I -- "QA" --> J["factory:ready-to-ship"]
-    J -- "Release Manager<br/>merges onto staging" --> S["factory:in-staging"]
+    J -- "Release Manager<br/>merges onto the epic branch" --> E2["factory:on-epic"]
+    E2 -- "Release Manager<br/>integration PR → staging" --> S["factory:in-staging"]
     S -- "G3 · human merges<br/>the promotion PR" --> K["factory:deployed"]
   end
 
@@ -59,7 +60,7 @@ flowchart TB
   classDef halt fill:#F5E6E3,stroke:#A33526,stroke-width:1.5px,color:#4E1811
   classDef entry fill:#EDF0F1,stroke:#9FADB1,stroke-width:1.5px,color:#3A464B
 
-  class A,C,D,F,G,H,I,J,R0,R1,R3 state
+  class A,C,D,F,G,H,I,J,E2,R0,R1,R3 state
   class B,E,S,R2 gate
   class K done
   class X halt
@@ -73,6 +74,12 @@ flowchart TB
 
 Rust-filled states wait on a human. Everything else advances on its own the
 moment the previous role finishes.
+
+The `factory:on-epic` hop exists only with the epic-branch policy on
+(`"epics": true` in `.github/factory-branches.json`, FACTORY.md §6b). With it
+off, `factory:ready-to-ship` moves straight to `factory:in-staging` — the
+Release Manager merges task PRs directly onto the integration branch, the
+pre-epic behaviour.
 
 ## The gates
 
@@ -119,7 +126,8 @@ may approve," which is probably not what you want.
 | `factory:ready` | Implementer | Comment **Approved** on the task claims it |
 | `factory:in-review` | Reviewer | Code review against the approved design |
 | `factory:in-test` | QA | Test suite and acceptance criteria |
-| `factory:ready-to-ship` | Release Manager | Merges the PR onto the integration branch and verifies staging |
+| `factory:ready-to-ship` | Release Manager | Merges the PR onto the epic branch (or straight onto staging when the epic has none) and verifies it |
+| `factory:on-epic` | Release Manager | Epic complete and green on its branch → one integration PR carries it to staging (§6b; only with `epics: true`) |
 | `factory:in-staging` | — waits — | Human merges the promotion PR · gate G3 |
 | `factory:deployed` | Release / Ops | Terminal for the epic |
 | `factory:blocked` | — halted — | Any role may apply it; resume is manual |
@@ -160,26 +168,38 @@ was waiting. See [[Re-dispatch on Task Close]].
 ## Staging first
 
 `factory:ready-to-ship` used to mean "awaiting the merge that ships it". It now
-means "awaiting the merge that *stages* it", and a second state,
-`factory:in-staging`, holds the gate. The step between them is the whole point:
-the Release Manager merges each green task PR onto the integration branch in
-dependency order, watches that repo's staging deploy and runs its health checks,
-and only then opens the promotion PRs. Nothing the factory writes reaches the
-default branch without passing through that branch first — implementation PRs
-are based on it, and the only PR that ever targets the default branch is a
-promotion from it.
+means "awaiting the merge that *assembles* it", and two further states hold
+the path to production. With the epic-branch policy on (`"epics": true`,
+FACTORY.md §6b) the Release Manager merges each green task PR onto the
+**epic's own branch** `factory/epic-<n>` in dependency order and verifies it
+there (`factory:on-epic`); when the whole epic is green, one integration PR
+carries it to the **integration branch**, where the staging deploy and health
+checks run (`factory:in-staging`); only then are the promotion PRs opened.
+Epics assemble in isolation — a red epic branch blocks only its own epic —
+and staging takes only completed, proven epics. With the policy off, task PRs
+merge straight onto the integration branch, the pre-epic behaviour. Either
+way, nothing the factory writes reaches the default branch without passing
+through the integration branch, and the only PR that ever targets the default
+branch is a promotion from it.
 
-Document PRs (spec, plan+design, profile) are the one exception and still merge
-straight to the default branch. They change no product code, the deploy
-workflows ignore their paths, and every later stage clones the default branch —
-an approved spec parked on the integration branch would be invisible to the
-planner, the architect and every implementer until the next release. Gates G1
-and G2 are those PRs' review.
+Document PRs (spec, plan+design) follow the same policy: with epic branches
+on, they merge into the epic branch at gates G1/G2 and every later stage of
+that epic checks the epic branch out, so documents and code travel as one
+unit and reach `main` together in the promotion. Without epic branches they
+merge straight to the default branch — they change no product code, the
+deploy workflows ignore their paths, and every later stage clones the default
+branch, so a spec parked on the integration branch would be invisible to the
+planner, the architect and every implementer until the next release. Profile
+PRs, having no epic, always take the default-branch route. Gates G1 and G2
+are those PRs' review.
 
-The branch is named once per estate in `.github/factory-branches.json`
-(`{"staging": "staging", "required": true, "auto_create": true}`); a repo whose
-branch is called something else overrides the *name* in its
-`.factory/profile.json`. Full rules: FACTORY.md §6a.
+The branches are named once per estate in `.github/factory-branches.json`
+(`{"staging": "staging", "required": true, "auto_create": true, "epics":
+true}`); a repo whose integration branch is called something else overrides
+the *name* in its `.factory/profile.json`. Flipping `epics` is safe at any
+moment: an in-flight epic whose gate documents are still unmerged is adopted
+(branch created, open document PRs retargeted); one past a gate merge
+finishes as it started. Full rules: FACTORY.md §6a–§6b.
 
 ## See also
 

@@ -104,6 +104,7 @@ class Engine:
         return RepoConfig(
             release=parse_json_or_empty(port.get_file(".github/factory-release.json")),
             approvers=parse_json_or_empty(port.get_file(".github/factory-approvers.json")),
+            branches=parse_json_or_empty(port.get_file(".github/factory-branches.json")),
         )
 
     def token_for_role(self, owner: str, repo: str) -> str:
