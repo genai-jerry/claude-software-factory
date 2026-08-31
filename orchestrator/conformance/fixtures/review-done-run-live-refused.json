@@ -1,0 +1,35 @@
+{
+  "name": "review-done-run-live-refused",
+  "description": "Review Done has no effect while the Reviewer is already running (factory:in-progress present)",
+  "repo": {
+    "issues": [
+      {
+        "number": 12,
+        "title": "task(5) Add renewals",
+        "labels": ["factory:in-review", "factory:in-progress"]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 12,
+    "comment": {
+      "body": "Review Done",
+      "login": "alice",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "12": {
+        "has": ["factory:in-review", "factory:in-progress"],
+        "not": ["factory:in-test"]
+      }
+    },
+    "comments": {
+      "12": { "countAtLeast": 1, "contains": ["already live on this issue"] }
+    }
+  }
+}

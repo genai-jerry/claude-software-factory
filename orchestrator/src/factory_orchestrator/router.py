@@ -320,6 +320,7 @@ class Router:
         labels = _names(i.get("labels"))
         is_approval = bool(re.match(r"^\s*approved\s*[.!]?\s*$", body, re.IGNORECASE))
         is_plan_release = bool(re.match(r"^\s*plan\s+release\s*[.!]?\s*$", body, re.IGNORECASE))
+        is_review_done = bool(re.match(r"^\s*review\s+done\s*[.!]?\s*$", body, re.IGNORECASE))
         is_tracker = RELEASE_KIND in labels
         assoc_ok = (payload.get("comment") or {}).get("author_association") in (
             "OWNER", "MEMBER", "COLLABORATOR")
@@ -362,6 +363,34 @@ class Router:
                 self.port.add_labels(i["number"], ["factory:release-approved"])
                 r.release_issue = r.issue
                 log.info("Gate G0 approved via comment - releasing the milestone")
+        elif is_review_done and "factory:in-review" in labels:
+            # A human review substitutes for the Reviewer agent: the same
+            # "clean" verdict shape (factory:in-review -> factory:in-test)
+            # without running it. There is no "changes requested" equivalent
+            # here — a human who found problems reviews the draft PR directly
+            # on GitHub instead of commenting here.
+            if not assoc_ok:
+                self.say(i["number"],
+                         f"@{sender} — marking a review done requires owner, member or collaborator access "
+                         "on this repository.")
+            elif IN_PROGRESS in labels:
+                # Mirrors the factory:ready/Approved race guard: the Reviewer
+                # may be mid-run producing this very verdict.
+                self.say(i["number"],
+                         "`Review Done` has no effect right now — a factory run is already live on this "
+                         "issue (`factory:in-progress`).\n\n"
+                         "The Reviewer may already be working out this verdict; marking it done now would "
+                         "race its own result. Wait for the marker to clear, then comment again if the task "
+                         "is still `factory:in-review`.")
+                log.info("A run is already live on #%s - not skipping the Reviewer", i["number"])
+            else:
+                self.drop_label(i["number"], "factory:in-review")
+                self.port.add_labels(i["number"], ["factory:in-test"])
+                self.say(i["number"],
+                         f"Marked reviewed by @{sender} — skipping the automated Reviewer, moving to "
+                         "`factory:in-test`. This shortcut only relabels the task; if the draft PR is still "
+                         "marked draft, mark it ready for review yourself.")
+                log.info("Review marked done via comment - skipping the Reviewer")
         elif is_approval and "factory:ready" in labels:
             if not authorized("implementation"):
                 refuse("implementation", "starting implementation")
@@ -466,6 +495,12 @@ class Router:
                             (f"**{pms['title']}** has no release tracker yet; one is opened when the milestone "
                              "is created or first used." if pms else
                              "This issue is not in a milestone, so there is no release to plan.")))
+            elif is_review_done:
+                self.say(i["number"],
+                         f'"Review Done" has no effect while this is at **{self.state_of(labels)}** — nothing '
+                         "changed.\n\n"
+                         "It only applies to `factory:in-review`: marking a human review complete so the task "
+                         "moves to `factory:in-test` without waiting on the Reviewer agent.")
             log.info("Issue not factory:blocked - comments only resume blocked stages or approve gates")
         else:
             resume = {

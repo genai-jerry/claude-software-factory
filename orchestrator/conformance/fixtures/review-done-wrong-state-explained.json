@@ -1,0 +1,34 @@
+{
+  "name": "review-done-wrong-state-explained",
+  "description": "Review Done outside factory:in-review gets an explanatory reply, not silence",
+  "repo": {
+    "issues": [
+      {
+        "number": 12,
+        "title": "task(5) Add renewals",
+        "labels": ["factory:in-test"]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 12,
+    "comment": {
+      "body": "Review Done",
+      "login": "alice",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "12": {
+        "has": ["factory:in-test"]
+      }
+    },
+    "comments": {
+      "12": { "countAtLeast": 1, "contains": ["has no effect while this is at", "factory:in-test"] }
+    }
+  }
+}
