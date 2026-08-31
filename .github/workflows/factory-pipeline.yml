@@ -48,6 +48,10 @@ name: Factory pipeline (reusable)
 #   That is not a gate — implementation had no trigger of its own, so a ready
 #   task sat until someone ran the workflow by hand. Authorised against the
 #   `implementation` approver list.
+# - A comment of exactly "Review Done" on a factory:in-review task skips the
+#   Reviewer agent: it flips factory:in-review -> factory:in-test directly, for
+#   a human who reviewed the draft PR themselves. Like starting the Reviewer,
+#   there is no approver list for this stage — any collaborator may say it.
 # - While a role is actually running, its issue carries factory:in-progress.
 #   A role takes minutes, and until it finished the issue looked exactly like
 #   one nothing had started on; the marker makes "a GitHub Action is working on
@@ -408,6 +412,7 @@ jobs:
               const labels = namesOf(i.labels);
               const isApproval = /^\s*approved\s*[.!]?\s*$/i.test(body);
               const isPlanRelease = /^\s*plan\s+release\s*[.!]?\s*$/i.test(body);
+              const isReviewDone = /^\s*review\s+done\s*[.!]?\s*$/i.test(body);
               const isTracker = labels.includes(RELEASE_KIND);
               const assocOk = ['OWNER', 'MEMBER', 'COLLABORATOR']
                 .includes(context.payload.comment.author_association);
@@ -455,6 +460,34 @@ jobs:
                   await addLabels(i.number, ['factory:release-approved']);
                   releaseIssue = issue;
                   core.info('Gate G0 approved via comment - releasing the milestone');
+                }
+              } else if (isReviewDone && labels.includes('factory:in-review')) {
+                // A human review substitutes for the Reviewer agent: the same
+                // "clean" verdict shape (factory:in-review -> factory:in-test)
+                // without running it. There is no "changes requested"
+                // equivalent here — a human who found problems reviews the
+                // draft PR directly on GitHub instead of commenting here.
+                if (!assocOk) {
+                  await say(i.number,
+                    `@${sender} — marking a review done requires owner, member or collaborator access on this repository.`);
+                } else if (labels.includes(IN_PROGRESS)) {
+                  // Mirrors the factory:ready/Approved race guard: the
+                  // Reviewer may be mid-run producing this very verdict.
+                  await say(i.number,
+                    '`Review Done` has no effect right now — a factory run is already live on this issue ' +
+                    '(`factory:in-progress`).\n\n' +
+                    'The Reviewer may already be working out this verdict; marking it done now would race its ' +
+                    'own result. Wait for the marker to clear, then comment again if the task is still ' +
+                    '`factory:in-review`.');
+                  core.info(`A run is already live on #${i.number} - not skipping the Reviewer`);
+                } else {
+                  await dropLabel(i.number, 'factory:in-review');
+                  await addLabels(i.number, ['factory:in-test']);
+                  await say(i.number,
+                    `Marked reviewed by @${sender} — skipping the automated Reviewer, moving to ` +
+                    '`factory:in-test`. This shortcut only relabels the task; if the draft PR is still marked ' +
+                    'draft, mark it ready for review yourself.');
+                  core.info('Review marked done via comment - skipping the Reviewer');
                 }
               } else if (isApproval && labels.includes('factory:ready')) {
                 // Implementation start is NOT a gate (the gates are G0 release,
@@ -620,6 +653,11 @@ jobs:
                         ? `**${pms.title}** has no release tracker yet; one is opened when the milestone ` +
                           'is created or first used.'
                         : 'This issue is not in a milestone, so there is no release to plan.'));
+                } else if (isReviewDone) {
+                  await say(i.number,
+                    `"Review Done" has no effect while this is at **${stateOf(labels)}** — nothing changed.\n\n` +
+                    'It only applies to `factory:in-review`: marking a human review complete so the task moves ' +
+                    'to `factory:in-test` without waiting on the Reviewer agent.');
                 }
                 core.info('Issue not factory:blocked - comments only resume blocked stages or approve gates');
               } else {

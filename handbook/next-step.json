@@ -63,7 +63,7 @@
     },
     "factory:in-review": {
       "who": "a human, then the Reviewer",
-      "how": "`factory:in-review` starts nothing on its own. Start the review — the Factory Console's **Start the Reviewer** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `reviewer`, issue `{issue}`). The Reviewer reads the draft PR this task links and moves it to `factory:in-test`, or back to `factory:ready` with changes requested. Do not merge the draft PR yourself: review and QA are what make it mergeable, and the Release Manager merges it."
+      "how": "`factory:in-review` starts nothing on its own. Start the review — the Factory Console's **Start the Reviewer** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `reviewer`, issue `{issue}`). The Reviewer reads the draft PR this task links and moves it to `factory:in-test`, or back to `factory:ready` with changes requested. Reviewed it yourself instead? Comment exactly `Review Done` here to skip the Reviewer and move straight to `factory:in-test` — there is no changes-requested equivalent for that path; if you found problems, review the draft PR directly on GitHub. Do not merge the draft PR yourself either way: review and QA are what make it mergeable, and the Release Manager merges it."
     },
     "factory:in-test": {
       "who": "a human, then QA",

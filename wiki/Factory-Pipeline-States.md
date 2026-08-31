@@ -124,7 +124,7 @@ may approve," which is probably not what you want.
 | `factory:design-ready` | — waits — | Owner comments **Approved** · gate G2 |
 | `factory:design-approved` | Dispatcher | Fans the epic out into task sub-issues |
 | `factory:ready` | Implementer | Comment **Approved** on the task claims it |
-| `factory:in-review` | Reviewer | Code review against the approved design |
+| `factory:in-review` | Reviewer | Code review against the approved design, or a human comments **Review Done** to skip it |
 | `factory:in-test` | QA | Test suite and acceptance criteria |
 | `factory:ready-to-ship` | Release Manager | Merges the PR onto the epic branch (or straight onto staging when the epic has none) and verifies it |
 | `factory:on-epic` | Release Manager | Epic complete and green on its branch → one integration PR carries it to staging (§6b; only with `epics: true`) |

@@ -1,0 +1,35 @@
+{
+  "name": "review-done-starts-in-test",
+  "description": "a collaborator comments Review Done on a factory:in-review task: skips the Reviewer, moves straight to factory:in-test",
+  "repo": {
+    "issues": [
+      {
+        "number": 12,
+        "title": "task(5) Add renewals",
+        "labels": ["factory:in-review"]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 12,
+    "comment": {
+      "body": "Review Done",
+      "login": "alice",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "12": {
+        "has": ["factory:in-test"],
+        "not": ["factory:in-review"]
+      }
+    },
+    "comments": {
+      "12": { "countAtLeast": 1, "contains": ["Marked reviewed by @alice", "factory:in-test"] }
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "review-done-unauthorized",
+  "description": "Review Done from someone with no repository access is refused and nothing changes",
+  "repo": {
+    "issues": [
+      {
+        "number": 12,
+        "title": "task(5) Add renewals",
+        "labels": ["factory:in-review"]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 12,
+    "comment": {
+      "body": "Review Done",
+      "login": "randal",
+      "authorAssociation": "NONE"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "12": {
+        "has": ["factory:in-review"],
+        "not": ["factory:in-test"]
+      }
+    },
+    "comments": {
+      "12": { "countAtLeast": 1, "contains": ["requires owner, member or collaborator access"] }
+    }
+  }
+}
