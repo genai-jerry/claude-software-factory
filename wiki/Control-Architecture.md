@@ -205,6 +205,27 @@ exactly one place — the implementation start, where `factory:ready` stays put
 for the whole run and a second `Approved` would otherwise start a second
 implementer on the same task and branch.
 
+### The silent hand-off
+
+**Symptom.** A role finishes, the label moves, and the thread goes quiet. The
+issue is now at `factory:in-review` (or `in-test`, or `ready-to-ship`) and
+nothing on it says whose turn it is — least of all that those three states
+start nothing on their own and are *waiting for a human to start the next
+role*. Reading the state machine by heart was the only way to know.
+
+**Cause.** The pipeline said plenty when it refused something and nothing when
+it succeeded. Hand-off notices existed only for labels applied by a human
+(`notifyOf` on the `labeled` event), and labels applied by a run emit no
+events.
+
+**Guard.** Every role run ends with one comment on the issue naming the state
+it left behind, the next actor, and the exact control that actor uses. The
+wording is data — `handbook/next-step.json`, one entry per state — rendered by
+both engines so they cannot drift, and said once per state entry so a re-run
+does not repeat it while a genuine re-entry (review → ready → review) does.
+It posts *after* the no-op guard, so it can never be the visible trace that
+lets a role which did nothing pass for one that worked.
+
 ### The silent green
 
 **Symptom.** A run finishes green and the issue has not moved at all.

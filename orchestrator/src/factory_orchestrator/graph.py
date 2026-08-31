@@ -38,6 +38,7 @@ from .guards import (
     mark_in_progress,
     no_op_reason,
     report_failure,
+    report_next_step,
     report_start,
     snapshot,
     verify_no_op,
@@ -238,6 +239,18 @@ def run_link_base(engine: Engine, owner: str, repo: str) -> str:
     return engine.cfg.public_base_url
 
 
+def factory_checkout(engine: Engine):
+    """Where this engine's pinned factory checkout is, when it has one.
+
+    The hand-off table ships with the factory repo, so it is read from the
+    same checkout the role prompt comes from. A runner without a source (the
+    fakes in the tests, a future runner that assembles prompts elsewhere)
+    simply gets no table and no notice.
+    """
+    source = getattr(engine.runner, "source", None)
+    return source.path() if source is not None and hasattr(source, "path") else None
+
+
 def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
     """One guarded role run — the whole Actions agent job as a function."""
     owner, repo, role, issue = item["owner"], item["repo"], item["role"], item["issue"]
@@ -323,6 +336,12 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
                                  transcript_path=str(transcript_path), error=error)
         if status != "success":
             report_failure(port, issue, role, run_url, reason=error)
+        else:
+            # Every run leaves the issue saying what is expected next. The
+            # role has just moved the label (or deliberately not), so this
+            # reads the state it actually ended in rather than the one the
+            # run started from.
+            report_next_step(port, issue, role, factory_checkout(engine))
         summary["status"] = status
         log.info("role finish role=%s repo=%s/%s#%s run=%s status=%s traced=%s",
                  role, owner, repo, issue, run_id, status, traced)

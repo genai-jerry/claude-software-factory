@@ -92,6 +92,19 @@ events, so **filing a plain issue is all a requester does**:
 | Human replies on a `factory:blocked` issue | `factory:blocked` is cleared and the blocked stage re-runs, re-reading the whole thread (agent comments carry an `<!-- factory-agent -->` marker so they never self-trigger) |
 | Actions → "Factory pipeline" → *Run workflow* | Any role on any issue/PR number (the manual/retry path; used for reviewer/qa/release/ops until those are event-wired) |
 
+Every one of those runs ends by saying, on the issue, what is expected of the
+next actor: which state the role left the issue in, who moves it from there,
+and the exact control they use — a comment to type, a PR to merge, a Console
+button, or a role to start. The wording is `handbook/next-step.json`, one
+entry per `factory:*` state, rendered by both engines
+(`scripts/say_next_step.py` for Actions, `factory_orchestrator.next_step` for
+the orchestrator) so they cannot drift. It is said once per state: a task the
+Reviewer sends back to `factory:ready` is announced again, a re-run that ends
+where it started is not. This matters most for the states with no trigger of
+their own — `factory:in-review`, `factory:in-test`, `factory:ready-to-ship`
+are the pipeline waiting for a human to start the next role, and until the
+notice existed nothing on the issue said so.
+
 While any of those runs is actually executing a role, its issue carries
 `factory:in-progress` — the pipeline applies it when the agent job starts and
 removes it when the job ends, whatever the outcome. A role takes minutes, and

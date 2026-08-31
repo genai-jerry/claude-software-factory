@@ -3,3 +3,5 @@
 node_modules/
 package-lock.json
 orchestrator/factory-orchestrator.tar.gz
+__pycache__/
+*.pyc

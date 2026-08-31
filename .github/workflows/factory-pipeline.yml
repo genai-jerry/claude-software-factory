@@ -1239,6 +1239,24 @@ jobs:
           fi
           echo "::error::Role '$ROLE' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
           exit 1
+      - name: Say what happens next
+        # Every run leaves the issue saying what is expected of the next
+        # actor. A role that finished cleanly used to say nothing at all: the
+        # label moved and the thread went quiet, and the states with no
+        # trigger of their own (in-review, in-test, ready-to-ship) were the
+        # pipeline waiting on a human with nothing on the issue to say so.
+        #
+        # After the no-op guard on purpose — this comment must never be the
+        # "visible trace" that lets a role which did nothing pass for one that
+        # worked. github.token, like every other notice here: a comment from
+        # the workflow token emits no events and can never trigger a run.
+        if: success() && matrix.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ matrix.issue }}
+          ROLE: ${{ needs.route.outputs.role }}
+        run: python3 "$RUNNER_TEMP/factory/scripts/say_next_step.py"
       - name: Report the failure on the issue
         # A dead run is otherwise a red X on an Actions tab nobody watches: the
         # issue thread is where the humans (and the Factory Console) already
@@ -1563,6 +1581,24 @@ jobs:
           fi
           echo "::error::Role 'intake' finished but changed nothing on #$ISSUE - no factory:* label change and no new comment. $HINT"
           exit 1
+      - name: Say what happens next
+        # Every run leaves the issue saying what is expected of the next
+        # actor. A role that finished cleanly used to say nothing at all: the
+        # label moved and the thread went quiet, and the states with no
+        # trigger of their own (in-review, in-test, ready-to-ship) were the
+        # pipeline waiting on a human with nothing on the issue to say so.
+        #
+        # After the no-op guard on purpose — this comment must never be the
+        # "visible trace" that lets a role which did nothing pass for one that
+        # worked. github.token, like every other notice here: a comment from
+        # the workflow token emits no events and can never trigger a run.
+        if: success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ matrix.issue }}
+          ROLE: intake
+        run: python3 "$RUNNER_TEMP/factory/scripts/say_next_step.py"
       - name: Clear the in-progress marker
         if: always()
         continue-on-error: true
@@ -1743,6 +1779,27 @@ jobs:
             --model ${{ steps.model.outputs.model }}
             --permission-mode acceptEdits
             --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Say what happens next
+        # Every run leaves the issue saying what is expected of the next
+        # actor. A role that finished cleanly used to say nothing at all: the
+        # label moved and the thread went quiet, and the states with no
+        # trigger of their own (in-review, in-test, ready-to-ship) were the
+        # pipeline waiting on a human with nothing on the issue to say so.
+        #
+        # After the no-op guard on purpose — this comment must never be the
+        # "visible trace" that lets a role which did nothing pass for one that
+        # worked. github.token, like every other notice here: a comment from
+        # the workflow token emits no events and can never trigger a run.
+        # The gate is part of the condition: when the planner did not reach
+        # factory:planned this job skips the architect entirely, and the
+        # planner's own run already said what happens next.
+        if: success() && steps.gate.outputs.proceed == 'true' && needs.route.outputs.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+          ROLE: architect
+        run: python3 "$RUNNER_TEMP/factory/scripts/say_next_step.py"
       - name: Clear the in-progress marker
         if: always() && needs.route.outputs.issue != ''
         continue-on-error: true
