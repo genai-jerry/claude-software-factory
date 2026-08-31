@@ -96,3 +96,31 @@ async def test_run_json_includes_event_log(tmp_path):
             "waiting for tests", "pushing the branch"]
         assert "transcript_path" not in body
     await with_client(app, go)
+
+
+async def test_a_browser_gets_a_page_not_json(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db"})
+    ledger = Ledger(cfg.database_url)
+    run_id = ledger.start_run(repo="o/r", issue=7, role="implementer", trigger="labeled")
+    ledger.finish_run(run_id, outcome="success", model="claude-opus-5")
+    app = create_app(cfg, ledger, lambda e, p: None, poll_interval=0.05)
+
+    async def go(client: httpx.AsyncClient):
+        browser = {"accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
+        r = await client.get(f"/runs/{run_id}", headers=browser)
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/html")
+        assert "Factory run" in r.text and "o/r" in r.text and "implementer" in r.text
+        # a run link with a marked-up repo name must not break out of the page
+        assert "<script" not in r.text.lower()
+
+        r = await client.get("/runs", headers=browser)
+        assert r.headers["content-type"].startswith("text/html")
+        assert f"/runs/{run_id}" in r.text
+
+        # API callers (the Console proxy among them) still get JSON
+        r = await client.get(f"/runs/{run_id}")
+        assert r.headers["content-type"].startswith("application/json")
+        assert r.json()["outcome"] == "success"
+
+    await with_client(app, go)

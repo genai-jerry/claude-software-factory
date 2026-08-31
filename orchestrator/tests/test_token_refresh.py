@@ -76,3 +76,10 @@ def test_a_response_without_a_token_is_not_treated_as_one():
     with pytest.raises(TokenRefreshError) as e:
         src.mint("o", "r")
     assert "returned no token" in str(e.value)
+
+
+def test_console_origin_round_trips_the_registered_url():
+    src = ConsoleTokenSource("op-token")
+    assert src.console_origin("o", "r") is None
+    src.register("o", "r", "https://console.example/", 4242)
+    assert src.console_origin("o", "r") == "https://console.example"

@@ -10,6 +10,7 @@ processor callable — in production the LangGraph pipeline, in tests a stub.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 import logging
 from collections.abc import Callable
@@ -259,17 +260,23 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         }
 
     @app.get("/runs")
-    async def list_runs(repo: str | None = None, issue: int | None = None,
-                        active: bool = False) -> list[dict[str, Any]]:
-        return [_public_run(r) for r in ledger.list_runs(repo=repo, issue=issue,
+    async def list_runs(request: Request, repo: str | None = None,
+                        issue: int | None = None, active: bool = False) -> Response:
+        rows = [_public_run(r) for r in ledger.list_runs(repo=repo, issue=issue,
                                                          active_only=active)]
+        if _wants_html(request):
+            return Response(content=_runs_index_html(rows), media_type="text/html")
+        return Response(content=json.dumps(rows), media_type="application/json")
 
     @app.get("/runs/{run_id}")
-    async def get_run(run_id: str) -> dict[str, Any]:
+    async def get_run(request: Request, run_id: str) -> Response:
         run = ledger.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="no such run")
-        return _public_run(run)
+        out = _public_run(run)
+        if _wants_html(request):
+            return Response(content=_run_html(out), media_type="text/html")
+        return Response(content=json.dumps(out), media_type="application/json")
 
     @app.get("/runs/{run_id}/transcript")
     async def get_transcript(run_id: str) -> Response:
@@ -302,3 +309,69 @@ def _public_run(run: dict[str, Any]) -> dict[str, Any]:
     if not out.get("outcome"):
         out["outcome"] = "running"
     return out
+
+
+def _wants_html(request: Request) -> bool:
+    """A browser navigation sends Accept: text/html; API callers (including the
+    Console's same-origin proxy) do not — they keep getting JSON."""
+    return "text/html" in request.headers.get("accept", "")
+
+
+_PAGE_CSS = (
+    "body{margin:0;padding:2rem;background:#101418;color:#e6e8ea;"
+    "font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}"
+    "h1{font-size:1.1rem;margin:0 0 1rem}a{color:#7cb7ff}"
+    "table{border-collapse:collapse;width:100%}"
+    "td,th{text-align:left;padding:.25rem .75rem .25rem 0;vertical-align:top}"
+    "th{color:#9aa3ab;font-weight:normal;white-space:nowrap}"
+    ".muted{color:#9aa3ab}.err{color:#ff8f8f}"
+    "ol{padding-left:1.25rem}li{margin:.15rem 0}"
+)
+
+
+def _esc(value: Any) -> str:
+    return html.escape("" if value is None else str(value))
+
+
+def _run_html(run: dict[str, Any]) -> str:
+    """Human fallback for a browser opening the orchestrator's run link
+    directly. The Factory Console is the real page for this run; this one
+    exists so a raw link is never a wall of JSON."""
+    running = run.get("status") == "running"
+    refresh = '<meta http-equiv="refresh" content="5">' if running else ""
+    fields = [("repo", run.get("repo")), ("issue", run.get("issue")),
+              ("role", run.get("role")), ("trigger", run.get("trigger")),
+              ("model", run.get("model")), ("started", run.get("started_at")),
+              ("finished", run.get("finished_at")), ("outcome", run.get("outcome"))]
+    rows = "".join(f"<tr><th>{_esc(k)}</th><td>{_esc(v)}</td></tr>"
+                   for k, v in fields if v not in (None, ""))
+    error = (f'<p class="err">{_esc(run.get("error"))}</p>' if run.get("error") else "")
+    events = "".join(
+        f'<li><span class="muted">{_esc(e.get("ts"))}</span> '
+        f"[{_esc(e.get('kind'))}] {_esc(e.get('message'))}</li>"
+        for e in (run.get("events") or []))
+    live = '<p class="muted">Run is live — this page refreshes every 5 seconds.</p>' if running else ""
+    return (
+        f'<!doctype html><html><head><meta charset="utf-8">{refresh}'
+        f'<title>Factory run {_esc(run.get("id"))}</title><style>{_PAGE_CSS}</style></head>'
+        f'<body><h1>Factory run · {_esc(run.get("role"))} · {_esc(run.get("repo"))}'
+        f'#{_esc(run.get("issue"))}</h1>'
+        f"<table>{rows}</table>{error}{live}"
+        f"<h1>Events</h1><ol>{events or '<li class=muted>none yet</li>'}</ol>"
+        f'<p><a href="/runs/{_esc(run.get("id"))}/transcript">Full transcript</a> · '
+        f'<a href="/runs">All runs</a></p></body></html>'
+    )
+
+
+def _runs_index_html(rows: list[dict[str, Any]]) -> str:
+    body = "".join(
+        f'<tr><td><a href="/runs/{_esc(r.get("id"))}">{_esc(str(r.get("id"))[:8])}</a></td>'
+        f'<td>{_esc(r.get("repo"))}#{_esc(r.get("issue"))}</td><td>{_esc(r.get("role"))}</td>'
+        f'<td>{_esc(r.get("outcome"))}</td><td class="muted">{_esc(r.get("started_at"))}</td></tr>'
+        for r in rows)
+    return (
+        f'<!doctype html><html><head><meta charset="utf-8"><title>Factory runs</title>'
+        f"<style>{_PAGE_CSS}</style></head><body><h1>Factory runs</h1>"
+        f"<table><tr><th>run</th><th>issue</th><th>role</th><th>outcome</th><th>started</th></tr>"
+        f"{body or '<tr><td class=muted colspan=5>no runs yet</td></tr>'}</table></body></html>"
+    )
