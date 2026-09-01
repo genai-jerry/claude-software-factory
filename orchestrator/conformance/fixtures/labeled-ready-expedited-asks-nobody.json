@@ -1,0 +1,49 @@
+{
+  "name": "labeled-ready-expedited-asks-nobody",
+  "description": "an expedited task's factory:ready notifies no one: its implementer starts on its own",
+  "config": {
+    "approvers": {
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:design-approved",
+          "factory:expedite"
+        ]
+      },
+      {
+        "number": 8,
+        "title": "task(5) do the thing",
+        "body": "Part of o/r#5",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 8,
+    "label": "factory:ready",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "8": {
+        "count": 0
+      }
+    }
+  }
+}

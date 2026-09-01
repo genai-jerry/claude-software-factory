@@ -112,6 +112,10 @@ function makeWorld(opts) {
   const outputs = {};
   const core = {
     info: m => state.log.push(`info: ${m}`),
+    // The router degrades through core.warning on every best-effort path it
+    // has (an epic it cannot read, a branch it cannot cut). A stub without it
+    // turns "took the fallback" into a crash, which hides the fallback.
+    warning: m => state.log.push(`warning: ${m}`),
     setOutput: (k, v) => { outputs[k] = v; },
   };
   return { github, core, outputs, state };
@@ -751,30 +755,54 @@ function check(label, cond, extra) {
     check('design PR follows the existing epic branch',
       w4.state.pulls[0].merged_base === 'factory/epic-5', w4.state.log);
 
-    // Rollback: epics:false retargets an epic-branch-based document PR back to
-    // the default branch before merging.
+    // Rollback: epics:false retargets an epic-branch-based document PR onto
+    // the INTEGRATION branch before merging — never onto the default branch.
     const w5 = makeWorld({ files: filesOpen, branches: ['main', 'factory/epic-5'],
       pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'factory/epic-5' } }],
       issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
     await run(routeSrc, { world: w5, context: ctx('issue_comment', approvedBy(w5.state.issues[5])) });
-    check('epics:false retargets back to the default branch',
-      w5.state.pulls[0].merged_base === 'main', w5.state.log);
+    check('epics:false retargets off a stale epic branch onto integration',
+      w5.state.pulls[0].merged_base === 'staging', w5.state.log);
 
     // ...and cuts no epic branch of its own at a gate.
     const w5b = makeWorld({ files: filesOpen, branches: ['main'],
       pulls: [{ number: 9, head: { ref: 'factory/5-design' }, base: { ref: 'main' } }],
       issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:design-ready' }], user: { type: 'User' } } } });
     await run(routeSrc, { world: w5b, context: ctx('issue_comment', approvedBy(w5b.state.issues[5])) });
-    check('epics:false creates no epic branch at a gate',
-      !w5b.state.branches.includes('factory/epic-5') && w5b.state.pulls[0].merged_base === 'main', w5b.state.log);
+    check('epics:false cuts no epic branch and lands the document on integration',
+      !w5b.state.branches.includes('factory/epic-5') && w5b.state.pulls[0].merged_base === 'staging', w5b.state.log);
 
-    // Legacy estates (no policy file at all) are byte-for-byte unaffected.
+    // An absent policy file means epics:false AND staging:"staging" required
+    // — the defaults — so documents route through integration there too.
     const w6 = makeWorld({ files: filesOpen, branches: ['main'],
       pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'main' } }],
       issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
     await run(routeSrc, { world: w6, context: ctx('issue_comment', approvedBy(w6.state.issues[5])) });
-    check('no policy file: spec merges to main, nothing retargeted, no branch created',
-      w6.state.pulls[0].merged_base === 'main' && w6.state.branches.length === 1, w6.state.log);
+    check('no policy file: the spec still merges to the integration branch',
+      w6.state.pulls[0].merged_base === 'staging'
+      && !w6.state.branches.includes('factory/epic-5'), w6.state.log);
+
+    // required:false is the one case documents still reach the default
+    // branch: that repo opted out of staging entirely, so there is nowhere
+    // else they could go.
+    const w6b = makeWorld({ files: { '.github/factory-approvers.json': filesOpen['.github/factory-approvers.json'],
+        '.github/factory-branches.json': JSON.stringify({ required: false }) },
+      branches: ['main'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'main' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
+    await run(routeSrc, { world: w6b, context: ctx('issue_comment', approvedBy(w6b.state.issues[5])) });
+    check('required:false keeps documents on the default branch',
+      w6b.state.pulls[0].merged_base === 'main' && w6b.state.branches.length === 1, w6b.state.log);
+
+    // The profile overrides only the integration branch's NAME (§6a).
+    const w6c = makeWorld({ files: { ...filesOpen,
+        '.factory/profile.json': JSON.stringify({ branches: { staging: 'develop' } }) },
+      branches: ['main', 'develop'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'main' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
+    await run(routeSrc, { world: w6c, context: ctx('issue_comment', approvedBy(w6c.state.issues[5])) });
+    check('a repo profile renames the integration branch',
+      w6c.state.pulls[0].merged_base === 'develop', w6c.state.log);
 
     // factory:on-epic is release-managed: an Approved comment there explains
     // itself and routes nothing.
@@ -815,6 +843,77 @@ function check(label, cond, extra) {
     check('and says nothing', (w2.state.comments[8] || []).length === 0, w2.state.log);
   }
 
+  // --------------------------------------------------------------- scenario 22
+  console.log('\n22. expedite (FACTORY.md §4a) — one auto-advance map, not three copies of one');
+  {
+    // The map has to exist twice in this workflow: the route job decides what
+    // an expedited issue does the moment the marker lands, and expedite-chain
+    // decides it again after each role finishes. They are different jobs and
+    // cannot share a scope, so the only thing standing between them and drift
+    // is this check. The Python engine has one copy (router.EXPEDITE_MAP) and
+    // is pinned by the conformance fixtures below.
+    const mapOf = (src, where) => {
+      const m = /const EXPEDITE_MAP = \{([\s\S]*?)\};/.exec(src);
+      check(`${where} declares EXPEDITE_MAP`, !!m, where);
+      if (!m) return null;
+      const out = {};
+      for (const line of m[1].split('\n')) {
+        const kv = /'([^']+)':\s*'([^']+)'/.exec(line);
+        if (kv) out[kv[1]] = kv[2];
+      }
+      return out;
+    };
+    const chainJob = doc.jobs['expedite-chain'];
+    check('the workflow has an expedite-chain job', !!chainJob, Object.keys(doc.jobs));
+    const chainSrc = ((chainJob.steps || []).find(s => (s.with || {}).script) || { with: {} }).with.script || '';
+    const routeMap = mapOf(routeSrc, 'the route job');
+    const chainMap = mapOf(chainSrc, 'the expedite-chain job');
+    check('both copies of the auto-advance map agree',
+      JSON.stringify(routeMap) === JSON.stringify(chainMap), { routeMap, chainMap });
+    // The two gates expedite must never open. A row here would be a silent
+    // licence to ship: GS puts an epic on staging, G3 puts it in production.
+    for (const forbidden of ['factory:epic-ready', 'factory:in-staging', 'factory:deployed',
+                             'factory:backlog', 'factory:intake']) {
+      check(`the map never advances ${forbidden}`,
+        routeMap && routeMap[forbidden] === undefined, routeMap);
+    }
+    // Re-dispatch is the only way this engine can chain, and it needs the PAT.
+    check('expedite-chain reads the cross-repo token',
+      /CROSS_TOKEN/.test(JSON.stringify(chainJob)), 'no CROSS_TOKEN in expedite-chain');
+    check('expedite-chain says so on the issue when the token is missing',
+      /factory-expedite-no-token/.test(chainSrc), 'no say-once marker');
+    check('expedite-chain only acts on a successful role run',
+      /needs\.agent\.result == 'success'/.test(String(chainJob.if || '')), chainJob.if);
+    // Two jobs run roles. On a gate-G0 approval `agent` is skipped entirely
+    // and `release-intake` does the work, so a chain keyed on `agent` alone
+    // left every expedited issue a milestone released stalled at spec-ready.
+    check('expedite-chain also chains the gate-G0 release batch',
+      (chainJob.needs || []).includes('release-intake') &&
+      /needs\.release-intake\.result == 'success'/.test(String(chainJob.if || '')),
+      chainJob.needs);
+    check('and knows which issues that batch touched',
+      /RELEASED_ISSUES:\s*\$\{\{\s*needs\.release-chain\.outputs\.issues/.test(
+        JSON.stringify(chainJob).replace(/\\n/g, '\n')) ||
+      /needs\.release-chain\.outputs\.issues/.test(JSON.stringify(chainJob)),
+      'no released-issue list reaches expedite-chain');
+    // architect-chain must survive intact: replacing its in-run chaining with
+    // a dispatch would make plain planner→architect need the PAT too.
+    check('planner → architect still chains in-run, PAT or no PAT',
+      !!doc.jobs['architect-chain'], Object.keys(doc.jobs));
+
+    // The double-start trap. A PAT-applied gate label emits a real `labeled`
+    // event, which the router maps straight to planner/dispatch — and this
+    // job dispatches that same role itself. Two runs, one epic, one branch.
+    // The flip has to go through the workflow token, which emits nothing;
+    // only createWorkflowDispatch may use the PAT.
+    const patCalls = (chainSrc.match(/pat\.rest\.[a-z]+\.[a-zA-Z]+/g) || []);
+    check('only workflow dispatch uses the PAT — never a label flip or a merge',
+      patCalls.every(c => c === 'pat.rest.actions.createWorkflowDispatch'), patCalls);
+    check('the gate flip goes through the workflow token',
+      /github\.rest\.issues\.addLabels\(\{[\s\S]{0,200}?spec \? 'factory:spec-approved'/.test(chainSrc),
+      'the expedited gate flip is not on the workflow-token client');
+  }
+
   // ------------------------------------------------------------------ fixtures
   // The JSON conformance fixtures are the canonical routing decision table,
   // shared with the orchestrator's Python router (orchestrator/conformance/).
@@ -833,6 +932,7 @@ function fixtureWorld(fx) {
     release: '.github/factory-release.json',
     approvers: '.github/factory-approvers.json',
     orchestrator: '.github/factory-orchestrator.json',
+    branches: '.github/factory-branches.json',
   };
   const files = {};
   for (const [key, p] of Object.entries(CONFIG_PATHS)) {

@@ -1,0 +1,51 @@
+{
+  "name": "approved-g1-no-integration-branch-keeps-the-default",
+  "description": "required:false opted out of staging, so its documents have nowhere to go but the default branch",
+  "config": {
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ]
+    },
+    "branches": {
+      "required": false
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:spec-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "planner",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "has": [
+          "factory:spec-approved"
+        ]
+      }
+    }
+  }
+}

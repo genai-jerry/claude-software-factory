@@ -1,0 +1,60 @@
+{
+  "name": "labeled-expedite-stops-at-ready-to-ship-without-epic-branches",
+  "description": "with epics:false the chain stops at ready-to-ship: the Release role's first merge deploys staging",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "epics": false
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(9) do the thing",
+        "labels": [
+          "factory:ready-to-ship",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:expedite",
+          "factory:ready-to-ship"
+        ]
+      }
+    }
+  }
+}

@@ -328,7 +328,8 @@ An estate already delivering through the factory turns the epic-branch layer
    cross-repo epic two routings.
 2. **Labels.** Re-run `scripts/setup-labels.sh` on each repo so
    `factory:on-epic` exists (the pipeline also self-heals the label on first
-   use).
+   use). The same re-run creates `factory:epic-ready` and `factory:expedite`
+   (FACTORY.md §4a), which every repo needs whatever its branch policy.
 3. **In-flight epics sort themselves.** The flip is safe at any moment; an
    epic's routing is decided by one observable fact — has gate G2 dispatched
    its tasks yet?

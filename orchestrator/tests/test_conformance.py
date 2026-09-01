@@ -143,6 +143,7 @@ def run_pass(fx: dict, world: FakeRepo, milestones: dict, expect: dict, fx_name:
     cfg = RepoConfig(
         release=_cfg(fx, "release"),
         approvers=_cfg(fx, "approvers"),
+        branches=_cfg(fx, "branches"),
     )
     event_name, payload = build_event(fx, world, milestones)
     result = Router(world, cfg).route(event_name, payload)

@@ -101,11 +101,35 @@ enforce conventions this repo does not follow. Everything below serves that.
      PR.** Comment one line on the issue saying you checked it against the
      current commit and it is accurate, and stop. A maintenance run that opens
      an empty PR every time gets muted, and then it protects nothing.
-8. **Open the PR.** Branch `factory/profile` from `branches.default`, commit
-   only `.factory/profile.json`, and open a PR titled
-   `chore(factory): repo profile`. The body is the evidence: a line per field
-   saying what it came from — the file you read, the command you ran and its
-   outcome. Call out anything you could not verify and left out.
+8. **Open the PR.** Base it on **the branch the roles actually read from**,
+   which depends on the epic-branch policy in `.github/factory-branches.json`
+   (FACTORY.md §6):
+
+   - **`epics: true` → the default branch.** Epic branches are cut from the
+     default branch (§6b), so that is the root every role's checkout descends
+     from. A profile parked on the integration branch would reach no epic
+     branch until gate GS, which is long after the roles that need it have
+     run.
+   - **`epics: false` → the integration branch** (its name from step 2: the
+     profile's `branches.staging` when it overrides, else the policy's
+     `staging`, else `"staging"`). There the roles check the integration
+     branch out directly, and a profile on the default branch would be
+     invisible to them — nothing merges the default branch into integration
+     on a schedule.
+   - **`required: false`, no integration branch → the default branch.**
+
+   Cut `factory/profile` from that branch, commit only
+   `.factory/profile.json`, and open a PR titled
+   `chore(factory): repo profile`.
+
+   The rule behind all three: the profile is repo *configuration*, not epic
+   content, so it belongs at the root of wherever the stages read — not on any
+   one epic's branch. Say in the PR body which branch you based on and why,
+   because the answer changes with the policy.
+
+   The body is the evidence: a line per field saying what it came from — the
+   file you read, the command you ran and its outcome. Call out anything you
+   could not verify and left out.
 9. **Report on the issue.** Comment with the PR link, the commands as you ran
    them with their outcomes, and any `gotchas` you found — those are the part a
    human is most likely to want to correct. Then remove `factory:profile` from

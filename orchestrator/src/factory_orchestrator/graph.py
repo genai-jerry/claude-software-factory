@@ -47,11 +47,29 @@ from .ledger import Ledger
 from .live_log import LiveRunLog
 from .models import ModelResolutionError, Probe, load_models_config, resolve_model
 from .role_runner import RoleRunner
-from .router import RepoConfig, Router, release_chain
+from .router import (
+    RepoConfig,
+    Router,
+    expedited_ready_tasks,
+    is_expedited,
+    release_chain,
+)
 
 log = logging.getLogger("factory-orchestrator.graph")
 
 MAX_ROUNDS = 4  # initial + architect chain + release fan-out + slack; a backstop, not a schedule
+# An expedited epic (FACTORY.md §4a) runs its whole pipeline inside one
+# invocation, so it needs a much longer walk: intake → G1 → planner →
+# architect → G2 → dispatch, then every task's implement → review → test →
+# assemble, plus up to two rework rounds each before the cap in §8 stops them.
+#
+# It is a constant rather than a function of the task count on purpose: the
+# fan Sends every pending task in the same round, so N tasks at the same stage
+# cost one round, not N. What scales is the length of one task's worst-case
+# walk, which does not depend on how many siblings it has. Still a backstop
+# against a routing bug, not a schedule — an epic that hits it resumes on its
+# next webhook rather than stalling.
+EXPEDITE_MAX_ROUNDS = 32
 # Beyond a role's own wall clock, its token still has to cover the clone that
 # precedes it and the no-op guard read that follows it.
 ROLE_TOKEN_SLACK = 10 * 60
@@ -71,6 +89,7 @@ class PipelineState(TypedDict, total=False):
     completed: Annotated[list[dict[str, Any]], operator.add]
     release_issue: str
     release_dispatched: bool
+    expedited: bool
     round: int
 
 
@@ -106,6 +125,9 @@ class Engine:
             release=parse_json_or_empty(port.get_file(".github/factory-release.json")),
             approvers=parse_json_or_empty(port.get_file(".github/factory-approvers.json")),
             branches=parse_json_or_empty(port.get_file(".github/factory-branches.json")),
+            # Only for the integration branch's name, when this repo calls it
+            # something other than the org policy's value (FACTORY.md §6a).
+            profile=parse_json_or_empty(port.get_file(".factory/profile.json")),
         )
 
     def token_for_role(self, owner: str, repo: str) -> str:
@@ -165,7 +187,8 @@ def build_graph(engine: Engine, checkpointer=None):
             result.role, [p["issue"] for p in pending], result.release_issue or "-",
         )
         return {"pending": pending, "release_issue": result.release_issue,
-                "release_dispatched": False, "round": 0, "completed": []}
+                "release_dispatched": False, "expedited": False,
+                "round": 0, "completed": []}
 
     def run_role_node(item: RunItem) -> dict[str, Any]:
         summary = execute_role(engine, item)
@@ -174,7 +197,13 @@ def build_graph(engine: Engine, checkpointer=None):
     def chain_node(state: PipelineState) -> dict[str, Any]:
         port = engine.port(state["owner"], state["repo"])
         pending: list[dict[str, Any]] = []
+        expedited_seen = bool(state.get("expedited"))
         this_round = [c for c in state.get("completed", []) if c.get("round") == state["round"]]
+
+        def port_of(c: dict[str, Any]) -> tuple[RepoPort, str]:
+            full = c.get("repo") or f"{state['owner']}/{state['repo']}"
+            owner, name = full.split("/", 1)
+            return engine.port(owner, name), full
 
         # planner → architect, gated on the planner actually reaching
         # factory:planned (mirrors the architect-chain job's check).
@@ -188,6 +217,33 @@ def build_graph(engine: Engine, checkpointer=None):
                 else:
                     log.info("Planner did not reach factory:planned - not chaining architect.")
 
+        # Expedite (FACTORY.md §4a): the states that would have waited for a
+        # human advance themselves. Read from the issue's state *after* the
+        # run, never from what the role claimed — the engine contract, and the
+        # reason a crashed run costs at most one hop.
+        for c in this_round:
+            if c["status"] != "success" or c["role"] == "planner":
+                continue  # planner's follow-up is the architect chain above
+            c_port, c_repo = port_of(c)
+            issue = c_port.get_issue(c["issue"]) or {}
+            if not issue or not is_expedited(c_port, issue, engine.port):
+                continue
+            expedited_seen = True
+            labels = [(l if isinstance(l, str) else l.get("name"))
+                      for l in issue.get("labels", [])]
+            router = Router(c_port, engine.repo_config(c_port), port_for=engine.port)
+            nxt = router.expedite_now(issue, labels)
+            if nxt != "none":
+                pending.append({"role": nxt, "issue": c["issue"], "repo": c_repo})
+                log.info("Expedited #%s: %s next", c["issue"], nxt)
+            # The Dispatcher's own state does not advance — its output is on
+            # the tasks it just released, so the fan-out is theirs, not its.
+            if c["role"] == "dispatch":
+                for task in expedited_ready_tasks(c_port, c["issue"]):
+                    pending.append({"role": "implementer", "issue": task, "repo": c_repo})
+                    log.info("Expedited epic #%s: starting implementer on task #%s",
+                             c["issue"], task)
+
         # Gate G0's mechanical half: release the milestone once, then fan the
         # freed issues out as intake runs. Mirrors release-chain +
         # release-intake, including "one failure must not cancel the rest"
@@ -197,13 +253,16 @@ def build_graph(engine: Engine, checkpointer=None):
                 and not failed):
             released, _count = release_chain(port, int(state["release_issue"]))
             pending.extend({"role": "intake", "issue": int(n)} for n in released)
-            return {"pending": pending, "round": state["round"] + 1, "release_dispatched": True}
+            return {"pending": pending, "round": state["round"] + 1,
+                    "release_dispatched": True, "expedited": expedited_seen}
 
-        return {"pending": pending, "round": state["round"] + 1}
+        return {"pending": pending, "round": state["round"] + 1,
+                "expedited": expedited_seen}
 
     def fan(state: PipelineState):
-        if state["round"] >= MAX_ROUNDS:
-            log.warning("round cap reached - ending invocation")
+        cap = EXPEDITE_MAX_ROUNDS if state.get("expedited") else MAX_ROUNDS
+        if state["round"] >= cap:
+            log.warning("round cap reached (%d) - ending invocation", cap)
             return END
         items = state.get("pending") or []
         if items:
@@ -269,6 +328,7 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
                                      trigger=item.get("trigger", ""))
     run_url = f"{run_link_base(engine, owner, repo)}/runs/{run_id}"
     summary: dict[str, Any] = {"role": role, "issue": issue, "run_id": run_id,
+                               "repo": f"{owner}/{repo}",
                                "round": item.get("round", 0)}
     log.info("role start role=%s repo=%s/%s#%s run=%s log=%s",
              role, owner, repo, issue, run_id, run_url)

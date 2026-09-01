@@ -30,7 +30,11 @@ Prove the release is healthy, then close the loop.
 3. **On success:**
    - Run `/opsx:archive` for the change in each affected repo (change folder →
      `openspec/changes/archive/`, durable requirements folded into
-     `openspec/specs/`), committed via PR or direct per repo convention.
+     `openspec/specs/`). Commit it on the **integration branch** — the archive
+     is a document like every other, and documents never go straight to the
+     default branch (FACTORY.md §6); it reaches there with the next promotion.
+     Only a repo with no integration branch (`required: false`) archives onto
+     the default branch. Via PR or direct per repo convention.
    - Delete the epic's branch `factory/epic-<epic-issue>` in each affected
      repo, if it has one (FACTORY.md §6b) — its content is on the default
      branch now, and archive time is the only time it is ever deleted.

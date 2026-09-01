@@ -1,0 +1,56 @@
+{
+  "name": "approved-g2-documents-route-through-staging",
+  "description": "with epics off, gate G2 lands the design on the integration branch too",
+  "config": {
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "epics": false
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:design-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "dispatch",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "has": [
+          "factory:design-approved"
+        ],
+        "not": [
+          "factory:design-ready"
+        ]
+      }
+    }
+  }
+}

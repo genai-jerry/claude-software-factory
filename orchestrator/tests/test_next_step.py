@@ -41,8 +41,18 @@ STATES = [
     "factory:spec-approved", "factory:planned", "factory:design-ready",
     "factory:design-approved", "factory:ready", "factory:in-review",
     "factory:in-test", "factory:ready-to-ship", "factory:on-epic",
-    "factory:in-staging", "factory:deployed", "factory:fast-track",
-    "factory:blocked", "factory:incident", "factory:profile",
+    "factory:epic-ready", "factory:in-staging", "factory:deployed",
+    "factory:fast-track", "factory:blocked", "factory:incident",
+    "factory:profile",
+]
+
+#: The states expedite advances (FACTORY.md §4a), which are exactly the ones
+#: that must carry an `expedited` wording variant: telling a reader to press a
+#: button the factory is about to press itself is the drift this table exists
+#: to prevent.
+EXPEDITED_STATES = [
+    "factory:spec-ready", "factory:design-ready", "factory:ready",
+    "factory:in-review", "factory:in-test", "factory:ready-to-ship",
 ]
 
 
@@ -51,6 +61,27 @@ def test_the_table_answers_every_state():
     for state, entry in TABLE["states"].items():
         assert entry["who"].strip(), state
         assert entry["how"].strip(), state
+
+
+def test_expedited_variants_cover_the_states_expedite_advances():
+    for state in EXPEDITED_STATES:
+        variant = TABLE["states"][state].get("expedited")
+        assert isinstance(variant, dict), state
+        assert variant["who"].strip() and variant["how"].strip(), state
+    # And nowhere else: a variant on a state the factory does not advance
+    # would promise automation that never comes.
+    for state, entry in TABLE["states"].items():
+        if state not in EXPEDITED_STATES:
+            assert "expedited" not in entry, state
+
+
+@pytest.mark.parametrize("state", EXPEDITED_STATES)
+def test_both_engines_render_the_same_expedited_notice(state):
+    mine = ns.render(TABLE, "implementer", 198, state, ["boss"], True)
+    theirs = ACTIONS.render(TABLE, "implementer", 198, state, ["boss"], True)
+    assert mine in theirs
+    # The variant is what got rendered, not the un-expedited wording.
+    assert TABLE["states"][state]["how"][:40] not in mine
 
 
 @pytest.mark.parametrize("state", STATES + [None])

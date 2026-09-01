@@ -46,7 +46,8 @@ flowchart TB
     H -- "Reviewer" --> I["factory:in-test"]
     I -- "QA" --> J["factory:ready-to-ship"]
     J -- "Release Manager<br/>merges onto the epic branch" --> E2["factory:on-epic"]
-    E2 -- "Release Manager<br/>integration PR → staging" --> S["factory:in-staging"]
+    E2 -- "epic complete<br/>and green" --> ER["factory:epic-ready"]
+    ER -- "GS · Approved<br/>release to staging" --> S["factory:in-staging"]
     S -- "G3 · human merges<br/>the promotion PR" --> K["factory:deployed"]
   end
 
@@ -61,7 +62,7 @@ flowchart TB
   classDef entry fill:#EDF0F1,stroke:#9FADB1,stroke-width:1.5px,color:#3A464B
 
   class A,C,D,F,G,H,I,J,E2,R0,R1,R3 state
-  class B,E,S,R2 gate
+  class B,E,S,ER,R2 gate
   class K done
   class X halt
   class OPEN entry
@@ -77,7 +78,8 @@ moment the previous role finishes.
 
 The `factory:on-epic` hop exists only with the epic-branch policy on
 (`"epics": true` in `.github/factory-branches.json`, FACTORY.md §6b). With it
-off, `factory:ready-to-ship` moves straight to `factory:in-staging` — the
+off, tasks wait at `factory:ready-to-ship` until the whole epic is there; the
+epic then goes to `factory:epic-ready`, and gate GS releases it — the
 Release Manager merges task PRs directly onto the integration branch, the
 pre-epic behaviour.
 
@@ -88,11 +90,19 @@ pre-epic behaviour.
 | **G0** | `factory:release-ready` | Is this the right batch of work to start? | Owner comments `Approved` on the release tracker — or, in `"approval": "agent"` mode, the Scrum Master's own GO |
 | **G1** | `factory:spec-ready` | Is the spec concrete enough to plan against? | Owner comments `Approved` |
 | **G2** | `factory:design-ready` | Does the architecture actually solve it? | Owner comments `Approved` |
+| **GS** | `factory:epic-ready` | May this assembled epic go to staging? | A `staging` approver comments `Approved` (falls back to the `release` list) |
 | **G3** | `factory:in-staging` | May this land on `main`? | A human presses Merge on the promotion PR |
 
 G0 only exists with release gating on, and is the one gate that can be handed to
 an agent — the set of issues in a milestone is input a model can read
 completely, unlike a diff's consequences.
+
+GS is where the **expedite** switch stops. An epic labelled `factory:expedite`
+(FACTORY.md §4a) opens G1 and G2 itself and runs every task's
+implement → review → test → assemble without a start button — and then arrives
+here and waits, exactly like every other epic. GS and G3 are the two gates no
+marker waives, because they are the two moments code leaves the factory's own
+branches.
 
 G3 is not a comment, and by the time it is asked the answer is already
 evidenced: every PR has been merged onto the org's **integration branch** —
@@ -105,7 +115,10 @@ it is enforced by the protected-branch hook, the `permissions.deny` block in
 `.claude/settings.json`, and `factory-branch-guard.yml`, which opens a
 `factory:incident` issue if a commit ever lands on `main` without a PR.
 
-Who may approve at G0, G1 and G2 is set per-gate in `.github/factory-approvers.json`.
+Who may approve at G0, G1, G2 and GS is set per-gate in
+`.github/factory-approvers.json` — GS reads the `staging` key and falls back to
+`release`. The `expedite` key says who may put an epic on the fast path, which
+is authorised because applying that marker *is* the G1 and G2 approval.
 Ship it with real usernames — the template's placeholder means "any collaborator
 may approve," which is probably not what you want.
 
@@ -126,8 +139,9 @@ may approve," which is probably not what you want.
 | `factory:ready` | Implementer | Comment **Approved** on the task claims it |
 | `factory:in-review` | Reviewer | Code review against the approved design, or a human comments **Review Done** to skip it |
 | `factory:in-test` | QA | Test suite and acceptance criteria |
-| `factory:ready-to-ship` | Release Manager | Merges the PR onto the epic branch (or straight onto staging when the epic has none) and verifies it |
-| `factory:on-epic` | Release Manager | Epic complete and green on its branch → one integration PR carries it to staging (§6b; only with `epics: true`) |
+| `factory:ready-to-ship` | Release Manager | Merges the PR onto the epic branch and verifies it. With no epic branch the task waits here instead: its only next branch is the integration branch, and that merge is the staging deploy, which happens behind gate GS |
+| `factory:on-epic` | — waits — | The task is done; it waits for its siblings. When the last lands, the **epic** goes to `factory:epic-ready` (§6b; only with `epics: true`) |
+| `factory:epic-ready` | — waits — | A `staging` approver comments **Approved** · gate GS. The Release Manager then carries the epic to staging |
 | `factory:in-staging` | — waits — | Human merges the promotion PR · gate G3 |
 | `factory:deployed` | Release / Ops | Terminal for the epic |
 | `factory:blocked` | — halted — | Any role may apply it; resume is manual |
@@ -176,7 +190,8 @@ means "awaiting the merge that *assembles* it", and two further states hold
 the path to production. With the epic-branch policy on (`"epics": true`,
 FACTORY.md §6b) the Release Manager merges each green task PR onto the
 **epic's own branch** `factory/epic-<n>` in dependency order and verifies it
-there (`factory:on-epic`); when the whole epic is green, one integration PR
+there (`factory:on-epic`); when the whole epic is green it goes to
+`factory:epic-ready` and waits for **gate GS**, after which one integration PR
 carries it to the **integration branch**, where the staging deploy and health
 checks run (`factory:in-staging`); only then are the promotion PRs opened.
 Epics assemble in isolation — a red epic branch blocks only its own epic —

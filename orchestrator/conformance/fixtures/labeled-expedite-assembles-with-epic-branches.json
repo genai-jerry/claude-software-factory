@@ -1,0 +1,55 @@
+{
+  "name": "labeled-expedite-assembles-with-epic-branches",
+  "description": "with epics:true a ready-to-ship task is assembled onto the epic branch automatically",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(9) do the thing",
+        "labels": [
+          "factory:ready-to-ship",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "release",
+    "issues": [
+      "5"
+    ]
+  }
+}
