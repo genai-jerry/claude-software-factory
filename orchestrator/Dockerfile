@@ -22,7 +22,10 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
 WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
-RUN pip install --no-cache-dir ".[postgres]"
+# --timeout/--retries because this layer pulls psycopg's 5.3 MB binary wheel:
+# pip's 15s default read timeout aborts the whole build on one slow chunk, and
+# the failure looks like a dependency error rather than the network blip it is.
+RUN pip install --no-cache-dir --timeout 120 --retries 10 ".[postgres]"
 
 ENV PORT=8080
 EXPOSE 8080

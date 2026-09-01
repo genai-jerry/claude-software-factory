@@ -29,6 +29,11 @@ postgres = [
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
+    # The conformance and expedite tests read .github/workflows/factory-pipeline.yml
+    # to check the two engines agree. It arrives transitively via langchain-core
+    # today, which means the suite would break on a dependency change that has
+    # nothing to do with the tests.
+    "PyYAML>=6",
     "ruff>=0.4"
 ]
 
