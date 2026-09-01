@@ -41,7 +41,7 @@ factory:ready|B07D2B|Task unblocked; implementer may start
 factory:in-review|C98A1B|Draft PR under agent review
 factory:in-test|D4A017|QA verifying WHEN/THEN scenarios
 factory:ready-to-ship|6AA84F|Green + approved; awaiting the merge onto the epic branch (or staging when the epic has none)
-factory:on-epic|4F9E58|Merged onto the epic branch and green there; awaiting the epic's integration merge
+factory:on-epic|4F9E58|Merged onto the epic branch and green there; waiting for the rest of the epic
 factory:epic-ready|41A08A|Epic fully assembled and green; awaiting gate GS (release to staging)
 factory:in-staging|3D9970|Merged to staging and verified there; awaiting gate G3 promotion to the default branch
 factory:deployed|0B8043|In production; soak in progress
