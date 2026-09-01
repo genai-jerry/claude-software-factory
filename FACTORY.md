@@ -636,8 +636,8 @@ Under `epics: false` (and always, for the PR kinds below):
   repo, merged by a human in the Release Manager's posted order. That merge is
   the production deploy, and it is the **only** kind of PR that ever targets
   the default branch.
-- **Document PRs (spec, plan+design) under `epics: false`, and profile PRs
-  always** (they have no epic): into the repo's **integration branch**.
+- **Document PRs (spec, plan+design) under `epics: false`:** into the repo's
+  **integration branch**.
   Gates G1 and G2 are their review, and the merge lands one branch below
   production like everything else. They deploy nothing — the deploy workflows
   `paths-ignore` the factory/document paths (`openspec/**`, `docs/**`,
@@ -648,13 +648,30 @@ Under `epics: false` (and always, for the PR kinds below):
   This works because the read moves with the write: every stage of a
   no-epic-branch epic checks out the integration branch (§6a), the same way
   every stage of an epic-branch epic checks out the epic branch (§6b).
-  Documents live where the stages read. That is the whole rule, and it is why
-  the profile comes too: a role makes one checkout, and a profile stranded on
-  the default branch would be invisible to the role that needs it.
+  Documents live where the stages read. That is the whole rule — and it is
+  why the profile's answer differs by policy rather than matching this one:
+  see the next bullet.
 
   Only `required: false` — a repo with no integration branch at all — keeps
   document PRs on the default branch, because there is nowhere else to put
   them.
+- **The profile PR** (`.factory/profile.json`) has no epic, and it is repo
+  *configuration* rather than epic content — so it goes to **the root of
+  wherever the stages read**, which is not the same branch under both
+  policies:
+  - `epics: true` → the **default branch**, because epic branches are cut
+    from it (§6b). Sending the profile to the integration branch instead
+    would reach no epic branch until gate GS, long after the roles that read
+    it have run.
+  - `epics: false` → the **integration branch**, because that is what the
+    roles check out directly.
+  - `required: false` → the default branch.
+
+  It never goes to an epic branch. It is repo-wide, and one epic's branch is
+  the one place a repo-wide fact cannot live: with several epics in flight the
+  Profiler would have to pick one, the others would keep the stale profile,
+  and the branch is deleted at archive (§6b) — taking the change with it if
+  that epic never ships.
 - During the pre-merge pilot, all PRs base on the factory development branch
   instead.
 

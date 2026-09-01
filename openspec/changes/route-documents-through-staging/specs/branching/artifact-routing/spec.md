@@ -45,17 +45,39 @@ and G2 approval squash-merges them there.
 
 ### Requirement: Profile PR base branch
 
-The profile PR carrying `.factory/profile.json` SHALL base on the repo's
-integration branch when one exists, and on the default branch only when the
-policy sets `required: false`. It has no epic and therefore never bases on an
-epic branch. It reaches the default branch with everything else, at gate G3.
+The profile PR carrying `.factory/profile.json` is repo *configuration*, not
+epic content, and SHALL base on the **root of wherever the stages read**:
 
-#### Scenario: the profile follows the branch its readers check out
+- with `epics: true`, the **default branch**, because epic branches are cut
+  from it (§6b) and every role's checkout descends from it;
+- with `epics: false` and an integration branch, the **integration branch**,
+  because roles check that branch out directly;
+- with `required: false`, the default branch.
 
-- **WHEN** the Profiler opens or updates a profile PR in a repo with an
-  integration branch
-- **THEN** the PR bases on the integration branch, so a role checking that
-  branch out reads the same profile the PR proposes once merged
+It SHALL NEVER base on an epic branch. The profile is repo-wide, and an epic
+branch is the one place a repo-wide fact cannot live: with several epics in
+flight the Profiler would have to pick one, every other epic would keep the
+stale profile, and the branch is deleted at archive — taking the change with
+it if that epic never ships.
+
+#### Scenario: with epic branches on, the profile goes to the default branch
+
+- **WHEN** the Profiler opens a profile PR in a repo with `epics: true`
+- **THEN** the PR bases on the default branch, so every epic branch cut from
+  it carries the profile — basing it on the integration branch would reach no
+  epic branch until gate GS, long after the roles that read it have run
+
+#### Scenario: with epic branches off, the profile goes to the integration branch
+
+- **WHEN** the Profiler opens a profile PR in a repo with `epics: false` and
+  an integration branch
+- **THEN** the PR bases on the integration branch, which is the branch those
+  roles check out
+
+#### Scenario: never an epic branch
+
+- **WHEN** any repo has one or more live epic branches
+- **THEN** no profile PR bases on any of them, under either policy
 
 ### Requirement: Stage checkout resolution
 

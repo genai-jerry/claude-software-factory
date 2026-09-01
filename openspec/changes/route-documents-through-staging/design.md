@@ -76,18 +76,34 @@ Expressing this once, rather than per role, is the point. The prompts get the
 same ladder; the workflow's checkout step gets it; both routers get the write
 half in `approve_gate`.
 
-### D2 — Profile PRs follow the same ladder, minus the epic
+### D2 — The profile goes to the root of the read tree, which differs by policy
 
-`.factory/profile.json` has no epic, so its ladder is steps 2–3: the
-integration branch, else the default branch. The alternative — leaving it on
-the default branch and having roles read it from there — was rejected: a role
-makes **one** checkout, and a two-source read (change folder from here, profile
-from there) is a new failure mode in every role, to save a delay that only
-matters between releases.
+`.factory/profile.json` has no epic, and it is repo *configuration* rather
+than epic content. It goes to the branch every role's checkout **descends
+from**, and that is not the same branch under both policies:
 
-The cost is real and worth stating: a profile fix now reaches the default
-branch at the next promotion rather than immediately. It reaches *the agents*
-immediately, which is what a profile is for.
+- `epics: true` → the **default branch**. Epic branches are cut from it
+  (§6b), so it is the root. This was the original behaviour and it was right.
+- `epics: false` → the **integration branch**, which the roles check out
+  directly.
+- `required: false` → the default branch.
+
+**This corrects a mistake made earlier in this change.** The first cut sent
+the profile to the integration branch under *both* policies, reasoning that
+"a role makes one checkout, so put the profile in it". That reasoning holds
+for `epics: false` and fails for `epics: true`, because there the checkout is
+an epic branch cut from the *default* branch — staging reaches it only at
+gate GS (phase 1b), and the default branch only after a promotion. A profile
+merged to staging would therefore have been invisible to every live epic for
+the whole of implementation: the exact failure this change exists to remove,
+moved rather than fixed, and made worse than the behaviour it replaced under
+the shipped default.
+
+Never an epic branch, under either policy. The profile is repo-wide, and an
+epic branch is the one place a repo-wide fact cannot live: the Profiler would
+have to choose one of N live epics, the rest would keep the stale profile,
+and Ops deletes the branch at archive — taking the change with it if that
+epic never ships.
 
 ### D3 — Retarget at the gate, in both directions
 
