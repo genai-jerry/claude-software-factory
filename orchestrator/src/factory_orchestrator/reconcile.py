@@ -16,6 +16,7 @@ import uuid
 
 from .github_app import RepoPort
 from .ledger import Ledger
+from .router import IN_PROGRESS, is_expedited
 
 log = logging.getLogger("factory-orchestrator.reconcile")
 
@@ -27,6 +28,12 @@ PENDING_STEP = {
 # Labels that start a role when applied. Fast-track / profile issues sit idle
 # if GitHub delivered the webhook to the Console and never to this process.
 START_LABELS = ("factory:fast-track", "factory:profile")
+# An expedited task at factory:ready has no gate left in front of it: the
+# marker on its epic already approved the implementation start (FACTORY.md
+# §4a). Nobody is going to click, so a missed factory:ready delivery parks it
+# for good rather than merely delaying a notification — the one state where a
+# lost webhook is silent *and* terminal.
+EXPEDITED_READY = "factory:ready"
 RELEASE_APPROVED = "factory:release-approved"
 DISPATCH_MARK = "<!-- factory-release-dispatched -->"
 
@@ -52,6 +59,14 @@ def sweep_repo(port: RepoPort, ledger: Ledger) -> int:
                     if label in labels:
                         queued += _queue_labeled(ledger, port, issue, label)
                         break
+                else:
+                    # Last, because it is the only one that has to read the
+                    # epic to decide: an unexpedited factory:ready is waiting
+                    # on a human by design and must never be swept.
+                    if (EXPEDITED_READY in labels and IN_PROGRESS not in labels
+                            and "factory:blocked" not in labels
+                            and is_expedited(port, issue)):
+                        queued += _queue_labeled(ledger, port, issue, EXPEDITED_READY)
 
         if RELEASE_APPROVED in labels and "factory:release" in labels:
             comments = port.list_comments(n)

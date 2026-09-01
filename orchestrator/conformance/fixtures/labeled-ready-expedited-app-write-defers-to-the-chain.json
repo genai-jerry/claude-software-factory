@@ -1,6 +1,6 @@
 {
-  "name": "labeled-ready-expedited-asks-nobody",
-  "description": "an expedited task's factory:ready notifies no one: its implementer starts on its own",
+  "name": "labeled-ready-expedited-app-write-defers-to-the-chain",
+  "description": "the Dispatcher's own factory:ready write starts nothing here — the run that applied it fans the implementers out, and a second one would share the task's branch",
   "config": {
     "approvers": {
       "implementation": [
@@ -36,7 +36,8 @@
     "action": "labeled",
     "issue": 8,
     "label": "factory:ready",
-    "sender": "boss"
+    "sender": "factory-app[bot]",
+    "senderType": "Bot"
   },
   "expect": {
     "role": "none",

@@ -495,6 +495,15 @@ finishing or was already there when the marker was *applied*: expediting an
 epic that has been sitting at `factory:design-ready` for a week starts it
 moving immediately.
 
+The map is per-issue, and an epic past its Dispatcher is at
+`factory:design-approved` — a state the map does not list, because the work it
+released is on the **tasks**. Applying the marker there therefore also looks at
+the epic's open `task(<epic>)` sub-issues and starts an Implementer on every
+one sitting at `factory:ready` (skipping any that are `factory:in-progress` or
+`factory:blocked`). Without that, expediting an epic *after* its Dispatcher ran
+would waive a click nobody was left to make: the label event that parked those
+tasks is long gone, and nothing else looks at them again.
+
 ### What it never touches
 
 - **Gate G0** (release scope) is upstream of the spec and unaffected: an

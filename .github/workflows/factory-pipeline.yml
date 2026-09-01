@@ -494,6 +494,35 @@ jobs:
               return nxt;
             };
 
+            // The epic's open task(<epic>) sub-issues sitting at factory:ready.
+            // The Dispatcher's own state does not move when it releases tasks
+            // — its output is on the tasks — so an expedited epic's fan-out is
+            // read from the tasks themselves. Anything already carrying a run
+            // marker or blocked is left alone: the same two guards a human
+            // "Approved" passes. Mirrors expedite-chain's own fan-out and the
+            // Python engine's expedited_ready_tasks.
+            const expediteReadyTasks = async (epic) => {
+              let found;
+              try {
+                found = await github.paginate(github.rest.issues.listForRepo, {
+                  owner, repo, labels: 'factory:ready', state: 'open', per_page: 100,
+                });
+              } catch (e) {
+                core.warning(`Could not list ready tasks for epic #${epic} (${e.message})`);
+                return [];
+              }
+              const out = [];
+              for (const t of found) {
+                if (t.pull_request) continue;
+                const m = /^task\((\d+)\)/.exec(t.title || '');
+                if (!m || Number(m[1]) !== epic) continue;
+                const ls = namesOf(t.labels);
+                if (ls.includes(IN_PROGRESS) || ls.includes('factory:blocked')) continue;
+                out.push(t.number);
+              }
+              return out;
+            };
+
             // Release trackers are found by label + title, never by search:
             // the search index lags behind issue creation by seconds to minutes.
             const trackerFor = async (ms) => {
@@ -1121,13 +1150,46 @@ jobs:
                                    [EPIC_READY]: ['staging', 'Gate GS (releasing this epic to staging)'],
                                    'factory:in-staging': ['release', 'Gate G3 (promotion to the default branch)'],
                                    'factory:ready': ['implementation', 'Implementation start'] };
-                // An expedited task's implementer starts on its own, so
-                // assigning and @-mentioning the implementation approvers for
-                // it asks people for a click that does not exist. Every other
-                // hand-off label still notifies — GS and G3 especially, which
-                // expedite never waives.
-                const notifySkipped = notifyOf[name] && name === 'factory:ready' &&
-                                      await isExpedited(i);
+                // An expedited task's implementer starts here rather than
+                // waiting for a click that expedite has already given (§4a),
+                // so the implementation approvers are not asked for one. Every
+                // other hand-off label still notifies — GS and G3 especially,
+                // which expedite never waives.
+                //
+                // The App exemption is the mirror image of the gate labels
+                // above: this engine's own label writes emit no events, but a
+                // repo whose FACTORY_CROSS_REPO_TOKEN PAT applies them does
+                // emit them, and expedite-chain already fans the implementers
+                // out from the dispatch run that applied factory:ready. A
+                // second start here would put two implementers on one task and
+                // one branch. Every other sender — a human, the Console, a
+                // replayed delivery — is a factory:ready nothing else is
+                // acting on, and is exactly the case that used to park
+                // silently: expedite waived the click and nothing took it.
+                let notifySkipped = false;
+                if (name === 'factory:ready' && await isExpedited(i)) {
+                  notifySkipped = true;
+                  if (senderIsApp) {
+                    core.info(`#${i.number} reached factory:ready on this engine's own write - ` +
+                      'the run that applied it starts the implementer');
+                  } else if (labels.includes('factory:blocked')) {
+                    // The one expedited case with nothing to start and nobody
+                    // to ping: expedite waived the click, so asking for it
+                    // would be a lie, and staying silent is what parked these
+                    // tasks in the first place. Say what is actually true.
+                    await say(i.number,
+                      'This task is `factory:ready` and expedited, so no approval is waiting on ' +
+                      'anyone — but it is also `factory:blocked`, and expedite does not advance a ' +
+                      'blocked task. Reply here to unblock it, then re-apply `factory:ready` (or ' +
+                      'comment `Approved`) to start the implementer.');
+                    core.info(`#${i.number} is expedited at factory:ready but blocked`);
+                  } else {
+                    role = await expediteNow(i, labels);
+                    if (role !== 'none') {
+                      core.info(`Expedited task #${i.number} reached factory:ready - starting ${role}`);
+                    }
+                  }
+                }
                 if (notifyOf[name] && !notifySkipped) {
                   const [gate, what] = notifyOf[name];
                   const list = approverList(gate);
@@ -1183,19 +1245,42 @@ jobs:
                     core.info(`Refused ${EXPEDITE} on #${i.number}`);
                   } else {
                     role = await expediteNow(i, labels);
-                    if (role === 'none') {
-                      await say(i.number,
-                        '**Expedited.** From here this epic advances itself: gates G1 and G2 approve ' +
-                        'themselves, and every task runs implement → review → test → assemble with no ' +
-                        'start button (FACTORY.md §4a).\n\n' +
+                    // The epic's own state is past everything expedite
+                    // advances — dispatch has already run — so there is
+                    // nothing for expediteNow to do *here*. The work it
+                    // released is on the tasks, and they are sitting at
+                    // factory:ready waiting for the implementation click this
+                    // marker just waived. Without this, expediting an epic
+                    // after its dispatcher ran said "nothing to start right
+                    // now" and every task stayed parked for good: the label
+                    // event that put them at factory:ready is long gone, so
+                    // nothing else was ever going to look.
+                    const parked = (role === 'none' && !labels.includes('factory:blocked') &&
+                                    !labels.includes(IN_PROGRESS))
+                      ? await expediteReadyTasks(i.number) : [];
+                    const preamble =
+                      '**Expedited.** From here this epic advances itself: gates G1 and G2 approve ' +
+                      'themselves, and every task runs implement → review → test → assemble with no ' +
+                      'start button (FACTORY.md §4a).\n\n';
+                    const gatesNote =
+                      '\n\nTwo gates are never waived: **GS**, releasing the assembled epic to staging, ' +
+                      'and **G3**, promoting it to production. Remove the label at any time to put the ' +
+                      'other gates back.';
+                    if (parked.length) {
+                      role = 'implementer';
+                      issues = parked.map(String);
+                      await say(i.number, preamble +
+                        `${parked.length} task(s) were already waiting for the implementation click ` +
+                        'this marker waives — starting them now:\n' +
+                        parked.map(x => `- #${x} → implementer`).join('\n') + gatesNote);
+                    } else if (role === 'none') {
+                      await say(i.number, preamble +
                         `Nothing to start right now — this issue is at **${stateOf(labels)}**, which ` +
                         'expedite does not advance. It takes effect at the next stage that would have ' +
-                        'waited for you.\n\n' +
-                        'Two gates are never waived: **GS**, releasing the assembled epic to staging, and ' +
-                        '**G3**, promoting it to production. Remove the label at any time to put the other ' +
-                        'gates back.');
+                        'waited for you.' + gatesNote);
                     }
-                    core.info(`${EXPEDITE} applied to #${i.number} - next: ${role}`);
+                    core.info(`${EXPEDITE} applied to #${i.number} - next: ${role} on ` +
+                      `${(issues.length ? issues : [i.number]).join(', ')}`);
                   }
                 }
                 // The fast lane. Skipping OpenSpec ceremony does not mean

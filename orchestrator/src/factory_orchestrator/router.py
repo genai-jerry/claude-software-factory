@@ -943,12 +943,43 @@ class Router:
                 "factory:in-staging": ("release", "Gate G3 (promotion to the default branch)"),
                 "factory:ready": ("implementation", "Implementation start"),
             }
-            # An expedited task's implementer starts on its own, so assigning
-            # and @-mentioning the implementation approvers for it asks people
-            # for a click that does not exist. Every other hand-off label still
-            # notifies — GS and G3 especially, which expedite never waives.
-            notify_skipped = (name in notify_of and name == "factory:ready"
-                              and is_expedited(self.port, i, self.port_for))
+            # An expedited task's implementer starts here rather than waiting
+            # for a click that expedite has already given (§4a), so the
+            # implementation approvers are not asked for one. Every other
+            # hand-off label still notifies — GS and G3 especially, which
+            # expedite never waives.
+            #
+            # The App exemption is the mirror image of the gate labels above:
+            # when the Dispatcher (running as this App) applies factory:ready,
+            # the graph's own chain fans the implementers out from the run that
+            # applied it, and the webhook echoing that write back must not
+            # start a second implementer on the same task and branch. Every
+            # other sender — a human, the Console, the reconciler replaying a
+            # step this process missed — is a factory:ready nothing else is
+            # acting on, and is exactly the case that used to park silently.
+            notify_skipped = False
+            if name == "factory:ready" and is_expedited(self.port, i, self.port_for):
+                notify_skipped = True
+                if _sender_is_app(payload):
+                    log.info("#%s reached factory:ready on this App's own write - the "
+                             "run that applied it starts the implementer", i["number"])
+                elif "factory:blocked" in labels:
+                    # The one expedited case with nothing to start and nobody
+                    # to ping: expedite waived the click, so asking for it
+                    # would be a lie, and staying silent is what parked these
+                    # tasks in the first place. Say what is actually true.
+                    self.say(i["number"],
+                             "This task is `factory:ready` and expedited, so no approval is "
+                             "waiting on anyone — but it is also `factory:blocked`, and expedite "
+                             "does not advance a blocked task. Reply here to unblock it, then "
+                             "re-apply `factory:ready` (or comment `Approved`) to start the "
+                             "implementer.")
+                    log.info("#%s is expedited at factory:ready but blocked", i["number"])
+                else:
+                    r.role = self.expedite_now(i, labels)
+                    if r.role != "none":
+                        log.info("Expedited task #%s reached factory:ready - starting %s",
+                                 i["number"], r.role)
             if name in notify_of and not notify_skipped:
                 gate, what = notify_of[name]
                 lst = cfg.approver_list(gate)
@@ -1006,7 +1037,37 @@ class Router:
                     log.info("Refused %s on #%s", EXPEDITE, i["number"])
                 else:
                     r.role = self.expedite_now(i, labels)
-                    if r.role == "none":
+                    parked: list[int] = []
+                    if r.role == "none" and not (
+                            "factory:blocked" in labels or IN_PROGRESS in labels):
+                        # The epic's own state is past everything expedite
+                        # advances — dispatch has already run — so there is
+                        # nothing for expedite_now to do *here*. The work it
+                        # released is on the tasks, and they are sitting at
+                        # factory:ready waiting for the implementation click
+                        # this marker just waived. Without this, expediting an
+                        # epic after its dispatcher ran said "nothing to start
+                        # right now" and every task stayed parked for good:
+                        # the label event that put them at factory:ready is
+                        # long gone, so nothing else was ever going to look.
+                        parked = expedited_ready_tasks(self.port, i["number"])
+                    if parked:
+                        r.role = "implementer"
+                        r.issues = [str(x) for x in parked]
+                        self.say(i["number"], "\n".join([
+                            "**Expedited.** From here this epic advances itself: gates G1 and G2 "
+                            "approve themselves, and every task runs implement → review → test → "
+                            "assemble with no start button (FACTORY.md §4a).",
+                            "",
+                            f"{len(parked)} task(s) were already waiting for the implementation "
+                            "click this marker waives — starting them now:",
+                            *[f"- #{x} → implementer" for x in parked],
+                            "",
+                            "Two gates are never waived: **GS**, releasing the assembled epic to "
+                            "staging, and **G3**, promoting it to production. Remove the label at "
+                            "any time to put the other gates back.",
+                        ]))
+                    elif r.role == "none":
                         self.say(i["number"], "\n".join([
                             "**Expedited.** From here this epic advances itself: gates G1 and G2 "
                             "approve themselves, and every task runs implement → review → test → "
@@ -1020,7 +1081,8 @@ class Router:
                             "staging, and **G3**, promoting it to production. Remove the label at "
                             "any time to put the other gates back.",
                         ]))
-                    log.info("%s applied to #%s - next: %s", EXPEDITE, i["number"], r.role)
+                    log.info("%s applied to #%s - next: %s on %s", EXPEDITE, i["number"],
+                             r.role, r.issues or [i["number"]])
 
             if name == PROFILE_KIND:
                 r.role = "profiler"
