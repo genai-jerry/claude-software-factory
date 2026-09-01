@@ -68,3 +68,50 @@ def test_sweep_skips_fast_track_with_recorded_run(tmp_path):
     ledger = make_ledger(tmp_path)
     ledger.start_run(repo="o/r", issue=102, role="fasttrack", trigger="issues:labeled")
     assert sweep_repo(world, ledger) == 0
+
+
+
+def expedited_epic_world(*tasks):
+    """An epic whose dispatcher has already run, plus the tasks it released."""
+    issues = {5: issue(5, "Epic", ["factory:design-approved", "factory:expedite"])}
+    for t in tasks:
+        issues.update(t)
+    return FakeRepo(issues)
+
+
+def dispatched(ledger):
+    """The epic's own dispatch run, so the sweep looks past it to the tasks."""
+    ledger.start_run(repo="o/r", issue=5, role="dispatch", trigger="issues:labeled")
+    return ledger
+
+
+def test_sweep_queues_expedited_task_parked_at_ready(tmp_path):
+    # The one lost delivery that is silent *and* terminal: expedite already
+    # gave the implementation click, so nobody is coming to press it.
+    world = expedited_epic_world({8: issue(8, "task(5) do the thing", ["factory:ready"])})
+    ledger = dispatched(make_ledger(tmp_path))
+    assert sweep_repo(world, ledger) == 1
+    [claimed] = ledger.claim_pending()
+    assert claimed["payload"]["label"]["name"] == "factory:ready"
+    assert claimed["payload"]["issue"]["number"] == 8
+
+
+def test_sweep_leaves_unexpedited_ready_task_alone(tmp_path):
+    # Without the marker, factory:ready is waiting on a human by design.
+    world = FakeRepo({5: issue(5, "Epic", ["factory:design-approved"]),
+                      8: issue(8, "task(5) do the thing", ["factory:ready"])})
+    assert sweep_repo(world, dispatched(make_ledger(tmp_path))) == 0
+
+
+def test_sweep_leaves_running_or_blocked_expedited_tasks_alone(tmp_path):
+    world = expedited_epic_world(
+        {8: issue(8, "task(5) running", ["factory:ready", "factory:in-progress"])},
+        {9: issue(9, "task(5) blocked", ["factory:ready", "factory:blocked"])})
+    assert sweep_repo(world, dispatched(make_ledger(tmp_path))) == 0
+
+
+def test_sweep_skips_expedited_task_that_already_ran(tmp_path):
+    world = expedited_epic_world({8: issue(8, "task(5) do the thing", ["factory:ready"])})
+    ledger = dispatched(make_ledger(tmp_path))
+    ledger.start_run(repo="o/r", issue=8, role="implementer", trigger="issues:labeled")
+    assert sweep_repo(world, ledger) == 0

@@ -1,0 +1,52 @@
+{
+  "name": "labeled-ready-expedited-starts-implementer",
+  "description": "an expedited task reaching factory:ready starts its implementer and asks nobody: expedite already gave the implementation click",
+  "config": {
+    "approvers": {
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:design-approved",
+          "factory:expedite"
+        ]
+      },
+      {
+        "number": 8,
+        "title": "task(5) do the thing",
+        "body": "Part of o/r#5",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 8,
+    "label": "factory:ready",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "implementer",
+    "issues": [
+      "8"
+    ],
+    "comments": {
+      "8": {
+        "count": 0
+      }
+    }
+  }
+}

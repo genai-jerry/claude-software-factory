@@ -1,0 +1,94 @@
+{
+  "name": "labeled-expedite-starts-parked-ready-tasks",
+  "description": "expedite applied after the dispatcher ran starts the tasks already parked at factory:ready instead of reporting nothing to do",
+  "config": {
+    "approvers": {
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:design-approved",
+          "factory:expedite"
+        ]
+      },
+      {
+        "number": 8,
+        "title": "task(5) do the thing",
+        "body": "Part of o/r#5",
+        "labels": [
+          "factory:ready"
+        ]
+      },
+      {
+        "number": 9,
+        "title": "task(5) do the other thing",
+        "body": "Part of o/r#5",
+        "labels": [
+          "factory:ready"
+        ]
+      },
+      {
+        "number": 10,
+        "title": "task(5) already running",
+        "body": "Part of o/r#5",
+        "labels": [
+          "factory:ready",
+          "factory:in-progress"
+        ]
+      },
+      {
+        "number": 11,
+        "title": "task(7) someone else's task",
+        "body": "Part of o/r#7",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "implementer",
+    "issues": [
+      "8",
+      "9"
+    ],
+    "labels": {
+      "5": {
+        "has": [
+          "factory:expedite"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "count": 1,
+        "contains": [
+          "#8",
+          "#9"
+        ],
+        "notContains": [
+          "Nothing to start right now",
+          "#10",
+          "#11"
+        ]
+      }
+    }
+  }
+}
