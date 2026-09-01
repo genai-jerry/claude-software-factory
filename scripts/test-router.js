@@ -112,6 +112,10 @@ function makeWorld(opts) {
   const outputs = {};
   const core = {
     info: m => state.log.push(`info: ${m}`),
+    // The router degrades through core.warning on every best-effort path it
+    // has (an epic it cannot read, a branch it cannot cut). A stub without it
+    // turns "took the fallback" into a crash, which hides the fallback.
+    warning: m => state.log.push(`warning: ${m}`),
     setOutput: (k, v) => { outputs[k] = v; },
   };
   return { github, core, outputs, state };
@@ -860,6 +864,18 @@ function check(label, cond, extra) {
     // a dispatch would make plain planner→architect need the PAT too.
     check('planner → architect still chains in-run, PAT or no PAT',
       !!doc.jobs['architect-chain'], Object.keys(doc.jobs));
+
+    // The double-start trap. A PAT-applied gate label emits a real `labeled`
+    // event, which the router maps straight to planner/dispatch — and this
+    // job dispatches that same role itself. Two runs, one epic, one branch.
+    // The flip has to go through the workflow token, which emits nothing;
+    // only createWorkflowDispatch may use the PAT.
+    const patCalls = (chainSrc.match(/pat\.rest\.[a-z]+\.[a-zA-Z]+/g) || []);
+    check('only workflow dispatch uses the PAT — never a label flip or a merge',
+      patCalls.every(c => c === 'pat.rest.actions.createWorkflowDispatch'), patCalls);
+    check('the gate flip goes through the workflow token',
+      /github\.rest\.issues\.addLabels\(\{[\s\S]{0,200}?spec \? 'factory:spec-approved'/.test(chainSrc),
+      'the expedited gate flip is not on the workflow-token client');
   }
 
   // ------------------------------------------------------------------ fixtures

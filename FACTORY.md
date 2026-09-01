@@ -505,8 +505,19 @@ moving immediately.
 - **Gate G3** (production) is unchanged in every respect: a human merging a
   promotion PR in the GitHub UI, never comment-approvable, never an agent.
 
-Nothing auto-advanced ever merges to the integration branch or the default
-branch. That is why `epics: false` stops the chain at
+**One thing it does merge, and you should know it.** Approving G1 and G2
+squash-merges the spec and design PRs, and under `epics: false` those PRs
+base on the **default branch** (§6) — so on that policy, expedite lets
+document PRs reach `main` with no per-gate click. That is not a hole in §8a:
+those merges are documents-only, the deploy workflows `paths-ignore` them,
+and the branch guard classifies them as such. It is the switch working as
+intended — the click moved from each gate to the moment somebody applied the
+marker, which is why applying it is authorised (§2b). Under `epics: true`
+they merge to the epic branch instead and never touch `main` before
+promotion. No *code* reaches `main` either way except through gate G3.
+
+Beyond that, nothing auto-advanced ever merges to the integration branch or
+the default branch. That is why `epics: false` stops the chain at
 `factory:ready-to-ship`: with no epic branch, the Release Manager's *first*
 merge is onto the integration branch, and that merge is the staging deploy.
 Under `epics: true` phase 1 merges onto the epic branch, which is the factory's

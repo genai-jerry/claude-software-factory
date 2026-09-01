@@ -901,7 +901,13 @@ class Router:
                 "factory:in-staging": ("release", "Gate G3 (promotion to the default branch)"),
                 "factory:ready": ("implementation", "Implementation start"),
             }
-            if name in notify_of:
+            # An expedited task's implementer starts on its own, so assigning
+            # and @-mentioning the implementation approvers for it asks people
+            # for a click that does not exist. Every other hand-off label still
+            # notifies — GS and G3 especially, which expedite never waives.
+            notify_skipped = (name in notify_of and name == "factory:ready"
+                              and is_expedited(self.port, i, self.port_for))
+            if name in notify_of and not notify_skipped:
                 gate, what = notify_of[name]
                 lst = cfg.approver_list(gate)
                 if lst:
