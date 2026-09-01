@@ -858,8 +858,20 @@ function check(label, cond, extra) {
       /CROSS_TOKEN/.test(JSON.stringify(chainJob)), 'no CROSS_TOKEN in expedite-chain');
     check('expedite-chain says so on the issue when the token is missing',
       /factory-expedite-no-token/.test(chainSrc), 'no say-once marker');
-    check('expedite-chain only runs after a successful agent job',
+    check('expedite-chain only acts on a successful role run',
       /needs\.agent\.result == 'success'/.test(String(chainJob.if || '')), chainJob.if);
+    // Two jobs run roles. On a gate-G0 approval `agent` is skipped entirely
+    // and `release-intake` does the work, so a chain keyed on `agent` alone
+    // left every expedited issue a milestone released stalled at spec-ready.
+    check('expedite-chain also chains the gate-G0 release batch',
+      (chainJob.needs || []).includes('release-intake') &&
+      /needs\.release-intake\.result == 'success'/.test(String(chainJob.if || '')),
+      chainJob.needs);
+    check('and knows which issues that batch touched',
+      /RELEASED_ISSUES:\s*\$\{\{\s*needs\.release-chain\.outputs\.issues/.test(
+        JSON.stringify(chainJob).replace(/\\n/g, '\n')) ||
+      /needs\.release-chain\.outputs\.issues/.test(JSON.stringify(chainJob)),
+      'no released-issue list reaches expedite-chain');
     // architect-chain must survive intact: replacing its in-run chaining with
     // a dispatch would make plain planner→architect need the PAT too.
     check('planner → architect still chains in-run, PAT or no PAT',

@@ -2183,11 +2183,19 @@ jobs:
   # any side effect, so an epic is not flipped past a gate the chain then
   # cannot follow).
   expedite-chain:
-    needs: [route, agent, architect-chain]
+    # Two jobs run roles: `agent` for everything routed, and `release-intake`
+    # for the gate-G0 batch (where `agent` is skipped entirely, so keying off
+    # it alone left every expedited issue released by a milestone stalled at
+    # factory:spec-ready with nothing to advance it).
+    needs: [route, agent, architect-chain, release-chain, release-intake]
     if: >-
-      always() && needs.agent.result == 'success'
+      always()
       && needs.architect-chain.result != 'failure'
-      && needs.route.outputs.issues != '' && needs.route.outputs.issues != '[]'
+      && (
+           (needs.agent.result == 'success'
+             && needs.route.outputs.issues != '' && needs.route.outputs.issues != '[]')
+           || needs.release-intake.result == 'success'
+         )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -2198,7 +2206,10 @@ jobs:
         env:
           RAN_ROLE: ${{ needs.route.outputs.role }}
           RAN_ISSUES: ${{ needs.route.outputs.issues }}
+          AGENT_RESULT: ${{ needs.agent.result }}
           ARCHITECT_RESULT: ${{ needs.architect-chain.result }}
+          RELEASE_INTAKE_RESULT: ${{ needs.release-intake.result }}
+          RELEASED_ISSUES: ${{ needs.release-chain.outputs.issues }}
           CROSS_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN }}
         with:
           script: |
@@ -2242,12 +2253,27 @@ jobs:
             });
             const defBranch = (context.payload.repository || {}).default_branch || 'main';
 
-            // The role that actually last touched these issues. The planner
-            // chains the architect in-run (architect-chain), so after a
-            // planner route it is the architect's result the map follows.
+            // Which issues this run touched, and with which role — because
+            // "the role that just ran" is what stops the chain from repeating
+            // itself. Two jobs contribute: `agent` (whatever was routed) and
+            // `release-intake` (the gate-G0 batch, where `agent` is skipped).
+            // Both can happen in one run when the Scrum Master approves G0
+            // itself, so these are merged, not chosen between.
             let ranRole = process.env.RAN_ROLE;
+            // The planner chains the architect in-run (architect-chain), so
+            // after a planner route it is the architect's result the map follows.
             if (ranRole === 'planner' && process.env.ARCHITECT_RESULT === 'success') ranRole = 'architect';
-            const issues = JSON.parse(process.env.RAN_ISSUES || '[]').map(Number);
+            const acted = [];
+            if (process.env.AGENT_RESULT === 'success') {
+              for (const n of JSON.parse(process.env.RAN_ISSUES || '[]')) {
+                acted.push({ issue: Number(n), ranRole });
+              }
+            }
+            if (process.env.RELEASE_INTAKE_RESULT === 'success') {
+              for (const n of JSON.parse(process.env.RELEASED_ISSUES || '[]')) {
+                acted.push({ issue: Number(n), ranRole: 'intake' });
+              }
+            }
 
             const epicOf = (iss) => {
               const m = /^task\((\d+)\)/.exec(iss.title || '');
@@ -2271,7 +2297,7 @@ jobs:
             // G1 with no way to start its planner would strand it worse than
             // leaving the gate shut.
             const followUps = [];
-            for (const n of issues) {
+            for (const { issue: n, ranRole: was } of acted) {
               const { data: iss } = await github.rest.issues.get({
                 owner, repo, issue_number: n,
               }).catch(() => ({ data: null })) || {};
@@ -2284,28 +2310,22 @@ jobs:
               if (!(await isExpedited(iss))) continue;
               const state = soleState(labels);
               const next = expeditedNext(state);
-              if (!next) {
+              if (next) {
+                // The dispatch-storm guard. If the map names the role that
+                // just ran, this run did not move the issue on (a no-op, or a
+                // role that left the state alone) and dispatching it again
+                // would repeat it forever.
+                if (next === was) {
+                  core.info(`#${n} is still at ${state} after ${was} - not re-dispatching the same role`);
+                } else {
+                  followUps.push({ issue: n, next, state });
+                }
+              } else {
                 core.info(`#${n} is at ${state || 'no state'} - the map stops here`);
-                continue;
               }
-              // The dispatch-storm guard. If the map names the role that just
-              // ran, this run did not move the issue on (a no-op, or a role
-              // that left the state alone) and dispatching it again would
-              // repeat it forever.
-              if (next === ranRole) {
-                core.info(`#${n} is still at ${state} after ${ranRole} - not re-dispatching the same role`);
-                continue;
-              }
-              followUps.push({ issue: n, next, state });
-            }
-            // The Dispatcher's own state does not advance — its output is on
-            // the tasks it just released, so the fan-out is theirs, not its.
-            if (ranRole === 'dispatch') {
-              for (const n of issues) {
-                const { data: epicIss } = await github.rest.issues.get({
-                  owner, repo, issue_number: n,
-                }).catch(() => ({ data: null })) || {};
-                if (!epicIss || !namesOf(epicIss.labels).includes(EXPEDITE)) continue;
+              // The Dispatcher's own state does not advance — its output is on
+              // the tasks it just released, so the fan-out is theirs, not its.
+              if (was === 'dispatch') {
                 const { data: ready } = await github.rest.issues.listForRepo({
                   owner, repo, labels: 'factory:ready', state: 'open', per_page: 100,
                 });
