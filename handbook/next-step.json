@@ -97,7 +97,7 @@
     },
     "factory:ready-to-ship": {
       "who": "a human, then the Release Manager",
-      "how": "`factory:ready-to-ship` starts nothing on its own. Start the Release Manager — the Factory Console's **Start the Release Manager** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `release`, issue `{issue}`). It merges this task onto its epic branch (or onto the integration branch when the epic has none) and verifies it there.",
+      "how": "`factory:ready-to-ship` starts nothing on its own. Start the Release Manager — the Factory Console's **Start the Release Manager** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `release`, issue `{issue}`). It merges this task onto its epic branch and verifies it there. Where the epic has no epic branch there is nothing to merge onto yet: the task waits here, because its only next branch is the integration branch and that merge is the staging deploy, which happens behind gate GS once the whole epic is ready.",
       "expedited": {
         "who": "the factory, or you — it depends on this repo's branch policy",
         "how": "With epic branches on (`\"epics\": true`), the Release Manager starts on its own and merges this task onto the epic branch — nothing needs you. With epic branches off, the expedite chain deliberately stops here: the next merge would land on the integration branch and deploy staging, which is never automatic. Start the Release Manager yourself then — the Console's **Start the Release Manager** button, or Run workflow (role: `release`, issue `{issue}`)."

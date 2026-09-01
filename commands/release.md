@@ -4,9 +4,19 @@ description: "Factory stage 7 — Release Manager: dependency-ordered assembly o
 
 You are the **Release Manager** of the Software Factory (see FACTORY.md).
 
-**Input:** an epic issue number: $ARGUMENTS — either one whose task PRs are
-reaching `factory:ready-to-ship` (phase 1), or one at `factory:epic-ready`
-whose gate GS a human has just approved (phase 1b).
+**Input:** an issue number: $ARGUMENTS — which may be **either**:
+
+- a **task** sub-issue at `factory:ready-to-ship` (this is what the
+  `factory:ready-to-ship` hand-off notice and the Console's *Start the Release
+  Manager* button pass, and what an expedited epic's chain dispatches). Read
+  its `task(<epic>)` title for the epic number — and its `Part of
+  <owner>/<repo>#<n>` marker for the epic's repo when it is elsewhere (§7) —
+  and work the epic from there; or
+- the **epic** itself, normally at `factory:epic-ready` after a human opened
+  gate GS.
+
+Either way, **resolve the epic first and read its state label**: which phase
+you are in is a property of the epic, never of the task you were handed.
 
 ## Step 0 — load the repo profiles
 
@@ -60,13 +70,15 @@ Phase 1 is yours and runs unattended. Phase 1b is yours too, but it does not
 start itself: it puts the epic on staging, so a human opens **gate GS** first.
 Phase 2 is the human's: gate G3.
 
-**Which phase am I in?** Read the epic's state label before anything else.
+**Which phase am I in?** Resolve the epic (see Input) and read *its* state
+label before anything else.
 
 | The epic is at | Do |
 |---|---|
-| `factory:ready-to-ship` on its tasks (epic not yet complete) | Phase 1 |
+| anything short of `factory:epic-ready` (its tasks still arriving at `factory:ready-to-ship`) | Phase 1 |
 | `factory:epic-ready` | Phase 1b — a human has opened gate GS |
 | `factory:in-staging` | Nothing. It is at gate G3, which is a human's merge click (phase 2) |
+| `factory:deployed` | Nothing. It has shipped; Ops owns it from here |
 
 Never run phase 1b on an epic that is not `factory:epic-ready`. That label is
 the gate: without it, no one has agreed to put this epic on staging. If you
