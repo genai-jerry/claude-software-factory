@@ -398,7 +398,7 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:ready` | Task unblocked; implementer may start | Orchestrator | Implementer → `factory:in-review` |
 | `factory:in-review` | Draft PR under agent review | Implementer | Reviewer → `factory:in-test` (or back to `factory:ready`), or a human comments `Review Done` → `factory:in-test` directly |
 | `factory:in-test` | QA verifying scenarios | Reviewer | QA → `factory:ready-to-ship` |
-| `factory:ready-to-ship` | Green; awaiting the merge onto the epic branch (§6b), or onto the staging branch when the epic has no epic branch (§6a) | QA | Release → `factory:on-epic` (or `factory:in-staging`) |
+| `factory:ready-to-ship` | Green; awaiting the merge onto the epic branch (§6b). With no epic branch it waits here for the whole epic instead — its only next branch is the integration branch, and that merge is behind gate GS | QA | Release → `factory:on-epic`; with no epic branch, gate GS → `factory:in-staging` |
 | `factory:on-epic` | Merged onto the epic branch and green there; awaiting the rest of the epic (§6b). Only with `epics: true` | Release | The epic's last task lands → the **epic** goes `factory:epic-ready` |
 | `factory:epic-ready` | *On the epic:* every task is assembled and green, and nothing has touched staging yet. Awaiting **gate GS** | Release, or Dispatch on a re-run that finds the epic complete | Human (GS) → Release carries the epic to integration → `factory:in-staging` |
 | `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR → `factory:deployed` |

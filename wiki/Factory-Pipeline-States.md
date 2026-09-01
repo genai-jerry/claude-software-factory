@@ -78,7 +78,8 @@ moment the previous role finishes.
 
 The `factory:on-epic` hop exists only with the epic-branch policy on
 (`"epics": true` in `.github/factory-branches.json`, FACTORY.md §6b). With it
-off, `factory:ready-to-ship` moves straight to `factory:in-staging` — the
+off, tasks wait at `factory:ready-to-ship` until the whole epic is there; the
+epic then goes to `factory:epic-ready`, and gate GS releases it — the
 Release Manager merges task PRs directly onto the integration branch, the
 pre-epic behaviour.
 
@@ -189,7 +190,8 @@ means "awaiting the merge that *assembles* it", and two further states hold
 the path to production. With the epic-branch policy on (`"epics": true`,
 FACTORY.md §6b) the Release Manager merges each green task PR onto the
 **epic's own branch** `factory/epic-<n>` in dependency order and verifies it
-there (`factory:on-epic`); when the whole epic is green, one integration PR
+there (`factory:on-epic`); when the whole epic is green it goes to
+`factory:epic-ready` and waits for **gate GS**, after which one integration PR
 carries it to the **integration branch**, where the staging deploy and health
 checks run (`factory:in-staging`); only then are the promotion PRs opened.
 Epics assemble in isolation — a red epic branch blocks only its own epic —
