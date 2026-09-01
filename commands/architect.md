@@ -39,6 +39,20 @@ Produce a grounded technical design for every affected repo.
      `conventions` (`.factory/profile.json`) and its CLAUDE.md / AGENTS.md.
    - Failure modes and edge cases per spec scenario.
    - Rollout order and rollback notes.
+   - A closing `## Open Questions` section, numbered (`1.`, `2.`, …) —
+     anything left unresolved for the gate G2 approver to weigh in on.
+     Immediately follow it with an **"Open questions by area"** table so a
+     reviewer can see at a glance what is still open without reading the
+     whole document, naming which numbered question(s) apply to which part
+     of the design (a module, screen/view, or decision):
+     ```
+     | Area | Item | Questions |
+     | --- | --- | --- |
+     | coaching-hub | Manager's team view | 6, 8 |
+     | coaching-hub | Mixed history stays separated | 6 |
+     ```
+     Omit the table only when the design has no per-area structure to name
+     (every open question applies to the whole design equally).
 4. **Cross-repo contract:** one shared contract snippet, byte-identical in every
    repo's design.md. Flag any breaking change explicitly.
 5. In the epic's repo: commit `design.md` to the existing
