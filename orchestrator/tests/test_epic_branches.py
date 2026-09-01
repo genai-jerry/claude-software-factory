@@ -1,7 +1,11 @@
-"""Epic-branch policy (FACTORY.md §6b) at the gate merges — the Python twin
+"""Document routing (FACTORY.md §6/§6b) at the gate merges — the Python twin
 of scenario 20 in scripts/test-router.js. Both engines must retarget gate
 document PRs the same way, so a change here lands with the JS scenario
-moving in the same PR."""
+moving in the same PR.
+
+The target is the first rung of §6's ladder that applies: the epic branch
+under `epics: true`, else the integration branch, else — only for a repo with
+no integration branch at all — the default branch."""
 
 from __future__ import annotations
 
@@ -77,12 +81,14 @@ def test_a_hand_merged_gate_document_still_adopts_the_epic():
     assert "factory/epic-5" in w.branches
 
 
-def test_epics_off_creates_no_epic_branch_at_a_gate():
+def test_epics_off_sends_the_gate_document_to_the_integration_branch():
+    # No epic branch is cut, and the document does NOT go to the default
+    # branch: with epics off the integration branch is where the stages read.
     w = FakeRepo(issues=_issue(5, ["factory:design-ready"]))
     w.open_prs["o:factory/5-design"] = [{"number": 9, "base": {"ref": "main"}}]
     _router(w).route(*_approved(w, 5))
     assert "factory/epic-5" not in w.branches
-    assert w.merged_bases[9] == "main"
+    assert w.merged_bases[9] == "staging"
 
 
 def test_design_gate_follows_an_existing_epic_branch():
@@ -93,20 +99,43 @@ def test_design_gate_follows_an_existing_epic_branch():
     assert w.merged_bases[9] == "factory/epic-5"
 
 
-def test_epics_off_retargets_back_to_the_default_branch():
+def test_epics_off_retargets_off_a_stale_epic_branch_onto_integration():
+    # A flip back to epics:false: the PR comes off the epic branch, but it
+    # lands on the integration branch, never on the default branch.
     w = FakeRepo(issues=_issue(5, ["factory:spec-ready"]))
     w.branches.append("factory/epic-5")
     w.open_prs["o:factory/5-spec"] = [{"number": 9, "base": {"ref": "factory/epic-5"}}]
     _router(w).route(*_approved(w, 5))
+    assert w.merged_bases[9] == "staging"
+
+
+def test_no_integration_branch_is_the_one_case_documents_reach_the_default():
+    # required:false means this repo opted out of staging entirely, so there
+    # is nowhere else its documents could go.
+    w = FakeRepo(issues=_issue(5, ["factory:spec-ready"]))
+    w.open_prs["o:factory/5-spec"] = [{"number": 9, "base": {"ref": "main"}}]
+    _router(w, {"required": False}).route(*_approved(w, 5))
     assert w.merged_bases[9] == "main"
+    assert w.branches == ["main"]
 
 
-def test_absent_policy_changes_nothing():
+def test_a_repo_profile_renames_the_integration_branch():
+    w = FakeRepo(issues=_issue(5, ["factory:spec-ready"]))
+    w.open_prs["o:factory/5-spec"] = [{"number": 9, "base": {"ref": "main"}}]
+    cfg = RepoConfig(approvers=APPROVERS, branches={},
+                     profile={"branches": {"staging": "develop"}})
+    Router(w, cfg).route(*_approved(w, 5))
+    assert w.merged_bases[9] == "develop"
+
+
+def test_absent_policy_still_routes_documents_through_staging():
+    # An absent file means epics:false AND staging:"staging" required — the
+    # defaults — so a document PR based on the default branch is retargeted.
     w = FakeRepo(issues=_issue(5, ["factory:spec-ready"]))
     w.open_prs["o:factory/5-spec"] = [{"number": 9, "base": {"ref": "main"}}]
     _router(w).route(*_approved(w, 5))
-    assert w.merged_bases[9] == "main"
-    assert w.branches == ["main"]
+    assert w.merged_bases[9] == "staging"
+    assert "factory/epic-5" not in w.branches
 
 
 def test_approved_on_on_epic_explains_and_routes_nothing():

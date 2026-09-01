@@ -359,20 +359,45 @@ jobs:
                     `(${e.message}) - this epic stays on default-branch routing`);
                 }
               }
+              // Where this gate's documents belong, by policy (FACTORY.md §6):
+              // the epic branch, else the integration branch, else — only for
+              // a repo with no integration branch at all — the default branch.
+              // Retargeting an open PR onto it is how an epic in flight adopts
+              // current routing at its next gate; a PR already merged is left
+              // alone, and the stage checkout ladder (§6a) keeps that epic
+              // working.
+              let wantBase = epicReady ? epicBranch : (stagingBranch() || defBranch);
+              // Same best-effort as the epic branch: a target that does not
+              // exist yet is cut from the default branch, and a repo that
+              // refuses keeps its current base rather than losing the approval.
+              if (wantBase !== defBranch && !(await branchExists(wantBase))) {
+                if (loadJson('.github/factory-branches.json').auto_create === false) {
+                  core.warning(`${wantBase} does not exist and auto_create is off - leaving this gate's PR bases alone`);
+                  wantBase = null;
+                } else {
+                  try {
+                    const { data: def } = await github.rest.repos.getBranch({
+                      owner, repo, branch: defBranch,
+                    });
+                    await github.rest.git.createRef({
+                      owner, repo, ref: `refs/heads/${wantBase}`, sha: def.commit.sha,
+                    });
+                    core.info(`Created ${wantBase} from ${defBranch}`);
+                  } catch (e) {
+                    core.warning(`Could not create ${wantBase} from ${defBranch} (${e.message}) - leaving this gate's PR bases alone`);
+                    wantBase = null;
+                  }
+                }
+              }
               let allMerged = true;
               for (const pr of prs) {
                 try {
-                  let wantBase = pr.base.ref;
-                  if (epicReady && pr.base.ref === defBranch) {
-                    wantBase = epicBranch;
-                  } else if (!epicsOn && pr.base.ref === epicBranch) {
-                    wantBase = defBranch;
-                  }
-                  if (wantBase !== pr.base.ref) {
+                  const hadBase = pr.base.ref;
+                  if (wantBase && hadBase !== wantBase) {
                     await github.rest.pulls.update({
                       owner, repo, pull_number: pr.number, base: wantBase,
                     });
-                    core.info(`Retargeted gate PR #${pr.number}: base ${pr.base.ref} -> ${wantBase} (epic-branch policy §6b)`);
+                    core.info(`Retargeted gate PR #${pr.number}: base ${hadBase} -> ${wantBase} (document routing §6)`);
                   }
                   await github.rest.pulls.merge({
                     owner, repo, pull_number: pr.number, merge_method: 'squash',
@@ -393,6 +418,21 @@ jobs:
             };
 
             const epicsPolicy = () => loadJson('.github/factory-branches.json').epics === true;
+
+            // The repo's integration branch, or null when it has none (§6a).
+            // Two sources, no ambiguity: the policy file says WHETHER the step
+            // runs and what the org calls the branch; .factory/profile.json
+            // overrides only the NAME, for a repo whose branch is genuinely
+            // called something else. required:false with no profile name means
+            // this repo opted out of staging entirely, and that is the one
+            // case where documents still land on the default branch.
+            const stagingBranch = () => {
+              const override = (loadJson('.factory/profile.json').branches || {}).staging;
+              if (typeof override === 'string' && override) return override;
+              const policy = loadJson('.github/factory-branches.json');
+              if (policy.required === false) return null;
+              return (typeof policy.staging === 'string' && policy.staging) ? policy.staging : 'staging';
+            };
 
             // A PAT is the only way out of this repo (§2a): the workflow token
             // is scoped to the repo the run is in. Null without one, and every
@@ -1286,12 +1326,43 @@ jobs:
             planner|architect|dispatch|release|ops) ;;
             *) echo "Role $ROLE resolves its own branches - default checkout kept"; exit 0 ;;
           esac
+          # The change folder lives where the stages read (FACTORY.md §6a):
+          # the epic branch, else the integration branch, else the default
+          # branch — and the rule is "the first that CARRIES it", not "the
+          # one policy names", so an epic whose documents merged to the
+          # default branch under an older routing is not handed an empty
+          # checkout.
+          has_folder() { # branch -> 0 when it carries this epic's change folder
+            git ls-tree -d --name-only "origin/$1" openspec/changes/ 2>/dev/null \
+              | grep -q "^openspec/changes/$ISSUE-"
+          }
           EPICS=$(python3 -c "
           import json
           try: print(json.load(open('.github/factory-branches.json')).get('epics') is True)
           except Exception: print(False)" 2>/dev/null || echo False)
+          STAGING=$(python3 -c "
+          import json
+          def load(p):
+              try: return json.load(open(p))
+              except Exception: return {}
+          prof = (load('.factory/profile.json').get('branches') or {}).get('staging')
+          pol = load('.github/factory-branches.json')
+          if isinstance(prof, str) and prof: print(prof)
+          elif pol.get('required') is False: print('')
+          else:
+              s = pol.get('staging')
+              print(s if isinstance(s, str) and s else 'staging')" 2>/dev/null || echo staging)
           if [ "$EPICS" != "True" ]; then
-            echo "Epic-branch policy off - default checkout kept"; exit 0
+            # No epic branch: read the integration branch when it carries the
+            # folder, else leave the default checkout (which either has it, or
+            # this epic has no folder yet and the role will say so).
+            if [ -n "$STAGING" ] && git fetch origin "$STAGING" 2>/dev/null && has_folder "$STAGING"; then
+              git checkout -B "$STAGING" FETCH_HEAD
+              echo "Checked out integration branch $STAGING (§6a)"
+            else
+              echo "Epic-branch policy off and no change folder on ${STAGING:-<none>} - default checkout kept"
+            fi
+            exit 0
           fi
           BR="factory/epic-$ISSUE"
           if ! git fetch origin "$BR" 2>/dev/null; then
@@ -2002,26 +2073,47 @@ jobs:
         if: steps.gate.outputs.proceed == 'true'
         with:
           fetch-depth: 0
-      - name: Start the architect on the epic branch (§6b)
+      - name: Start the architect on the epic's home branch (§6/§6a)
         if: steps.gate.outputs.proceed == 'true'
         env:
           ISSUE: ${{ needs.route.outputs.issue }}
         run: |
-          # Same rule as the agent job: with epics:true the change folder
-          # lives on factory/epic-<epic> (FACTORY.md §6b).
+          # Same ladder as the agent job: the change folder lives on the epic
+          # branch, else the integration branch, else the default branch —
+          # and the rule is "the first that CARRIES it" (FACTORY.md §6a).
+          has_folder() {
+            git ls-tree -d --name-only "origin/$1" openspec/changes/ 2>/dev/null \
+              | grep -q "^openspec/changes/$ISSUE-"
+          }
           EPICS=$(python3 -c "
           import json
           try: print(json.load(open('.github/factory-branches.json')).get('epics') is True)
           except Exception: print(False)" 2>/dev/null || echo False)
-          if [ "$EPICS" != "True" ]; then
-            echo "Epic-branch policy off - default checkout kept"; exit 0
+          STAGING=$(python3 -c "
+          import json
+          def load(p):
+              try: return json.load(open(p))
+              except Exception: return {}
+          prof = (load('.factory/profile.json').get('branches') or {}).get('staging')
+          pol = load('.github/factory-branches.json')
+          if isinstance(prof, str) and prof: print(prof)
+          elif pol.get('required') is False: print('')
+          else:
+              s = pol.get('staging')
+              print(s if isinstance(s, str) and s else 'staging')" 2>/dev/null || echo staging)
+          if [ "$EPICS" = "True" ]; then
+            BR="factory/epic-$ISSUE"
+            if git fetch origin "$BR" 2>/dev/null; then
+              git checkout -B "$BR" FETCH_HEAD
+              echo "Checked out epic branch $BR"; exit 0
+            fi
+            echo "No $BR on the remote (pre-flip epic?) - trying the integration branch"
           fi
-          BR="factory/epic-$ISSUE"
-          if git fetch origin "$BR" 2>/dev/null; then
-            git checkout -B "$BR" FETCH_HEAD
-            echo "Checked out epic branch $BR"
+          if [ -n "$STAGING" ] && git fetch origin "$STAGING" 2>/dev/null && has_folder "$STAGING"; then
+            git checkout -B "$STAGING" FETCH_HEAD
+            echo "Checked out integration branch $STAGING (§6a)"
           else
-            echo "No $BR on the remote (pre-flip epic?) - default checkout kept"
+            echo "No change folder on ${STAGING:-<none>} - default checkout kept"
           fi
       - name: Load factory role definition
         if: steps.gate.outputs.proceed == 'true'

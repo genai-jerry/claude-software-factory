@@ -1,0 +1,56 @@
+{
+  "name": "approved-g1-documents-route-through-staging",
+  "description": "with epics off, gate G1 lands the spec on the integration branch, never the default branch",
+  "config": {
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "epics": false
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:spec-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "planner",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "has": [
+          "factory:spec-approved"
+        ],
+        "not": [
+          "factory:spec-ready"
+        ]
+      }
+    }
+  }
+}

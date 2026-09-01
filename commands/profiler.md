@@ -101,11 +101,25 @@ enforce conventions this repo does not follow. Everything below serves that.
      PR.** Comment one line on the issue saying you checked it against the
      current commit and it is accurate, and stop. A maintenance run that opens
      an empty PR every time gets muted, and then it protects nothing.
-8. **Open the PR.** Branch `factory/profile` from `branches.default`, commit
-   only `.factory/profile.json`, and open a PR titled
-   `chore(factory): repo profile`. The body is the evidence: a line per field
-   saying what it came from — the file you read, the command you ran and its
-   outcome. Call out anything you could not verify and left out.
+8. **Open the PR.** Base it on the repo's **integration branch** — the name
+   you resolved in step 2 (the profile's `branches.staging` when it overrides,
+   else the policy's `staging`, else `"staging"`). Cut `factory/profile` from
+   that branch, commit only `.factory/profile.json`, and open a PR titled
+   `chore(factory): repo profile`.
+
+   Not the default branch, even though this file is repo configuration rather
+   than epic content (FACTORY.md §6). Every role reads the profile from the
+   one checkout it makes, and under the branch policy that checkout is the
+   integration branch — a profile merged only to the default branch would be
+   invisible to the roles that need it, because nothing merges the default
+   branch into integration on a schedule. It reaches the default branch with
+   everything else, at the next promotion. Only a repo whose policy sets
+   `required: false`, with no integration branch at all, bases this PR on
+   `branches.default`.
+
+   The body is the evidence: a line per field saying what it came from — the
+   file you read, the command you ran and its outcome. Call out anything you
+   could not verify and left out.
 9. **Report on the issue.** Comment with the PR link, the commands as you ran
    them with their outcomes, and any `gotchas` you found — those are the part a
    human is most likely to want to correct. Then remove `factory:profile` from

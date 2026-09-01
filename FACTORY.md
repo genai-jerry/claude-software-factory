@@ -505,19 +505,11 @@ moving immediately.
 - **Gate G3** (production) is unchanged in every respect: a human merging a
   promotion PR in the GitHub UI, never comment-approvable, never an agent.
 
-**One thing it does merge, and you should know it.** Approving G1 and G2
-squash-merges the spec and design PRs, and under `epics: false` those PRs
-base on the **default branch** (§6) — so on that policy, expedite lets
-document PRs reach `main` with no per-gate click. That is not a hole in §8a:
-those merges are documents-only, the deploy workflows `paths-ignore` them,
-and the branch guard classifies them as such. It is the switch working as
-intended — the click moved from each gate to the moment somebody applied the
-marker, which is why applying it is authorised (§2b). Under `epics: true`
-they merge to the epic branch instead and never touch `main` before
-promotion. No *code* reaches `main` either way except through gate G3.
-
-Beyond that, nothing auto-advanced ever merges to the integration branch or
-the default branch. That is why `epics: false` stops the chain at
+Nothing auto-advanced ever merges to the integration branch or the default
+branch. Gates G1 and G2 approving themselves squash-merges the spec and
+design PRs, but those land on the epic branch or the integration branch
+depending on policy (§6) — never on the default branch, under either. That is
+why `epics: false` stops the chain at
 `factory:ready-to-ship`: with no epic branch, the Release Manager's *first*
 merge is onto the integration branch, and that merge is the staging deploy.
 Under `epics: true` phase 1 merges onto the epic branch, which is the factory's
@@ -644,19 +636,25 @@ Under `epics: false` (and always, for the PR kinds below):
   repo, merged by a human in the Release Manager's posted order. That merge is
   the production deploy, and it is the **only** kind of PR that ever targets
   the default branch.
-- **Document PRs (spec, plan+design, profile) under `epics: false`** — and
-  profile PRs always, having no epic: into the repo's **default branch**
-  directly. They are not changes to the product: the deploy workflows
+- **Document PRs (spec, plan+design) under `epics: false`, and profile PRs
+  always** (they have no epic): into the repo's **integration branch**.
+  Gates G1 and G2 are their review, and the merge lands one branch below
+  production like everything else. They deploy nothing — the deploy workflows
   `paths-ignore` the factory/document paths (`openspec/**`, `docs/**`,
-  `FACTORY.md`, `.claude/**`, factory workflow files), so a docs-only merge
-  deploys nothing, and there is nothing for a staging environment to prove
-  about them. Routing them through integration would actively break the
-  pipeline: every later stage of a no-epic-branch epic clones the *default*
-  branch, so an approved spec parked on the integration branch would be
-  invisible to the planner, the architect and every implementer until the
-  next release promoted it. Gates G1 and G2 are those PRs' review. (With
-  `epics: true` the same two halves move together: documents merge to the
-  epic branch *and* stages read from it — §6b.)
+  `FACTORY.md`, `.claude/**`, factory workflow files) — so this costs a
+  staging deploy nothing; what it buys is that **no artifact of any kind
+  reaches the default branch except through a promotion PR**.
+
+  This works because the read moves with the write: every stage of a
+  no-epic-branch epic checks out the integration branch (§6a), the same way
+  every stage of an epic-branch epic checks out the epic branch (§6b).
+  Documents live where the stages read. That is the whole rule, and it is why
+  the profile comes too: a role makes one checkout, and a profile stranded on
+  the default branch would be invisible to the role that needs it.
+
+  Only `required: false` — a repo with no integration branch at all — keeps
+  document PRs on the default branch, because there is nowhere else to put
+  them.
 - During the pre-merge pilot, all PRs base on the factory development branch
   instead.
 
@@ -693,6 +691,23 @@ reviewer, qa and release roles all do at step 0a:
 
 Two sources, no ambiguity: the policy file says *whether* and *what the org
 calls it*; the profile says *what this repo calls it* when that differs.
+
+**Where a stage reads the change folder.** Documents live where the stages
+read (§6), so every post-intake stage — planner, architect, dispatch,
+implementer, reviewer, qa, release, ops — checks out the **first of these
+branches that actually carries the epic's `openspec/changes/<epic>-*/`**:
+
+1. the epic branch `factory/epic-<epic>`, when the policy sets `epics: true`;
+2. the integration branch;
+3. the default branch.
+
+It is "the first branch that has it", not "the branch the policy names", and
+the difference is load-bearing exactly once: an epic whose documents merged to
+the default branch under an older routing still has its folder there. Reading
+only the policy's branch would hand that epic an empty checkout and fail it
+for a reason that has nothing to do with the work. Artifacts are
+authoritative (§8) — where the folder is, is an observable fact, so observe
+it.
 
 **What it buys.** Every change is deployed and health-checked on staging
 before a human is asked to approve anything, so gate G3 stops being a judgement
@@ -837,12 +852,20 @@ branch it may write to and prove things on, and exactly one way — a human
 merging a promotion PR — for anything to leave it.
 
 Layer 3 also checks *where* a commit on `main` came from: a merge whose PR head
-was not the integration branch (and whose diff is not documents-only, §6) is
-reported on the incident issue as a change that skipped staging — an epic
-branch merged straight to `main` is exactly that case: epic branches reach
-`main` only through the integration branch (§6b). It is a
-detection, not a block — a human may always merge whatever they judge necessary
-— but it is never silent.
+was not the integration branch (and whose diff is not documents-only) is
+reported on the incident issue as a change that skipped staging. An epic
+branch merged straight to `main` is exactly that case — epic branches reach
+`main` only through the integration branch (§6b). It is a detection, not a
+block — a human may always merge whatever they judge necessary — but it is
+never silent.
+
+The **documents-only allowance is a legacy tolerance, not a description of
+normal routing**. Since §6 sends documents through the integration branch as
+well, nothing the factory does should reach `main` outside a promotion PR. It
+stays only because epics that started on the older routing still have
+documents to land, and a false incident on every one of those would teach
+people to ignore the guard. Tighten it once the estate has no pre-flip epics
+left.
 
 If the repos later move to a plan with branch protection/rulesets, turn them
 on and this section becomes defence-in-depth rather than the primary control.

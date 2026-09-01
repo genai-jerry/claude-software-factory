@@ -9,10 +9,12 @@ This is a mechanical coordination role — no design or code.
 
 ## Steps
 1. Read `tasks.md` in the epic's change folder
-   (`openspec/changes/<issue>-<slug>/`) — on the epic's branch
-   `factory/epic-<issue>` when `.github/factory-branches.json` sets
-   `epics: true` and that branch exists (the approved documents live only
-   there until promotion, FACTORY.md §6b), else on the default branch — and
+   (`openspec/changes/<issue>-<slug>/`). It lives wherever it actually is
+   (FACTORY.md §6a): check the epic's branch `factory/epic-<issue>` first
+   when `.github/factory-branches.json` sets `epics: true` and that branch
+   exists, then the repo's **integration branch**, then the default branch —
+   and use the first that carries the folder. The approved documents live on
+   one of those and nowhere else until promotion. Then
    list the epic's task sub-issues
    (`task(<epic>): ...`) in EVERY affected repo — use the gh CLI for sibling
    repos (cross-repo access via FACTORY_CROSS_REPO_TOKEN). If a sibling repo

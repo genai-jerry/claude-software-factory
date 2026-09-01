@@ -755,30 +755,54 @@ function check(label, cond, extra) {
     check('design PR follows the existing epic branch',
       w4.state.pulls[0].merged_base === 'factory/epic-5', w4.state.log);
 
-    // Rollback: epics:false retargets an epic-branch-based document PR back to
-    // the default branch before merging.
+    // Rollback: epics:false retargets an epic-branch-based document PR onto
+    // the INTEGRATION branch before merging — never onto the default branch.
     const w5 = makeWorld({ files: filesOpen, branches: ['main', 'factory/epic-5'],
       pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'factory/epic-5' } }],
       issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
     await run(routeSrc, { world: w5, context: ctx('issue_comment', approvedBy(w5.state.issues[5])) });
-    check('epics:false retargets back to the default branch',
-      w5.state.pulls[0].merged_base === 'main', w5.state.log);
+    check('epics:false retargets off a stale epic branch onto integration',
+      w5.state.pulls[0].merged_base === 'staging', w5.state.log);
 
     // ...and cuts no epic branch of its own at a gate.
     const w5b = makeWorld({ files: filesOpen, branches: ['main'],
       pulls: [{ number: 9, head: { ref: 'factory/5-design' }, base: { ref: 'main' } }],
       issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:design-ready' }], user: { type: 'User' } } } });
     await run(routeSrc, { world: w5b, context: ctx('issue_comment', approvedBy(w5b.state.issues[5])) });
-    check('epics:false creates no epic branch at a gate',
-      !w5b.state.branches.includes('factory/epic-5') && w5b.state.pulls[0].merged_base === 'main', w5b.state.log);
+    check('epics:false cuts no epic branch and lands the document on integration',
+      !w5b.state.branches.includes('factory/epic-5') && w5b.state.pulls[0].merged_base === 'staging', w5b.state.log);
 
-    // Legacy estates (no policy file at all) are byte-for-byte unaffected.
+    // An absent policy file means epics:false AND staging:"staging" required
+    // — the defaults — so documents route through integration there too.
     const w6 = makeWorld({ files: filesOpen, branches: ['main'],
       pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'main' } }],
       issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
     await run(routeSrc, { world: w6, context: ctx('issue_comment', approvedBy(w6.state.issues[5])) });
-    check('no policy file: spec merges to main, nothing retargeted, no branch created',
-      w6.state.pulls[0].merged_base === 'main' && w6.state.branches.length === 1, w6.state.log);
+    check('no policy file: the spec still merges to the integration branch',
+      w6.state.pulls[0].merged_base === 'staging'
+      && !w6.state.branches.includes('factory/epic-5'), w6.state.log);
+
+    // required:false is the one case documents still reach the default
+    // branch: that repo opted out of staging entirely, so there is nowhere
+    // else they could go.
+    const w6b = makeWorld({ files: { '.github/factory-approvers.json': filesOpen['.github/factory-approvers.json'],
+        '.github/factory-branches.json': JSON.stringify({ required: false }) },
+      branches: ['main'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'main' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
+    await run(routeSrc, { world: w6b, context: ctx('issue_comment', approvedBy(w6b.state.issues[5])) });
+    check('required:false keeps documents on the default branch',
+      w6b.state.pulls[0].merged_base === 'main' && w6b.state.branches.length === 1, w6b.state.log);
+
+    // The profile overrides only the integration branch's NAME (§6a).
+    const w6c = makeWorld({ files: { ...filesOpen,
+        '.factory/profile.json': JSON.stringify({ branches: { staging: 'develop' } }) },
+      branches: ['main', 'develop'],
+      pulls: [{ number: 9, head: { ref: 'factory/5-spec' }, base: { ref: 'main' } }],
+      issues: { 5: { number: 5, title: 'Epic', labels: [{ name: 'factory:spec-ready' }], user: { type: 'User' } } } });
+    await run(routeSrc, { world: w6c, context: ctx('issue_comment', approvedBy(w6c.state.issues[5])) });
+    check('a repo profile renames the integration branch',
+      w6c.state.pulls[0].merged_base === 'develop', w6c.state.log);
 
     // factory:on-epic is release-managed: an Approved comment there explains
     // itself and routes nothing.

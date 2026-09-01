@@ -131,6 +131,10 @@ class RepoConfig:
     release: dict[str, Any] = field(default_factory=dict)
     approvers: dict[str, Any] = field(default_factory=dict)
     branches: dict[str, Any] = field(default_factory=dict)
+    #: `.factory/profile.json`. Only `branches.staging` is read here, and only
+    #: to resolve the integration branch's NAME for a repo that calls it
+    #: something other than the org's policy value (FACTORY.md §6a).
+    profile: dict[str, Any] = field(default_factory=dict)
 
     @property
     def gating(self) -> bool:
@@ -140,6 +144,25 @@ class RepoConfig:
     def epics(self) -> bool:
         """Epic-branch policy (FACTORY.md §6b): absent file or key is False."""
         return self.branches.get("epics") is True
+
+    @property
+    def staging_branch(self) -> str | None:
+        """The repo's integration branch, or None when it has none (§6a).
+
+        Two sources, no ambiguity: the policy file says *whether* the step
+        runs and what the org calls the branch; the profile overrides only
+        the *name*, for a repo whose branch is genuinely called something
+        else. `required: false` with no profile name means this repo opted
+        out of staging entirely — the caller then keeps default-branch
+        routing, which is the one case where documents still land there.
+        """
+        override = (self.profile.get("branches") or {}).get("staging")
+        if isinstance(override, str) and override:
+            return override
+        if self.branches.get("required") is False:
+            return None
+        name = self.branches.get("staging")
+        return name if isinstance(name, str) and name else "staging"
 
     @property
     def exempt_labels(self) -> list[str]:
@@ -400,19 +423,38 @@ class Router:
                 log.warning("Could not create epic branch %s from %s (%s) - "
                             "this epic stays on default-branch routing",
                             epic_branch, def_branch, e)
+        # Where this gate's documents belong, by policy (FACTORY.md §6): the
+        # epic branch, else the integration branch, else — only for a repo
+        # with no integration branch at all — the default branch. Retargeting
+        # an open PR onto it is how an epic in flight adopts current routing
+        # at its next gate; a PR already merged is left alone, and the stage
+        # checkout ladder (§6a) is what keeps that epic working.
+        want_base = epic_branch if epic_ready else (self.cfg.staging_branch or def_branch)
+        # Same best-effort as the epic branch above: a target that does not
+        # exist yet is cut from the default branch, and a repo that refuses
+        # keeps its current base rather than losing the approval.
+        if want_base != def_branch and not self.port.branch_exists(want_base):
+            if self.cfg.branches.get("auto_create") is False:
+                log.warning("%s does not exist and auto_create is off - "
+                            "leaving this gate's PR bases alone", want_base)
+                want_base = None
+            else:
+                try:
+                    self.port.create_branch(want_base, def_branch)
+                    log.info("Created %s from %s", want_base, def_branch)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("Could not create %s from %s (%s) - "
+                                "leaving this gate's PR bases alone",
+                                want_base, def_branch, e)
+                    want_base = None
         all_merged = True
         for pr in prs:
             try:
                 base = (pr.get("base") or {}).get("ref")
-                want = base
-                if epic_ready and base == def_branch:
-                    want = epic_branch
-                elif not self.cfg.epics and base == epic_branch:
-                    want = def_branch
-                if want != base:
-                    self.port.update_pr_base(pr["number"], want)
-                    log.info("Retargeted gate PR #%s: base %s -> %s (epic-branch policy §6b)",
-                             pr["number"], base, want)
+                if want_base and base != want_base:
+                    self.port.update_pr_base(pr["number"], want_base)
+                    log.info("Retargeted gate PR #%s: base %s -> %s (document routing §6)",
+                             pr["number"], base, want_base)
                 self.port.merge_pr(pr["number"], "squash")
                 log.info("Merged gate PR #%s", pr["number"])
             except Exception as e:  # noqa: BLE001

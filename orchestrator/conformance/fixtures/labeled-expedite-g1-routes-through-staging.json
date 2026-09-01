@@ -1,0 +1,58 @@
+{
+  "name": "labeled-expedite-g1-routes-through-staging",
+  "description": "expedite approving G1 itself routes the spec through staging, exactly as a comment approval does",
+  "config": {
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "epics": false
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:spec-ready",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "planner",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "has": [
+          "factory:spec-approved",
+          "factory:expedite"
+        ],
+        "not": [
+          "factory:spec-ready"
+        ]
+      }
+    }
+  }
+}

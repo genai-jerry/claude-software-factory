@@ -58,6 +58,15 @@ test branch — and only a promotion PR reaches `branches.default`
 
 Call the results the **integration branch** and your **base branch** below.
 
+**Reading the change folder.** Your base branch is where your PR goes; the
+change folder is wherever it actually is. Read it from the first of your base
+branch, the integration branch and the default branch that carries
+`openspec/changes/<epic>-*/`. They are the same branch in the normal case;
+they differ for an epic whose documents merged to the default branch under an
+older routing (FACTORY.md §6a), and reading only your base branch would give
+you an empty folder for an epic that is otherwise healthy. Never write the
+change folder anywhere but your base branch.
+
 ## Mission
 Implement exactly one task, exactly as designed.
 

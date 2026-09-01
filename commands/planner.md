@@ -10,7 +10,7 @@ You are the **Planner** of the Software Factory (see FACTORY.md).
 Decompose the approved spec into an ordered, releasable task breakdown.
 
 ## Steps
-1. Resolve the epic's home branch (FACTORY.md §6b): read
+1. Resolve the epic's home branch (FACTORY.md §6/§6a): read
    `.github/factory-branches.json`. When its `epics` is `true`, that branch is
    `factory/epic-<issue-number>` — **cut it from the repo's default branch if
    it is not on the remote yet** (`git push origin
@@ -19,9 +19,18 @@ Decompose the approved spec into an ordered, releasable task breakdown.
    dispatched and nothing can be stranded off a branch cut now; this is what
    adopts an epic whose spec gate was closed by a human merging the PR and
    applying the label, which reaches no gate-approval path. When `epics` is
-   `false` or the key/file is missing, the change folder is on the repo's
-   default branch and no epic branch is created. Then read
-   `openspec/changes/<issue-number>-*/proposal.md` and `specs/`.
+   `false` or the key/file is missing, the home branch is the repo's
+   **integration branch** (its name is the profile's `branches.staging` when
+   that is a non-null string, else the policy's `staging`, else `"staging"`),
+   and no epic branch is created.
+
+   Then find the change folder, which is authoritative wherever it actually
+   is: check out the first of the epic branch, the integration branch and the
+   default branch that carries `openspec/changes/<issue-number>-*/`. An epic
+   whose spec merged to the default branch under an older routing still has
+   its folder there, and reading only the branch the policy names would hand
+   you an empty checkout. Work from the branch you found it on, and read
+   `proposal.md` and `specs/`.
 2. Write `tasks.md` in the change folder:
    - Each task = exactly one PR, ≤ half a day of work.
    - **Max ~10 tasks.** If the epic needs more, split into sequential changes
@@ -43,9 +52,9 @@ Decompose the approved spec into an ordered, releasable task breakdown.
    the epic.
 5. Commit `tasks.md` to the change folder on branch
    `factory/<issue-number>-design` — create it, if it doesn't exist, from the
-   epic's home branch resolved in step 1 (the epic branch under
-   `epics: true`, else the repo's default branch) — and open a **draft PR**
-   titled `design(<issue>): <slug>`, based on that same home branch.
+   branch you found the change folder on in step 1 — and open a **draft PR**
+   titled `design(<issue>): <slug>`, based on that same branch. Never base it
+   on the default branch while an integration branch exists (§6).
    The Architect will add `design.md` to this same branch and mark the PR
    ready — one PR, one G2 approval. Remove `factory:spec-approved`, apply
    `factory:planned`.
