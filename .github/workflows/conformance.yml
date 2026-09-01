@@ -12,12 +12,19 @@ on:
       - ".github/workflows/factory-pipeline.yml"
       - ".github/workflows/conformance.yml"
       - "scripts/test-router.js"
+      # The hand-off table and its Actions renderer: test_next_step.py renders
+      # the same table through BOTH engines and requires identical output, so
+      # a change to either half without the other has to fail here.
+      - "handbook/**"
+      - "scripts/say_next_step.py"
       - "orchestrator/**"
   push:
     branches: [main, v1]
     paths:
       - ".github/workflows/factory-pipeline.yml"
       - "scripts/test-router.js"
+      - "handbook/**"
+      - "scripts/say_next_step.py"
       - "orchestrator/**"
 
 permissions:
