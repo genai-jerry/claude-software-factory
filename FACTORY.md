@@ -594,8 +594,12 @@ They execute it differently because their event models differ:
   spec, design and task PR of that epic merges into it first.
 - Spec branch: `factory/<epic-issue>-spec`; shared plan+design branch:
   `factory/<epic-issue>-design` (carries `tasks.md` + `design.md` in the
-  epic's repo; `design.md` only in sibling repos). With `epics: true` both
-  are cut from the epic branch; otherwise from the default branch.
+  epic's repo; `design.md` only in sibling repos). Both are cut from the
+  branch they target: the epic branch with `epics: true`, else the
+  **integration branch**, else (`required: false`) the default branch.
+- Profile branch: `factory/profile`, cut from the root of wherever the stages
+  read — the default branch with `epics: true`, the integration branch with
+  `epics: false` (§6). It has no epic and never bases on an epic branch.
 - Task branches: `factory/<task-issue-number>-<slug>` cut from the epic
   branch (§6b) when the epic has one, else from the repo's **integration
   branch** (§6a) — cutting from the default branch produces a diff against a
