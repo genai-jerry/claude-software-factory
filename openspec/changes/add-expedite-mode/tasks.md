@@ -112,7 +112,7 @@ label/state names.
 
 ## 7. Console
 
-- [ ] 7.1 Implement `add-expedite-mode-console` in `software-factory-view`
+- [x] 7.1 Implement `add-expedite-mode-console` in `software-factory-view`
       (expedite toggle + confirm, badges, attention-queue suppression, GS
       gate panel, epic-ready phase); tracked in that repo's change folder.
 
