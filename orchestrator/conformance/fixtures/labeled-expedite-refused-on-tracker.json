@@ -1,0 +1,65 @@
+{
+  "name": "labeled-expedite-refused-on-tracker",
+  "description": "expedite is refused on a release tracker: gate G0 is upstream of everything it waives",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "release(7): v0.4",
+        "labels": [
+          "factory:release",
+          "factory:release-planning",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "not": [
+          "factory:expedite"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "countAtLeast": 1,
+        "contains": [
+          "release tracker",
+          "Reverted"
+        ]
+      }
+    }
+  }
+}

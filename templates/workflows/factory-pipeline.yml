@@ -5,7 +5,10 @@ name: Factory pipeline
 
 on:
   issues:
-    types: [opened, labeled, closed, milestoned, demilestoned]
+    # `unlabeled` is here for one label only: taking factory:expedite off an
+    # epic (FACTORY.md §4a) silently changes what it is waiting for, so the
+    # factory says so on the issue. Every other removal routes nothing.
+    types: [opened, labeled, unlabeled, closed, milestoned, demilestoned]
   issue_comment:
     types: [created]
   milestone:

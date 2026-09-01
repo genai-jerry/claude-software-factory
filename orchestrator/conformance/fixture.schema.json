@@ -31,6 +31,17 @@
         },
         "orchestrator": {
           "$ref": "#/$defs/configFile"
+        },
+        "branches": {
+          "description": ".github/factory-branches.json contents, or \"invalid-json\"",
+          "oneOf": [
+            {
+              "type": "object"
+            },
+            {
+              "const": "invalid-json"
+            }
+          ]
         }
       }
     },
@@ -178,6 +189,7 @@
               "enum": [
                 "opened",
                 "labeled",
+                "unlabeled",
                 "closed",
                 "milestoned",
                 "demilestoned"

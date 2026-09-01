@@ -1,0 +1,59 @@
+{
+  "name": "approved-epic-ready-explains-on-a-task",
+  "description": "Approved on a task that is on-epic points at the epic's GS gate instead of doing nothing quietly",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(9) do the thing",
+        "labels": [
+          "factory:on-epic"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "countAtLeast": 1,
+        "contains": [
+          "factory:epic-ready",
+          "gate GS"
+        ]
+      }
+    }
+  }
+}

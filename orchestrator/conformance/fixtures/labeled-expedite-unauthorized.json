@@ -1,0 +1,68 @@
+{
+  "name": "labeled-expedite-unauthorized",
+  "description": "expedite applied by someone outside the expedite list is reverted, gates untouched",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:design-ready",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "dev"
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:design-ready"
+        ],
+        "not": [
+          "factory:expedite"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "countAtLeast": 1,
+        "contains": [
+          "requires @boss",
+          "Reverted",
+          "<!-- factory-agent -->"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "name": "unlabeled-expedite-says-the-gates-are-back",
+  "description": "removing expedite stops auto-advance, changes no label, and says so once",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(9) do the thing",
+        "labels": [
+          "factory:in-test"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "unlabeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:in-test"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "countAtLeast": 1,
+        "contains": [
+          "No longer expedited",
+          "factory:in-test"
+        ]
+      }
+    }
+  }
+}

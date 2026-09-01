@@ -17,21 +17,26 @@ import json
 import logging
 from pathlib import Path
 
-from .router import IN_PROGRESS, RELEASE_KIND
+from .router import EXPEDITE, IN_PROGRESS, RELEASE_KIND
 
 log = logging.getLogger("factory-orchestrator.next-step")
 
 NEXT_MARK = "factory-next:"
 TABLE_PATH = Path("handbook") / "next-step.json"
 #: Kind markers sit alongside the state label and are never the state itself.
-NOT_A_STATE = {IN_PROGRESS, RELEASE_KIND}
+NOT_A_STATE = {IN_PROGRESS, EXPEDITE, RELEASE_KIND}
 GATE_OF_STATE = {
     "factory:release-ready": "release_scope",
     "factory:spec-ready": "spec",
     "factory:design-ready": "design",
     "factory:ready": "implementation",
+    "factory:epic-ready": "staging",
     "factory:in-staging": "release",
 }
+#: A gate whose own key is absent or empty borrows another's list. GS is the
+#: only one: an estate that has not adopted `staging` keeps releasing to
+#: staging under whoever already owns the production go (FACTORY.md §2b).
+GATE_FALLBACK = {"staging": "release"}
 
 
 def load_table(factory_checkout: Path | None) -> dict | None:
@@ -51,11 +56,31 @@ def state_of(labels: list[str]) -> str | None:
     return states[-1] if states else None
 
 
+def approvers_for(state: str | None, config: dict) -> list[str]:
+    """The gate list a state's notice names, honouring the GS fallback."""
+    gate = GATE_OF_STATE.get(state or "")
+    if not gate:
+        return []
+    for key in (gate, GATE_FALLBACK.get(gate)):
+        if key is None:
+            continue
+        value = config.get(key)
+        names = [x for x in value if isinstance(x, str)] if isinstance(value, list) else []
+        if names:
+            return names
+    return []
+
+
 def render(table: dict, role: str, issue: int, state: str | None,
-           approvers: list[str]) -> str:
+           approvers: list[str], expedited: bool = False) -> str:
     entry = table["states"].get(state) if state else None
     if entry is None:
         entry = table["none"]
+    # An expedited state says the opposite of its normal wording: the factory
+    # advances it, so the reader is owed "nothing to do" rather than a control
+    # to press. Only the states expedite actually advances carry a variant.
+    if expedited and isinstance(entry.get("expedited"), dict):
+        entry = entry["expedited"]
     who_list = ", ".join("@" + u for u in approvers) if approvers else \
         "any owner, member or collaborator"
 

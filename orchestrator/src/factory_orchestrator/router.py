@@ -32,8 +32,83 @@ FAST_TRACK_DONE = "<!-- factory-fast-track-done -->"
 PROFILE_KIND = "factory:profile"
 PROFILE_TITLE = "Factory: repo profile"
 IN_PROGRESS = "factory:in-progress"
-ORTHOGONAL = [IN_PROGRESS, "factory:blocked"]
+EXPEDITE = "factory:expedite"
+EPIC_READY = "factory:epic-ready"
+ORTHOGONAL = [IN_PROGRESS, EXPEDITE, "factory:blocked"]
 AGENT_MARK = "<!-- factory-agent -->"
+
+#: A gate whose own approver key is absent or empty borrows another's list.
+#: GS is the only one: an estate that has not adopted `staging` keeps
+#: releasing to staging under whoever already owns the production go.
+GATE_FALLBACK = {"staging": "release"}
+
+#: The auto-advance map (FACTORY.md §4a): the state an expedited issue is in,
+#: and what runs instead of waiting for a human. `gate:*` entries are the two
+#: that approve a gate before running their role — see `Router.approve_gate`.
+#: Every state absent from this map is a state expedite does not advance:
+#: intake and backlog (upstream of the spec), `factory:epic-ready` and
+#: `factory:in-staging` (gates GS and G3, which it must never open), and the
+#: terminal ones.
+EXPEDITE_MAP = {
+    "factory:spec-ready": "gate:spec",
+    "factory:design-ready": "gate:design",
+    "factory:ready": "implementer",
+    "factory:in-review": "reviewer",
+    "factory:in-test": "qa",
+    "factory:ready-to-ship": "release",
+}
+
+
+def expedited_next(state: str | None, epics: bool) -> str | None:
+    """What an expedited issue at `state` does on its own, or None.
+
+    `epics` is the branch policy (§6b). It gates exactly one row: with no epic
+    branch, the Release Manager's first merge lands on the integration branch
+    and *is* the staging deploy, so the chain stops at `factory:ready-to-ship`
+    rather than shipping without gate GS. With an epic branch, phase 1 merges
+    onto the factory's own scratch branch and is safe to run unattended.
+    """
+    role = EXPEDITE_MAP.get(state or "")
+    if role == "release" and not epics:
+        return None
+    return role
+
+
+def is_expedited(port: RepoPort, issue: dict[str, Any],
+                 port_for: Callable[[str, str], RepoPort] | None = None) -> bool:
+    """True when this issue advances itself (FACTORY.md §4a).
+
+    The marker lives on the epic and is deliberately never copied onto tasks —
+    a copy drifts the moment somebody takes expedite off the epic — so a task
+    looks its epic up: `task(<n>)` gives the number, and a qualified `Part of
+    owner/repo#n` marker gives the repo when the epic lives elsewhere (§7).
+    A cross-repo lookup this engine cannot make returns False: the un-expedited
+    path asks a human, which is the safe way to be wrong.
+    """
+    if EXPEDITE in _names(issue.get("labels")):
+        return True
+    m = re.match(r"^task\((\d+)\)", issue.get("title") or "")
+    if not m:
+        return False
+    epic = int(m.group(1))
+    epic_repo, body_number = epic_ref_from_body(issue.get("body"))
+    if body_number is not None and body_number != epic:
+        epic_repo = None  # the title is authoritative for the number (§7)
+    target = port
+    if epic_repo and epic_repo != f"{port.owner}/{port.repo}":
+        if port_for is None:
+            log.warning("Task #%s belongs to epic %s#%s in another repo and this "
+                        "engine has no cross-repo access - treating it as not expedited",
+                        issue.get("number"), epic_repo, epic)
+            return False
+        owner, name = epic_repo.split("/", 1)
+        target = port_for(owner, name)
+    try:
+        parent = target.get_issue(epic) or {}
+    except Exception:  # noqa: BLE001 - an unreadable epic is not an expedited one
+        log.warning("Could not read epic #%s for task #%s", epic, issue.get("number"))
+        return False
+    return EXPEDITE in _names(parent.get("labels"))
 
 
 @dataclass
@@ -76,8 +151,17 @@ class RepoConfig:
         return self.release.get("auto_create_release_issue") is not False
 
     def approver_list(self, gate: str) -> list[str]:
-        v = self.approvers.get(gate)
-        return [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+        # A gate with no list of its own falls back where GATE_FALLBACK says
+        # (only GS does), and then to empty — which every caller reads as
+        # "any owner, member or collaborator".
+        for key in (gate, GATE_FALLBACK.get(gate)):
+            if key is None:
+                continue
+            v = self.approvers.get(key)
+            names = [x for x in v if isinstance(x, str)] if isinstance(v, list) else []
+            if names:
+                return names
+        return []
 
 
 #: "Part of owner/repo#250" — the qualified parent marker (FACTORY.md §7).
@@ -142,11 +226,23 @@ class Router:
         allowed = ["factory:backlog", "factory:intake", *ORTHOGONAL]
         return all(x in allowed for x in names if x.startswith("factory:"))
 
+    def _states(self, names: list[str]) -> list[str]:
+        return [x for x in names
+                if x.startswith("factory:") and x not in ORTHOGONAL
+                and x not in (RELEASE_KIND, FAST_TRACK, PROFILE_KIND)]
+
     def state_of(self, names: list[str]) -> str:
-        states = [x for x in names
-                  if x.startswith("factory:") and x not in ORTHOGONAL
-                  and x not in (RELEASE_KIND, FAST_TRACK, PROFILE_KIND)]
-        return ", ".join(states) or "no factory:* state label"
+        return ", ".join(self._states(names)) or "no factory:* state label"
+
+    def sole_state(self, names: list[str]) -> str | None:
+        """The one state label, or None when there are none or (drift) several.
+
+        Auto-advance reads this rather than `state_of`: deciding what to run
+        next off an ambiguous label set is exactly the case to leave to a
+        human.
+        """
+        states = self._states(names)
+        return states[0] if len(states) == 1 else None
 
     def tracker_for(self, ms_number: int) -> dict[str, Any] | None:
         found = self.port.list_issues(labels=RELEASE_KIND, state="all")
@@ -258,6 +354,103 @@ class Router:
             "1. comment `Plan release` to get the release plan, then",
             "2. comment `Approved` to release every issue in the milestone into intake.",
         ]))
+
+    def approve_gate(self, number: int, spec: bool) -> str | None:
+        """Merge a gate's document PR(s), flip the label, name the next role.
+
+        The mechanical half of gates G1 and G2, shared by the two ways they
+        open: a human's `Approved` comment, and an expedited epic approving
+        itself (FACTORY.md §4a). Authorisation is the caller's business — by
+        the time this runs, the gate is approved.
+
+        Returns the role to run next, or None when a PR could not be merged:
+        the approval is then incomplete, so the issue keeps its `*-ready`
+        label and a human is asked to finish it.
+        """
+        head_branch = f"factory/{number}-spec" if spec else f"factory/{number}-design"
+        prs = self.port.list_open_prs(head=f"{self.port.owner}:{head_branch}")
+        # Epic-branch policy (FACTORY.md §6b): with epics:true a gate
+        # document merges into the epic branch, not the default branch.
+        # Both gates are adoption points for an in-flight epic, and the
+        # branch is ensured whether or not there is a PR to retarget: the
+        # gate is also reachable by a human merging the document PR
+        # themselves (the factory offers that route in as many words), and
+        # keying adoption on an open PR meant that route silently left the
+        # epic on legacy routing for the rest of its life.
+        #
+        # Cutting the branch here loses nothing even when a document has
+        # already merged to the default branch: it is cut FROM that branch,
+        # so it carries the merged spec, and no task PR can have merged yet
+        # — tasks are dispatched only after G2. The reverse retarget
+        # handles a flip back to epics:false.
+        epic_branch = f"factory/epic-{number}"
+        def_branch = self.port.default_branch()
+        #
+        # Best-effort: a repo that refuses the branch (permissions, a
+        # protected-name rule) must still get its gate approved. Failing
+        # here would lose the approval itself, which is worse than the
+        # epic finishing on default-branch routing.
+        epic_ready = self.cfg.epics
+        if self.cfg.epics and not self.port.branch_exists(epic_branch):
+            try:
+                self.port.create_branch(epic_branch, def_branch)
+                log.info("Created epic branch %s from %s", epic_branch, def_branch)
+            except Exception as e:  # noqa: BLE001
+                epic_ready = False
+                log.warning("Could not create epic branch %s from %s (%s) - "
+                            "this epic stays on default-branch routing",
+                            epic_branch, def_branch, e)
+        all_merged = True
+        for pr in prs:
+            try:
+                base = (pr.get("base") or {}).get("ref")
+                want = base
+                if epic_ready and base == def_branch:
+                    want = epic_branch
+                elif not self.cfg.epics and base == epic_branch:
+                    want = def_branch
+                if want != base:
+                    self.port.update_pr_base(pr["number"], want)
+                    log.info("Retargeted gate PR #%s: base %s -> %s (epic-branch policy §6b)",
+                             pr["number"], base, want)
+                self.port.merge_pr(pr["number"], "squash")
+                log.info("Merged gate PR #%s", pr["number"])
+            except Exception as e:  # noqa: BLE001
+                all_merged = False
+                self.say(number,
+                         f"Approval noted, but PR #{pr['number']} could not be merged automatically ({e}). "
+                         "Please merge it manually and apply the next label.")
+        if not prs:
+            log.info("No open gate PR on %s (already merged manually?) - proceeding", head_branch)
+        if not all_merged:
+            return None
+        self.drop_label(number, "factory:spec-ready" if spec else "factory:design-ready")
+        self.port.add_labels(number,
+                             ["factory:spec-approved" if spec else "factory:design-approved"])
+        return "planner" if spec else "dispatch"
+
+    def expedite_now(self, issue: dict[str, Any], labels: list[str]) -> str:
+        """Act on an expedited issue's *current* state, returning a role.
+
+        Applying the marker is not only a promise about future stages: an epic
+        that has been sitting at `factory:design-ready` for a week starts
+        moving the moment somebody expedites it. The same map that the chain
+        reads after a role finishes is read here, on the state the issue is
+        already in.
+        """
+        if "factory:blocked" in labels:
+            log.info("#%s is factory:blocked - expedite does not advance it",
+                     issue["number"])
+            return "none"
+        if IN_PROGRESS in labels:
+            log.info("A run is already live on #%s - not starting a second", issue["number"])
+            return "none"
+        nxt = expedited_next(self.sole_state(labels), self.cfg.epics)
+        if nxt is None:
+            return "none"
+        if nxt.startswith("gate:"):
+            return self.approve_gate(issue["number"], nxt == "gate:spec") or "none"
+        return nxt
 
     # -- the decision table ------------------------------------------------
     def route(self, event_name: str, payload: dict[str, Any]) -> RouteResult:
@@ -418,67 +611,28 @@ class Router:
             if not authorized(gate_key):
                 refuse(gate_key, f"this gate ({'G1 spec' if spec else 'G2 design'} approval)")
                 return
-            head_branch = f"factory/{i['number']}-spec" if spec else f"factory/{i['number']}-design"
-            prs = self.port.list_open_prs(head=f"{self.port.owner}:{head_branch}")
-            # Epic-branch policy (FACTORY.md §6b): with epics:true a gate
-            # document merges into the epic branch, not the default branch.
-            # Both gates are adoption points for an in-flight epic, and the
-            # branch is ensured whether or not there is a PR to retarget: the
-            # gate is also reachable by a human merging the document PR
-            # themselves (the factory offers that route in as many words), and
-            # keying adoption on an open PR meant that route silently left the
-            # epic on legacy routing for the rest of its life.
-            #
-            # Cutting the branch here loses nothing even when a document has
-            # already merged to the default branch: it is cut FROM that branch,
-            # so it carries the merged spec, and no task PR can have merged yet
-            # — tasks are dispatched only after G2. The reverse retarget
-            # handles a flip back to epics:false.
-            epic_branch = f"factory/epic-{i['number']}"
-            def_branch = self.port.default_branch()
-            #
-            # Best-effort: a repo that refuses the branch (permissions, a
-            # protected-name rule) must still get its gate approved. Failing
-            # here would lose the approval itself, which is worse than the
-            # epic finishing on default-branch routing.
-            epic_ready = self.cfg.epics
-            if self.cfg.epics and not self.port.branch_exists(epic_branch):
-                try:
-                    self.port.create_branch(epic_branch, def_branch)
-                    log.info("Created epic branch %s from %s", epic_branch, def_branch)
-                except Exception as e:  # noqa: BLE001
-                    epic_ready = False
-                    log.warning("Could not create epic branch %s from %s (%s) - "
-                                "this epic stays on default-branch routing",
-                                epic_branch, def_branch, e)
-            all_merged = True
-            for pr in prs:
-                try:
-                    base = (pr.get("base") or {}).get("ref")
-                    want = base
-                    if epic_ready and base == def_branch:
-                        want = epic_branch
-                    elif not self.cfg.epics and base == epic_branch:
-                        want = def_branch
-                    if want != base:
-                        self.port.update_pr_base(pr["number"], want)
-                        log.info("Retargeted gate PR #%s: base %s -> %s (epic-branch policy §6b)",
-                                 pr["number"], base, want)
-                    self.port.merge_pr(pr["number"], "squash")
-                    log.info("Merged gate PR #%s", pr["number"])
-                except Exception as e:  # noqa: BLE001
-                    all_merged = False
-                    self.say(i["number"],
-                             f"Approval noted, but PR #{pr['number']} could not be merged automatically ({e}). "
-                             "Please merge it manually and apply the next label.")
-            if not prs:
-                log.info("No open gate PR on %s (already merged manually?) - proceeding", head_branch)
-            if all_merged:
-                self.drop_label(i["number"], "factory:spec-ready" if spec else "factory:design-ready")
-                self.port.add_labels(i["number"],
-                                     ["factory:spec-approved" if spec else "factory:design-approved"])
-                r.role = "planner" if spec else "dispatch"
+            r.role = self.approve_gate(i["number"], spec) or "none"
+            if r.role != "none":
                 log.info("Gate approved via comment - continuing with %s", r.role)
+        elif is_approval and EPIC_READY in labels:
+            # Gate GS (FACTORY.md §4). Unlike G1/G2 there is no document PR to
+            # merge and no label to flip here: the Release Manager moves the
+            # epic to factory:in-staging when the integration merge and the
+            # staging verification have actually happened, so a release that
+            # fails leaves the epic at factory:epic-ready with the gate still
+            # open for a retry.
+            if not authorized("staging"):
+                refuse("staging", "gate GS (releasing this epic to staging)")
+            elif IN_PROGRESS in labels:
+                self.say(i["number"],
+                         "`Approved` has no effect right now — a factory run is already live on this "
+                         "epic (`factory:in-progress`).\n\n"
+                         "Wait for the marker to clear, then approve again if the epic is still "
+                         "`factory:epic-ready`.")
+                log.info("A run is already live on #%s - not starting the release", i["number"])
+            else:
+                r.role = "release"
+                log.info("Gate GS approved via comment - starting the Release Manager")
         elif "factory:blocked" not in labels:
             if is_approval:
                 self.say(i["number"],
@@ -487,12 +641,13 @@ class Router:
                          "- `factory:release-ready` (a release tracker) — approves gate G0 and releases the whole milestone\n"
                          "- `factory:spec-ready` — approves gate G1 and starts the planner\n"
                          "- `factory:design-ready` — approves gate G2 and starts the dispatcher\n"
-                         "- `factory:ready` (a task sub-issue) — starts its implementer\n\n"
+                         "- `factory:ready` (a task sub-issue) — starts its implementer\n"
+                         "- `factory:epic-ready` (an epic) — approves gate GS and releases the epic to staging\n\n"
                          + ("This issue is in the backlog: add it to a release milestone, then approve that "
                             "release's tracker issue.\n\n" if "factory:backlog" in labels else "")
-                         + ("This is merged onto its epic branch and green there (FACTORY.md §6b). The "
-                            "Release Manager carries the completed epic to the integration branch with the "
-                            "integration PR — nothing here needs a comment approval.\n\n"
+                         + ("This task is merged onto its epic branch and green there (FACTORY.md §6b) and "
+                            "is done. It waits for its siblings; when the last one lands, the **epic** goes "
+                            "to `factory:epic-ready` and asks for gate GS there, not here.\n\n"
                             if "factory:on-epic" in labels else "")
                          + ("This is at gate G3: it is already on the integration branch and green there, and "
                             "ships when a human merges the promotion PR(s) the Release Manager listed. That "
@@ -685,6 +840,23 @@ class Router:
                     log.info("Task #%s closed - re-dispatching epic %s#%s to release dependents",
                              i["number"], where, epic)
 
+        elif action == "unlabeled":
+            # Only one removal is worth a word. Taking expedite off puts humans
+            # back in the loop, which is always allowed and never checked — but
+            # it silently changes what the issue is waiting for, and the
+            # hand-off notice for its current state was posted back when the
+            # factory was going to advance it.
+            if (payload.get("label") or {}).get("name") == EXPEDITE:
+                self.say(i["number"], "\n".join([
+                    "**No longer expedited.** Auto-advance is off; runs already live finish "
+                    "normally and no label changed.",
+                    "",
+                    f"This issue is at **{self.state_of(labels)}**, and from here the normal "
+                    "gates and start controls apply again — see the hand-off notice for that "
+                    "state, or FACTORY.md §3.",
+                ]))
+                log.info("%s removed from #%s - auto-advance stopped", EXPEDITE, i["number"])
+
         elif action == "labeled":
             name = (payload.get("label") or {}).get("name")
             sender = (payload.get("sender") or {}).get("login")
@@ -725,6 +897,7 @@ class Router:
                 "factory:release-ready": ("release_scope", "Gate G0 (release approval)"),
                 "factory:spec-ready": ("spec", "Gate G1 (spec approval)"),
                 "factory:design-ready": ("design", "Gate G2 (design approval)"),
+                EPIC_READY: ("staging", "Gate GS (releasing this epic to staging)"),
                 "factory:in-staging": ("release", "Gate G3 (promotion to the default branch)"),
                 "factory:ready": ("implementation", "Implementation start"),
             }
@@ -736,6 +909,12 @@ class Router:
                     if gate == "implementation":
                         how = ('Comment exactly "Approved" here to start it, or use Actions → '
                                '"Factory pipeline" → Run workflow (role: implementer, this issue number).')
+                    elif gate == "staging":
+                        how = ("Every task in this epic is implemented, reviewed, tested and "
+                               "assembled, and none of it has touched staging yet. Comment exactly "
+                               '"Approved" here and the Release Manager carries the whole epic to '
+                               "the integration branch and verifies it there. That is a staging "
+                               "release — production is still gate G3.")
                     elif gate == "release_scope":
                         how = ('Read the release plan above, then comment exactly "Approved" here to '
                                "release every issue in this milestone into intake.")
@@ -749,6 +928,52 @@ class Router:
                                'comment exactly "Approved" here.')
                     self.say(i["number"],
                              f"{' '.join('@' + u for u in lst)} — **{what}** is waiting on you. {how}")
+            if name == EXPEDITE:
+                # Applying the marker IS the G1 and G2 approval (§4a), so the
+                # application is what gets authorised — the automatic flips
+                # that follow are the factory's own and need no further check.
+                # Same App-write exemption as the gate labels above.
+                lst = cfg.approver_list("expedite")
+                refused = ""
+                if lst and sender not in lst and not _sender_is_app(payload):
+                    refused = (
+                        f"`{EXPEDITE}` was applied by @{sender}, but putting an epic on the fast "
+                        f"path requires {', '.join('@' + u for u in lst)} "
+                        "(see .github/factory-approvers.json) — it pre-approves gates G1 and G2 and "
+                        "every implementation start. Reverted.")
+                elif RELEASE_KIND in labels:
+                    refused = (f"`{EXPEDITE}` does not apply to a release tracker — gate G0 is "
+                               "upstream of everything it waives, and it is never automatic. "
+                               "Reverted.")
+                elif PROFILE_KIND in labels:
+                    refused = (f"`{EXPEDITE}` does not apply to the profile issue — the Profiler "
+                               "is not a pipeline stage and has no gates. Reverted.")
+                elif FAST_TRACK in labels:
+                    refused = (f"`{EXPEDITE}` does not apply to a `{FAST_TRACK}` issue — the fast "
+                               "lane already has no gate before G3, so there is nothing here to "
+                               "waive. Reverted.")
+                if refused:
+                    self.drop_label(i["number"], EXPEDITE)
+                    self.say(i["number"], refused)
+                    log.info("Refused %s on #%s", EXPEDITE, i["number"])
+                else:
+                    r.role = self.expedite_now(i, labels)
+                    if r.role == "none":
+                        self.say(i["number"], "\n".join([
+                            "**Expedited.** From here this epic advances itself: gates G1 and G2 "
+                            "approve themselves, and every task runs implement → review → test → "
+                            "assemble with no start button (FACTORY.md §4a).",
+                            "",
+                            "Nothing to start right now — this issue is at "
+                            f"**{self.state_of(labels)}**, which expedite does not advance. It "
+                            "takes effect at the next stage that would have waited for you.",
+                            "",
+                            "Two gates are never waived: **GS**, releasing the assembled epic to "
+                            "staging, and **G3**, promoting it to production. Remove the label at "
+                            "any time to put the other gates back.",
+                        ]))
+                    log.info("%s applied to #%s - next: %s", EXPEDITE, i["number"], r.role)
+
             if name == PROFILE_KIND:
                 r.role = "profiler"
                 log.info("factory:profile applied - running the Profiler")
@@ -771,6 +996,33 @@ class Router:
                     self.drop_label(i["number"], "factory:intake")
                     r.role = "fasttrack"
                     log.info("factory:fast-track applied - running the fast lane")
+
+
+def expedited_ready_tasks(port: RepoPort, epic: int) -> list[int]:
+    """The epic's open `task(<epic>)` sub-issues sitting at factory:ready.
+
+    The Dispatcher's own state does not move when it releases tasks — its
+    output is on the tasks — so an expedited epic's fan-out is read from the
+    tasks themselves. Anything already carrying a run marker or blocked is
+    left alone: the same two guards a human `Approved` passes.
+    """
+    try:
+        found = port.list_issues(labels="factory:ready", state="open")
+    except Exception:  # noqa: BLE001 - no fan-out is better than a wrong one
+        log.warning("Could not list ready tasks for epic #%s", epic)
+        return []
+    out = []
+    for it in found:
+        if it.get("pull_request") is not None:
+            continue
+        m = re.match(r"^task\((\d+)\)", it.get("title") or "")
+        if not m or int(m.group(1)) != epic:
+            continue
+        ls = _names(it.get("labels"))
+        if IN_PROGRESS in ls or "factory:blocked" in ls:
+            continue
+        out.append(it["number"])
+    return out
 
 
 def release_chain(port: RepoPort, release_issue: int) -> tuple[list[str], int]:
@@ -800,7 +1052,8 @@ def release_chain(port: RepoPort, release_issue: int) -> tuple[list[str], int]:
         if _is_task_title(it.get("title")):
             continue
         inflight = [x for x in ls if x.startswith("factory:") and x not in (
-            "factory:backlog", "factory:intake", "factory:blocked", "factory:in-progress")]
+            "factory:backlog", "factory:intake", "factory:blocked", "factory:in-progress",
+            EXPEDITE)]
         if inflight:
             skipped.append(f"#{it['number']} — already `{'`, `'.join(inflight)}`")
             continue

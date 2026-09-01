@@ -1,0 +1,58 @@
+{
+  "name": "labeled-expedite-starts-implementer",
+  "description": "expedite on a task at factory:ready starts its implementer with no human approval",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(9) do the thing",
+        "labels": [
+          "factory:ready",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "implementer",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "has": [
+          "factory:ready"
+        ]
+      }
+    }
+  }
+}

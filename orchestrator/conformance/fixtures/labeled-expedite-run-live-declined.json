@@ -1,0 +1,57 @@
+{
+  "name": "labeled-expedite-run-live-declined",
+  "description": "expedite does not start a second run on an issue that already carries the run marker",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "task(5) do the thing",
+        "labels": [
+          "factory:ready",
+          "factory:in-progress",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:expedite",
+          "factory:ready"
+        ]
+      }
+    }
+  }
+}

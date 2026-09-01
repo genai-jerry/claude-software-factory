@@ -1,0 +1,67 @@
+{
+  "name": "labeled-expedite-refused-on-fast-track",
+  "description": "expedite is refused on a fast-track issue: that lane has no gate before G3 to waive",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Rename a page title",
+        "labels": [
+          "factory:fast-track",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "5": {
+        "has": [
+          "factory:fast-track"
+        ],
+        "not": [
+          "factory:expedite"
+        ]
+      }
+    },
+    "comments": {
+      "5": {
+        "countAtLeast": 1,
+        "contains": [
+          "fast lane",
+          "Reverted"
+        ]
+      }
+    }
+  }
+}

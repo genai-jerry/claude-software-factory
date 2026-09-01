@@ -815,6 +815,53 @@ function check(label, cond, extra) {
     check('and says nothing', (w2.state.comments[8] || []).length === 0, w2.state.log);
   }
 
+  // --------------------------------------------------------------- scenario 22
+  console.log('\n22. expedite (FACTORY.md §4a) — one auto-advance map, not three copies of one');
+  {
+    // The map has to exist twice in this workflow: the route job decides what
+    // an expedited issue does the moment the marker lands, and expedite-chain
+    // decides it again after each role finishes. They are different jobs and
+    // cannot share a scope, so the only thing standing between them and drift
+    // is this check. The Python engine has one copy (router.EXPEDITE_MAP) and
+    // is pinned by the conformance fixtures below.
+    const mapOf = (src, where) => {
+      const m = /const EXPEDITE_MAP = \{([\s\S]*?)\};/.exec(src);
+      check(`${where} declares EXPEDITE_MAP`, !!m, where);
+      if (!m) return null;
+      const out = {};
+      for (const line of m[1].split('\n')) {
+        const kv = /'([^']+)':\s*'([^']+)'/.exec(line);
+        if (kv) out[kv[1]] = kv[2];
+      }
+      return out;
+    };
+    const chainJob = doc.jobs['expedite-chain'];
+    check('the workflow has an expedite-chain job', !!chainJob, Object.keys(doc.jobs));
+    const chainSrc = ((chainJob.steps || []).find(s => (s.with || {}).script) || { with: {} }).with.script || '';
+    const routeMap = mapOf(routeSrc, 'the route job');
+    const chainMap = mapOf(chainSrc, 'the expedite-chain job');
+    check('both copies of the auto-advance map agree',
+      JSON.stringify(routeMap) === JSON.stringify(chainMap), { routeMap, chainMap });
+    // The two gates expedite must never open. A row here would be a silent
+    // licence to ship: GS puts an epic on staging, G3 puts it in production.
+    for (const forbidden of ['factory:epic-ready', 'factory:in-staging', 'factory:deployed',
+                             'factory:backlog', 'factory:intake']) {
+      check(`the map never advances ${forbidden}`,
+        routeMap && routeMap[forbidden] === undefined, routeMap);
+    }
+    // Re-dispatch is the only way this engine can chain, and it needs the PAT.
+    check('expedite-chain reads the cross-repo token',
+      /CROSS_TOKEN/.test(JSON.stringify(chainJob)), 'no CROSS_TOKEN in expedite-chain');
+    check('expedite-chain says so on the issue when the token is missing',
+      /factory-expedite-no-token/.test(chainSrc), 'no say-once marker');
+    check('expedite-chain only runs after a successful agent job',
+      /needs\.agent\.result == 'success'/.test(String(chainJob.if || '')), chainJob.if);
+    // architect-chain must survive intact: replacing its in-run chaining with
+    // a dispatch would make plain planner→architect need the PAT too.
+    check('planner → architect still chains in-run, PAT or no PAT',
+      !!doc.jobs['architect-chain'], Object.keys(doc.jobs));
+  }
+
   // ------------------------------------------------------------------ fixtures
   // The JSON conformance fixtures are the canonical routing decision table,
   // shared with the orchestrator's Python router (orchestrator/conformance/).
@@ -833,6 +880,7 @@ function fixtureWorld(fx) {
     release: '.github/factory-release.json',
     approvers: '.github/factory-approvers.json',
     orchestrator: '.github/factory-orchestrator.json',
+    branches: '.github/factory-branches.json',
   };
   const files = {};
   for (const [key, p] of Object.entries(CONFIG_PATHS)) {

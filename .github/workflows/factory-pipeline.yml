@@ -186,8 +186,33 @@ jobs:
             // issue would read as "in flight" to the fast lane, as "already
             // started" to a release batch, and as its own state in the replies.
             const IN_PROGRESS = 'factory:in-progress';
+
+            // "This epic advances itself" (FACTORY.md §4a). A marker like
+            // IN_PROGRESS, never a state: it sits alongside whatever state the
+            // epic is in while the factory walks it from an approved spec to
+            // an assembled epic without waiting for a human. It waives the
+            // pauses, never the work, and never gates GS or G3.
+            const EXPEDITE = 'factory:expedite';
+            // The epic is assembled and green, and nothing of it has touched
+            // staging. This is gate GS, and it is where expedite stops.
+            const EPIC_READY = 'factory:epic-ready';
             // Labels that say nothing about where an issue is in the pipeline.
-            const ORTHOGONAL = [IN_PROGRESS, 'factory:blocked'];
+            const ORTHOGONAL = [IN_PROGRESS, EXPEDITE, 'factory:blocked'];
+
+            // The auto-advance map (§4a): the state an expedited issue is in,
+            // and what runs instead of waiting. `gate:*` rows approve a gate
+            // before running their role — see approveGate. Every state absent
+            // here is one expedite does not advance: intake and backlog
+            // (upstream of the spec), EPIC_READY and factory:in-staging (gates
+            // GS and G3, which it must never open), and the terminal ones.
+            const EXPEDITE_MAP = {
+              'factory:spec-ready': 'gate:spec',
+              'factory:design-ready': 'gate:design',
+              'factory:ready': 'implementer',
+              'factory:in-review': 'reviewer',
+              'factory:in-test': 'qa',
+              'factory:ready-to-ship': 'release',
+            };
 
             const loadJson = (p) => {
               try { return JSON.parse(fs.readFileSync(p, 'utf8')); }
@@ -209,9 +234,21 @@ jobs:
               core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
               return;
             }
+            // A gate with no list of its own falls back where GATE_FALLBACK
+            // says, then to empty — which every caller reads as "any owner,
+            // member or collaborator". GS is the only fallback: an estate that
+            // has not adopted `staging` keeps releasing to staging under
+            // whoever already owns the production go (FACTORY.md §2b).
+            const GATE_FALLBACK = { staging: 'release' };
             const approverList = (gate) => {
-              const v = loadJson('.github/factory-approvers.json')[gate];
-              return Array.isArray(v) ? v.filter(x => typeof x === 'string') : [];
+              const cfg = loadJson('.github/factory-approvers.json');
+              for (const key of [gate, GATE_FALLBACK[gate]]) {
+                if (!key) continue;
+                const v = cfg[key];
+                const names = Array.isArray(v) ? v.filter(x => typeof x === 'string') : [];
+                if (names.length) return names;
+              }
+              return [];
             };
             // Release gating is opt-in: no file (or "gating":"none") keeps the
             // original behaviour where a filed issue goes straight to intake.
@@ -250,10 +287,172 @@ jobs:
             // Human-readable "where is this issue" for the explanatory replies.
             // Kind markers, factory:blocked and factory:in-progress are
             // orthogonal to the state.
-            const stateOf = (ls) => ls.filter(n => n.startsWith('factory:') &&
+            const statesOf = (ls) => ls.filter(n => n.startsWith('factory:') &&
                                               !ORTHOGONAL.includes(n) && n !== RELEASE_KIND && n !== FAST_TRACK &&
-                                              n !== PROFILE_KIND)
-                                      .join(', ') || 'no factory:* state label';
+                                              n !== PROFILE_KIND);
+            const stateOf = (ls) => statesOf(ls).join(', ') || 'no factory:* state label';
+            // The one state label, or null when there are none or (drift)
+            // several. Auto-advance reads this rather than stateOf: deciding
+            // what to run next off an ambiguous label set is exactly the case
+            // to leave to a human.
+            const soleState = (ls) => (statesOf(ls).length === 1 ? statesOf(ls)[0] : null);
+            // What an expedited issue at this state does on its own, or null.
+            // `epicsOn` gates exactly one row: with no epic branch, the
+            // Release Manager's first merge lands on the integration branch
+            // and IS the staging deploy, so the chain stops at
+            // factory:ready-to-ship rather than shipping without gate GS.
+            const expeditedNext = (state, epicsOn) => {
+              const role = EXPEDITE_MAP[state || ''] || null;
+              return (role === 'release' && !epicsOn) ? null : role;
+            };
+
+            // The mechanical half of gates G1 and G2, shared by the two ways
+            // they open: a human's `Approved` comment, and an expedited epic
+            // approving itself (§4a). Authorisation is the caller's business —
+            // by the time this runs, the gate is approved. Returns the role to
+            // run next, or null when a PR could not be merged: the approval is
+            // then incomplete, so the issue keeps its *-ready label and a
+            // human is asked to finish it.
+            const approveGate = async (number, spec) => {
+              const headBranch = spec ? `factory/${number}-spec` : `factory/${number}-design`;
+              const { data: prs } = await github.rest.pulls.list({
+                owner, repo, state: 'open', head: `${owner}:${headBranch}`,
+              });
+              // Epic-branch policy (FACTORY.md §6b): with epics:true a gate
+              // document merges into the epic branch, not the default
+              // branch. Both gates are adoption points for an in-flight
+              // epic, and the branch is ensured whether or not there is a PR
+              // to retarget: the gate is also reachable by a human merging
+              // the document PR themselves (the factory offers that route in
+              // as many words), and keying adoption on an open PR meant that
+              // route silently left the epic on legacy routing for the rest
+              // of its life.
+              //
+              // Cutting the branch here loses nothing even when a document
+              // has already merged to the default branch: it is cut FROM
+              // that branch, so it carries the merged spec, and no task PR
+              // can have merged yet — tasks are dispatched only after G2.
+              // The reverse retarget handles a flip back to epics:false.
+              const epicsOn = epicsPolicy();
+              const epicBranch = `factory/epic-${number}`;
+              const defBranch = (context.payload.repository || {}).default_branch || 'main';
+              const branchExists = (name) => github.rest.repos
+                .getBranch({ owner, repo, branch: name })
+                .then(() => true, () => false);
+              // Best-effort: a repo that refuses the branch (permissions, a
+              // protected-name rule) must still get its gate approved.
+              // Failing here would lose the approval itself, which is worse
+              // than the epic finishing on default-branch routing.
+              let epicReady = epicsOn;
+              if (epicsOn && !(await branchExists(epicBranch))) {
+                try {
+                  const { data: def } = await github.rest.repos.getBranch({
+                    owner, repo, branch: defBranch,
+                  });
+                  await github.rest.git.createRef({
+                    owner, repo, ref: `refs/heads/${epicBranch}`, sha: def.commit.sha,
+                  });
+                  core.info(`Created epic branch ${epicBranch} from ${defBranch}`);
+                } catch (e) {
+                  epicReady = false;
+                  core.warning(`Could not create epic branch ${epicBranch} from ${defBranch} ` +
+                    `(${e.message}) - this epic stays on default-branch routing`);
+                }
+              }
+              let allMerged = true;
+              for (const pr of prs) {
+                try {
+                  let wantBase = pr.base.ref;
+                  if (epicReady && pr.base.ref === defBranch) {
+                    wantBase = epicBranch;
+                  } else if (!epicsOn && pr.base.ref === epicBranch) {
+                    wantBase = defBranch;
+                  }
+                  if (wantBase !== pr.base.ref) {
+                    await github.rest.pulls.update({
+                      owner, repo, pull_number: pr.number, base: wantBase,
+                    });
+                    core.info(`Retargeted gate PR #${pr.number}: base ${pr.base.ref} -> ${wantBase} (epic-branch policy §6b)`);
+                  }
+                  await github.rest.pulls.merge({
+                    owner, repo, pull_number: pr.number, merge_method: 'squash',
+                  });
+                  core.info(`Merged gate PR #${pr.number}`);
+                } catch (e) {
+                  allMerged = false;
+                  await say(number,
+                    `Approval noted, but PR #${pr.number} could not be merged automatically (${e.message}). ` +
+                    'Please merge it manually and apply the next label.');
+                }
+              }
+              if (prs.length === 0) core.info(`No open gate PR on ${headBranch} (already merged manually?) - proceeding`);
+              if (!allMerged) return null;
+              await dropLabel(number, spec ? 'factory:spec-ready' : 'factory:design-ready');
+              await addLabels(number, [spec ? 'factory:spec-approved' : 'factory:design-approved']);
+              return spec ? 'planner' : 'dispatch';
+            };
+
+            const epicsPolicy = () => loadJson('.github/factory-branches.json').epics === true;
+
+            // A PAT is the only way out of this repo (§2a): the workflow token
+            // is scoped to the repo the run is in. Null without one, and every
+            // caller then says on the issue what to run over there rather than
+            // failing quietly.
+            const crossClient = () => (process.env.CROSS_TOKEN
+              ? require('@actions/github').getOctokit(process.env.CROSS_TOKEN) : null);
+
+            // True when this issue advances itself (§4a). The marker lives on
+            // the epic and is deliberately never copied onto tasks — a copy
+            // drifts the moment somebody takes expedite off the epic — so a
+            // task looks its epic up: `task(<n>)` gives the number, and a
+            // qualified `Part of owner/repo#n` marker gives the repo when the
+            // epic lives elsewhere (§7). A cross-repo lookup this engine
+            // cannot make returns false: the un-expedited path asks a human,
+            // which is the safe way to be wrong.
+            const isExpedited = async (iss) => {
+              if (namesOf(iss.labels).includes(EXPEDITE)) return true;
+              const m = /^task\((\d+)\)/.exec(iss.title || '');
+              if (!m) return false;
+              const epic = Number(m[1]);
+              let ref = epicRefFromBody(iss.body);
+              if (ref.number !== null && ref.number !== epic) ref = { repo: null };
+              const where = ref.repo || `${owner}/${repo}`;
+              if (where !== `${owner}/${repo}` && !process.env.CROSS_TOKEN) {
+                core.warning(`Task #${iss.number} belongs to epic ${where}#${epic} in another repo and ` +
+                  'this run has no cross-repo token - treating it as not expedited');
+                return false;
+              }
+              try {
+                const [o, r2] = where.split('/');
+                const client = where === `${owner}/${repo}` ? github : crossClient();
+                const { data: parent } = await client.rest.issues.get({
+                  owner: o, repo: r2, issue_number: epic,
+                });
+                return namesOf(parent.labels).includes(EXPEDITE);
+              } catch (e) {
+                core.warning(`Could not read epic #${epic} for task #${iss.number} (${e.message})`);
+                return false;
+              }
+            };
+
+            // Act on an expedited issue's *current* state, returning a role or
+            // 'none'. Applying the marker is not only a promise about future
+            // stages: an epic that has been sitting at factory:design-ready
+            // for a week starts moving the moment somebody expedites it.
+            const expediteNow = async (iss, labels) => {
+              if (labels.includes('factory:blocked')) {
+                core.info(`#${iss.number} is factory:blocked - expedite does not advance it`);
+                return 'none';
+              }
+              if (labels.includes(IN_PROGRESS)) {
+                core.info(`A run is already live on #${iss.number} - not starting a second`);
+                return 'none';
+              }
+              const nxt = expeditedNext(soleState(labels), epicsPolicy());
+              if (!nxt) return 'none';
+              if (nxt.startsWith('gate:')) return (await approveGate(iss.number, nxt === 'gate:spec')) || 'none';
+              return nxt;
+            };
 
             // Release trackers are found by label + title, never by search:
             // the search index lags behind issue creation by seconds to minutes.
@@ -529,85 +728,31 @@ jobs:
                   core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
                   return;
                 }
-                const headBranch = spec ? `factory/${i.number}-spec` : `factory/${i.number}-design`;
-                const { data: prs } = await github.rest.pulls.list({
-                  owner, repo, state: 'open', head: `${owner}:${headBranch}`,
-                });
-                // Epic-branch policy (FACTORY.md §6b): with epics:true a gate
-                // document merges into the epic branch, not the default
-                // branch. Both gates are adoption points for an in-flight
-                // epic, and the branch is ensured whether or not there is a PR
-                // to retarget: the gate is also reachable by a human merging
-                // the document PR themselves (the factory offers that route in
-                // as many words), and keying adoption on an open PR meant that
-                // route silently left the epic on legacy routing for the rest
-                // of its life.
-                //
-                // Cutting the branch here loses nothing even when a document
-                // has already merged to the default branch: it is cut FROM
-                // that branch, so it carries the merged spec, and no task PR
-                // can have merged yet — tasks are dispatched only after G2.
-                // The reverse retarget handles a flip back to epics:false.
-                const branchCfg = loadJson('.github/factory-branches.json');
-                const epicsOn = branchCfg.epics === true;
-                const epicBranch = `factory/epic-${i.number}`;
-                const defBranch = (context.payload.repository || {}).default_branch || 'main';
-                const branchExists = (name) => github.rest.repos
-                  .getBranch({ owner, repo, branch: name })
-                  .then(() => true, () => false);
-                // Best-effort: a repo that refuses the branch (permissions, a
-                // protected-name rule) must still get its gate approved.
-                // Failing here would lose the approval itself, which is worse
-                // than the epic finishing on default-branch routing.
-                let epicReady = epicsOn;
-                if (epicsOn && !(await branchExists(epicBranch))) {
-                  try {
-                    const { data: def } = await github.rest.repos.getBranch({
-                      owner, repo, branch: defBranch,
-                    });
-                    await github.rest.git.createRef({
-                      owner, repo, ref: `refs/heads/${epicBranch}`, sha: def.commit.sha,
-                    });
-                    core.info(`Created epic branch ${epicBranch} from ${defBranch}`);
-                  } catch (e) {
-                    epicReady = false;
-                    core.warning(`Could not create epic branch ${epicBranch} from ${defBranch} ` +
-                      `(${e.message}) - this epic stays on default-branch routing`);
-                  }
-                }
-                let allMerged = true;
-                for (const pr of prs) {
-                  try {
-                    let wantBase = pr.base.ref;
-                    if (epicReady && pr.base.ref === defBranch) {
-                      wantBase = epicBranch;
-                    } else if (!epicsOn && pr.base.ref === epicBranch) {
-                      wantBase = defBranch;
-                    }
-                    if (wantBase !== pr.base.ref) {
-                      await github.rest.pulls.update({
-                        owner, repo, pull_number: pr.number, base: wantBase,
-                      });
-                      core.info(`Retargeted gate PR #${pr.number}: base ${pr.base.ref} -> ${wantBase} (epic-branch policy §6b)`);
-                    }
-                    await github.rest.pulls.merge({
-                      owner, repo, pull_number: pr.number, merge_method: 'squash',
-                    });
-                    core.info(`Merged gate PR #${pr.number}`);
-                  } catch (e) {
-                    allMerged = false;
-                    await say(i.number,
-                      `Approval noted, but PR #${pr.number} could not be merged automatically (${e.message}). ` +
-                      'Please merge it manually and apply the next label.');
-                  }
-                }
-                if (prs.length === 0) core.info(`No open gate PR on ${headBranch} (already merged manually?) - proceeding`);
-                if (allMerged) {
-                  await dropLabel(i.number, spec ? 'factory:spec-ready' : 'factory:design-ready');
-                  await addLabels(i.number, [spec ? 'factory:spec-approved' : 'factory:design-approved']);
+                const next = await approveGate(i.number, spec);
+                if (next) {
                   // Label flips by this token emit no events - continue the next stage in-run.
-                  role = spec ? 'planner' : 'dispatch';
+                  role = next;
                   core.info(`Gate approved via comment - continuing with ${role}`);
+                }
+              } else if (isApproval && labels.includes(EPIC_READY)) {
+                // Gate GS (FACTORY.md §4). Unlike G1/G2 there is no document
+                // PR to merge and no label to flip here: the Release Manager
+                // moves the epic to factory:in-staging when the integration
+                // merge and the staging verification have actually happened,
+                // so a release that fails leaves the epic at
+                // factory:epic-ready with the gate still open for a retry.
+                if (!authorized('staging')) {
+                  await refuse('staging', 'gate GS (releasing this epic to staging)');
+                } else if (labels.includes(IN_PROGRESS)) {
+                  await say(i.number,
+                    '`Approved` has no effect right now — a factory run is already live on this epic ' +
+                    '(`factory:in-progress`).\n\n' +
+                    'Wait for the marker to clear, then approve again if the epic is still ' +
+                    '`factory:epic-ready`.');
+                  core.info(`A run is already live on #${i.number} - not starting the release`);
+                } else {
+                  role = 'release';
+                  core.info('Gate GS approved via comment - starting the Release Manager');
                 }
               } else if (!labels.includes('factory:blocked')) {
                 // Say so when someone plainly asked for something to happen. A green
@@ -620,15 +765,16 @@ jobs:
                     '- `factory:release-ready` (a release tracker) — approves gate G0 and releases the whole milestone\n' +
                     '- `factory:spec-ready` — approves gate G1 and starts the planner\n' +
                     '- `factory:design-ready` — approves gate G2 and starts the dispatcher\n' +
-                    '- `factory:ready` (a task sub-issue) — starts its implementer\n\n' +
+                    '- `factory:ready` (a task sub-issue) — starts its implementer\n' +
+                    '- `factory:epic-ready` (an epic) — approves gate GS and releases the epic to staging\n\n' +
                     (labels.includes('factory:backlog')
                       ? 'This issue is in the backlog: add it to a release milestone, then approve that ' +
                         'release\'s tracker issue.\n\n'
                       : '') +
                     (labels.includes('factory:on-epic')
-                      ? 'This is merged onto its epic branch and green there (FACTORY.md §6b). The Release Manager ' +
-                        'carries the completed epic to the integration branch with the integration PR — nothing here ' +
-                        'needs a comment approval.\n\n'
+                      ? 'This task is merged onto its epic branch and green there (FACTORY.md §6b) and is done. ' +
+                        'It waits for its siblings; when the last one lands, the **epic** goes to ' +
+                        '`factory:epic-ready` and asks for gate GS there, not here.\n\n'
                       : '') +
                     (labels.includes('factory:in-staging')
                       ? 'This is at gate G3: it is already on the integration branch and green there, and ships when a ' +
@@ -820,9 +966,7 @@ jobs:
                   const [epicOwner, epicRepo] = (elsewhere || `${owner}/${repo}`).split('/');
                   // A PAT is the only way out of this repo. Without one, say on the
                   // task what has to be run over there rather than failing quietly.
-                  const client = elsewhere
-                    ? (process.env.CROSS_TOKEN ? require('@actions/github').getOctokit(process.env.CROSS_TOKEN) : null)
-                    : github;
+                  const client = elsewhere ? crossClient() : github;
                   if (elsewhere && !client) {
                     await say(i.number,
                       `This task belongs to epic **${elsewhere}#${epic}**, in another repository, ` +
@@ -865,6 +1009,20 @@ jobs:
                       core.info(`Task #${i.number} closed - re-dispatching epic #${epic} to release dependents`);
                     }
                   }
+                }
+              } else if (action === 'unlabeled') {
+                // Only one removal is worth a word. Taking expedite off puts
+                // humans back in the loop, which is always allowed and never
+                // checked — but it silently changes what the issue is waiting
+                // for, and the hand-off notice for its current state was
+                // posted back when the factory was going to advance it.
+                if ((context.payload.label || {}).name === EXPEDITE) {
+                  await say(i.number,
+                    '**No longer expedited.** Auto-advance is off; runs already live finish normally ' +
+                    'and no label changed.\n\n' +
+                    `This issue is at **${stateOf(labels)}**, and from here the normal gates and start ` +
+                    'controls apply again — see the hand-off notice for that state, or FACTORY.md §3.');
+                  core.info(`${EXPEDITE} removed from #${i.number} - auto-advance stopped`);
                 }
               } else if (action === 'labeled') {
                 // factory:planned is intentionally NOT mapped: the architect is
@@ -920,6 +1078,7 @@ jobs:
                 const notifyOf = { 'factory:release-ready': ['release_scope', 'Gate G0 (release approval)'],
                                    'factory:spec-ready': ['spec', 'Gate G1 (spec approval)'],
                                    'factory:design-ready': ['design', 'Gate G2 (design approval)'],
+                                   [EPIC_READY]: ['staging', 'Gate GS (releasing this epic to staging)'],
                                    'factory:in-staging': ['release', 'Gate G3 (promotion to the default branch)'],
                                    'factory:ready': ['implementation', 'Implementation start'] };
                 if (notifyOf[name]) {
@@ -931,6 +1090,8 @@ jobs:
                     }).catch(() => {});
                     const how = gate === 'implementation'
                       ? 'Comment exactly "Approved" here to start it, or use Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
+                      : gate === 'staging'
+                      ? 'Every task in this epic is implemented, reviewed, tested and assembled, and none of it has touched staging yet. Comment exactly "Approved" here and the Release Manager carries the whole epic to the integration branch and verifies it there. That is a staging release — production is still gate G3.'
                       : gate === 'release_scope'
                         ? 'Read the release plan above, then comment exactly "Approved" here to release every issue in this milestone into intake.'
                         : gate === 'release'
@@ -946,6 +1107,49 @@ jobs:
                 if (name === PROFILE_KIND) {
                   role = 'profiler';
                   core.info('factory:profile applied - running the Profiler');
+                }
+                // Expedite (§4a). Applying the marker IS the G1 and G2
+                // approval, so the application is what gets authorised — the
+                // automatic flips that follow are the factory's own and need
+                // no further check. Same App-write exemption as the gates.
+                if (name === EXPEDITE) {
+                  const list = approverList('expedite');
+                  let refused = '';
+                  if (list.length && !list.includes(sender) && !senderIsApp) {
+                    refused = `\`${EXPEDITE}\` was applied by @${sender}, but putting an epic on the fast ` +
+                      `path requires ${list.map(u => '@' + u).join(', ')} ` +
+                      '(see .github/factory-approvers.json) — it pre-approves gates G1 and G2 and every ' +
+                      'implementation start. Reverted.';
+                  } else if (labels.includes(RELEASE_KIND)) {
+                    refused = `\`${EXPEDITE}\` does not apply to a release tracker — gate G0 is upstream of ` +
+                      'everything it waives, and it is never automatic. Reverted.';
+                  } else if (labels.includes(PROFILE_KIND)) {
+                    refused = `\`${EXPEDITE}\` does not apply to the profile issue — the Profiler is not a ` +
+                      'pipeline stage and has no gates. Reverted.';
+                  } else if (labels.includes(FAST_TRACK)) {
+                    refused = `\`${EXPEDITE}\` does not apply to a \`${FAST_TRACK}\` issue — the fast lane ` +
+                      'already has no gate before G3, so there is nothing here to waive. Reverted.';
+                  }
+                  if (refused) {
+                    await dropLabel(i.number, EXPEDITE);
+                    await say(i.number, refused);
+                    core.info(`Refused ${EXPEDITE} on #${i.number}`);
+                  } else {
+                    role = await expediteNow(i, labels);
+                    if (role === 'none') {
+                      await say(i.number,
+                        '**Expedited.** From here this epic advances itself: gates G1 and G2 approve ' +
+                        'themselves, and every task runs implement → review → test → assemble with no ' +
+                        'start button (FACTORY.md §4a).\n\n' +
+                        `Nothing to start right now — this issue is at **${stateOf(labels)}**, which ` +
+                        'expedite does not advance. It takes effect at the next stage that would have ' +
+                        'waited for you.\n\n' +
+                        'Two gates are never waived: **GS**, releasing the assembled epic to staging, and ' +
+                        '**G3**, promoting it to production. Remove the label at any time to put the other ' +
+                        'gates back.');
+                    }
+                    core.info(`${EXPEDITE} applied to #${i.number} - next: ${role}`);
+                  }
                 }
                 // The fast lane. Skipping OpenSpec ceremony does not mean
                 // skipping the work: the Fast-Track role implements the change
@@ -1501,7 +1705,8 @@ jobs:
               // factory:blocked and factory:in-progress say nothing about where
               // the issue is in the pipeline, so neither holds it back here.
               const inflight = ls.filter(x => x.startsWith('factory:') &&
-                !['factory:backlog', 'factory:intake', 'factory:blocked', 'factory:in-progress'].includes(x));
+                !['factory:backlog', 'factory:intake', 'factory:blocked', 'factory:in-progress',
+                  'factory:expedite'].includes(x));
               if (inflight.length) { skipped.push(`#${it.number} — already \`${inflight.join('`, `')}\``); continue; }
               if (ls.includes('factory:backlog')) {
                 await github.rest.issues.removeLabel({
@@ -1952,3 +2157,236 @@ jobs:
             "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/factory%3Ain-progress" \
             >/dev/null 2>&1 || true
           echo "Cleared factory:in-progress from #$ISSUE."
+
+  # Expedite (FACTORY.md §4a): the stages that would have waited for a human
+  # start themselves. This job is that chain on the Actions engine.
+  #
+  # It re-dispatches this same workflow, one dispatch per follow-up issue,
+  # rather than running the next role in-line the way architect-chain does.
+  # Dispatch fans out to N tasks and each task then needs up to four
+  # sequential role runs, each with its own model resolution and its own
+  # 45-minute budget; a matrix cannot be re-derived mid-run, and one job
+  # cannot hold them all. One run per role also means a crashed run costs at
+  # most one hop — the next event re-enters the map where it left off.
+  #
+  # Re-dispatch needs FACTORY_CROSS_REPO_TOKEN: the workflow token cannot
+  # start workflows (§2a, GitHub anti-recursion). Without it the chain cannot
+  # run at all, so the job says so once on the issue and stops green — never a
+  # silent stall, and never a half-applied gate (the token is checked before
+  # any side effect, so an epic is not flipped past a gate the chain then
+  # cannot follow).
+  expedite-chain:
+    needs: [route, agent, architect-chain]
+    if: >-
+      always() && needs.agent.result == 'success'
+      && needs.architect-chain.result != 'failure'
+      && needs.route.outputs.issues != '' && needs.route.outputs.issues != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github
+      - uses: actions/github-script@v7
+        env:
+          RAN_ROLE: ${{ needs.route.outputs.role }}
+          RAN_ISSUES: ${{ needs.route.outputs.issues }}
+          ARCHITECT_RESULT: ${{ needs.architect-chain.result }}
+          CROSS_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const EXPEDITE = 'factory:expedite';
+            const IN_PROGRESS = 'factory:in-progress';
+            const ORTHOGONAL = [IN_PROGRESS, EXPEDITE, 'factory:blocked'];
+            const RELEASE_KIND = 'factory:release';
+            const FAST_TRACK = 'factory:fast-track';
+            const PROFILE_KIND = 'factory:profile';
+
+            // MUST match the map in the route job's script, in this same file.
+            // scripts/test-router.js extracts both and fails if they diverge —
+            // the whole point of expedite is that one table decides, and two
+            // copies of it in one file is exactly the drift that test exists
+            // to catch.
+            const EXPEDITE_MAP = {
+              'factory:spec-ready': 'gate:spec',
+              'factory:design-ready': 'gate:design',
+              'factory:ready': 'implementer',
+              'factory:in-review': 'reviewer',
+              'factory:in-test': 'qa',
+              'factory:ready-to-ship': 'release',
+            };
+
+            const loadJson = (p) => {
+              try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return {}; }
+            };
+            const namesOf = (ls) => (ls || []).map(l => (typeof l === 'string' ? l : l.name));
+            const statesOf = (ls) => ls.filter(n => n.startsWith('factory:') &&
+              !ORTHOGONAL.includes(n) && n !== RELEASE_KIND && n !== FAST_TRACK && n !== PROFILE_KIND);
+            const soleState = (ls) => (statesOf(ls).length === 1 ? statesOf(ls)[0] : null);
+            const epicsOn = loadJson('.github/factory-branches.json').epics === true;
+            const expeditedNext = (state) => {
+              const role = EXPEDITE_MAP[state || ''] || null;
+              return (role === 'release' && !epicsOn) ? null : role;
+            };
+            const say = (n, body) => github.rest.issues.createComment({
+              owner, repo, issue_number: n, body: `${body}\n\n<!-- factory-agent -->`,
+            });
+            const defBranch = (context.payload.repository || {}).default_branch || 'main';
+
+            // The role that actually last touched these issues. The planner
+            // chains the architect in-run (architect-chain), so after a
+            // planner route it is the architect's result the map follows.
+            let ranRole = process.env.RAN_ROLE;
+            if (ranRole === 'planner' && process.env.ARCHITECT_RESULT === 'success') ranRole = 'architect';
+            const issues = JSON.parse(process.env.RAN_ISSUES || '[]').map(Number);
+
+            const epicOf = (iss) => {
+              const m = /^task\((\d+)\)/.exec(iss.title || '');
+              return m ? Number(m[1]) : null;
+            };
+            const isExpedited = async (iss) => {
+              if (namesOf(iss.labels).includes(EXPEDITE)) return true;
+              const epic = epicOf(iss);
+              if (epic === null) return false;
+              // Cross-repo epics are left to the epic's own repo: this run can
+              // only dispatch into repos its token reaches, and the task-closed
+              // path already says on the task what to run over there (§7).
+              const { data: parent } = await github.rest.issues.get({
+                owner, repo, issue_number: epic,
+              }).catch(() => ({ data: null })) || {};
+              return parent ? namesOf(parent.labels).includes(EXPEDITE) : false;
+            };
+
+            // Work out every follow-up first, and only then check we can act
+            // on it. A gate approval is a side effect: flipping an epic past
+            // G1 with no way to start its planner would strand it worse than
+            // leaving the gate shut.
+            const followUps = [];
+            for (const n of issues) {
+              const { data: iss } = await github.rest.issues.get({
+                owner, repo, issue_number: n,
+              }).catch(() => ({ data: null })) || {};
+              if (!iss) continue;
+              const labels = namesOf(iss.labels);
+              if (labels.includes('factory:blocked')) {
+                core.info(`#${n} is factory:blocked - expedite does not advance it`);
+                continue;
+              }
+              if (!(await isExpedited(iss))) continue;
+              const state = soleState(labels);
+              const next = expeditedNext(state);
+              if (!next) {
+                core.info(`#${n} is at ${state || 'no state'} - the map stops here`);
+                continue;
+              }
+              // The dispatch-storm guard. If the map names the role that just
+              // ran, this run did not move the issue on (a no-op, or a role
+              // that left the state alone) and dispatching it again would
+              // repeat it forever.
+              if (next === ranRole) {
+                core.info(`#${n} is still at ${state} after ${ranRole} - not re-dispatching the same role`);
+                continue;
+              }
+              followUps.push({ issue: n, next, state });
+            }
+            // The Dispatcher's own state does not advance — its output is on
+            // the tasks it just released, so the fan-out is theirs, not its.
+            if (ranRole === 'dispatch') {
+              for (const n of issues) {
+                const { data: epicIss } = await github.rest.issues.get({
+                  owner, repo, issue_number: n,
+                }).catch(() => ({ data: null })) || {};
+                if (!epicIss || !namesOf(epicIss.labels).includes(EXPEDITE)) continue;
+                const { data: ready } = await github.rest.issues.listForRepo({
+                  owner, repo, labels: 'factory:ready', state: 'open', per_page: 100,
+                });
+                for (const t of ready) {
+                  if (t.pull_request) continue;
+                  if (epicOf(t) !== n) continue;
+                  const ls = namesOf(t.labels);
+                  if (ls.includes(IN_PROGRESS) || ls.includes('factory:blocked')) continue;
+                  followUps.push({ issue: t.number, next: 'implementer', state: 'factory:ready' });
+                }
+              }
+            }
+
+            if (!followUps.length) {
+              core.info('Nothing to chain.');
+              return;
+            }
+            if (!process.env.CROSS_TOKEN) {
+              // Say it once per issue, not once per hop: a chain that cannot
+              // run would otherwise repeat this on every stage.
+              const marker = '<!-- factory-expedite-no-token -->';
+              for (const f of new Map(followUps.map(f => [f.issue, f])).values()) {
+                const { data: said } = await github.rest.issues.listComments({
+                  owner, repo, issue_number: f.issue, per_page: 100,
+                }).catch(() => ({ data: [] }));
+                if (said.some(c => (c.body || '').includes(marker))) continue;
+                await say(f.issue,
+                  'This issue is expedited, but auto-advance needs the `FACTORY_CROSS_REPO_TOKEN` ' +
+                  'secret on the GitHub Actions engine: the workflow token cannot start workflow ' +
+                  'runs, so the factory has no way to start the next stage by itself ' +
+                  '(FACTORY.md §4a).\n\n' +
+                  `Nothing is broken and nothing was skipped — this issue is at **${f.state}**, and ` +
+                  'the normal controls for that state still work: see the hand-off notice on this ' +
+                  'thread. Add the secret (a fine-grained PAT with Issues, Contents and Pull ' +
+                  'requests) to chain the rest automatically, or run the stages by hand.\n\n' +
+                  marker);
+              }
+              core.info('No FACTORY_CROSS_REPO_TOKEN - said so once and stopping cleanly.');
+              return;
+            }
+
+            const pat = require('@actions/github').getOctokit(process.env.CROSS_TOKEN);
+            for (const f of followUps) {
+              let role = f.next;
+              if (role.startsWith('gate:')) {
+                // Gates G1/G2 approving themselves. The merge-and-flip is the
+                // route job's approveGate; here the same two calls are made
+                // through the PAT so the flip emits real events too.
+                const spec = role === 'gate:spec';
+                const head = `${owner}:factory/${f.issue}-${spec ? 'spec' : 'design'}`;
+                const { data: prs } = await pat.rest.pulls.list({
+                  owner, repo, state: 'open', head,
+                });
+                let allMerged = true;
+                for (const pr of prs) {
+                  await pat.rest.pulls.merge({
+                    owner, repo, pull_number: pr.number, merge_method: 'squash',
+                  }).then(() => core.info(`Merged gate PR #${pr.number}`)).catch(async (e) => {
+                    allMerged = false;
+                    await say(f.issue,
+                      `This epic is expedited, but PR #${pr.number} could not be merged ` +
+                      `automatically (${e.message}). Merge it yourself and apply the next label — ` +
+                      'the chain picks up from there.');
+                  });
+                }
+                if (!allMerged) continue;
+                await pat.rest.issues.removeLabel({
+                  owner, repo, issue_number: f.issue,
+                  name: spec ? 'factory:spec-ready' : 'factory:design-ready',
+                }).catch(() => {});
+                await pat.rest.issues.addLabels({
+                  owner, repo, issue_number: f.issue,
+                  labels: [spec ? 'factory:spec-approved' : 'factory:design-approved'],
+                });
+                role = spec ? 'planner' : 'dispatch';
+                core.info(`Gate ${spec ? 'G1' : 'G2'} approved automatically on #${f.issue} (expedited)`);
+              }
+              await pat.rest.actions.createWorkflowDispatch({
+                owner, repo, workflow_id: 'factory-pipeline.yml', ref: defBranch,
+                inputs: { role, issue_number: String(f.issue) },
+              }).then(() => {
+                core.info(`Expedited #${f.issue}: dispatched ${role}`);
+              }).catch(async (e) => {
+                await say(f.issue,
+                  `This issue is expedited and the next stage is \`${role}\`, but starting it ` +
+                  `failed: ${e.message}.\n\n` +
+                  `Start it by hand: Actions → "Factory pipeline" → Run workflow (role: \`${role}\`, ` +
+                  `issue \`${f.issue}\`).`);
+                core.info(`Dispatch of ${role} for #${f.issue} failed: ${e.message}`);
+              });
+            }

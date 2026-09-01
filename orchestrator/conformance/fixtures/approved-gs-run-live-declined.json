@@ -1,0 +1,60 @@
+{
+  "name": "approved-gs-run-live-declined",
+  "description": "gate GS declines while a run is live on the epic rather than racing it",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:epic-ready",
+          "factory:in-progress"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "5": {
+        "countAtLeast": 1,
+        "contains": [
+          "already live",
+          "factory:in-progress"
+        ]
+      }
+    }
+  }
+}

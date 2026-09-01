@@ -5,6 +5,12 @@ pipeline: release → requirement issue → spec → tasks → design → code �
 test → deploy → verification, with agents doing the work and humans holding the
 gates.
 
+How many gates is a per-epic decision (§4a); which of them can *never* be
+delegated is not. Two are structural: **GS**, releasing an epic to staging, and
+**G3**, promoting it to production. Everything before them is reviewable work
+the factory may be trusted to carry; those two are the moments something leaves
+the factory's own branches, and a human opens both.
+
 It is repo-agnostic. Everything a role needs to know about a *particular*
 codebase lives in that repo's `.factory/profile.json` (§2c) — never in these
 prompts. An estate of N repositories runs N profiles and one copy of this
@@ -41,7 +47,7 @@ body.** This prevents the two-sources-of-truth drift.
 | 4 | Implement | `/factory:implementer` | Branch + commits + draft PR per task via `/opsx:apply` |
 | 5 | Review | `/factory:reviewer` | Line-level review; approve or request changes |
 | 6 | Test | `/factory:qa` | Scenario→test mapping, full suites green, test report on PR |
-| 7 | Deploy | `/factory:release` | Dependency-ordered merges onto the **epic branch** (§6b) and the epic's integration PR onto the **integration branch** — or straight onto integration when the epic has no epic branch — staging verification, then the promotion PRs a human merges at gate G3 (§6a) |
+| 7 | Deploy | `/factory:release` | Dependency-ordered merges onto the **epic branch** (§6b), leaving the epic at `factory:epic-ready`; then, once a human opens gate GS, the integration PR onto the **integration branch** — or straight onto integration when the epic has no epic branch — staging verification, and the promotion PRs a human merges at gate G3 (§6a) |
 | 8 | Verify | `/factory:ops` | Health/smoke checks, soak, `/opsx:archive`, issue closure |
 
 Stage 0 is optional and off by default: with release gating disabled a filed
@@ -55,6 +61,13 @@ and no gate but G3. It is the whole pipeline for changes too small to be worth
 the ceremony (§5). It skips the ceremony, not the staging step: its PR is based
 on the integration branch (§6a) — the fast lane has no epic and so no epic
 branch (§6b).
+
+Cutting across the stages is one **switch**: `factory:expedite` (§4a) leaves
+every stage above exactly as it is and removes the waiting between them, so a
+trusted epic runs from approved spec to assembled epic without a human touch.
+It is the opposite trade from the fast lane — all of the ceremony, none of the
+pauses — and it too stops at the gates that put code on staging and in
+production.
 
 One more role sits outside the pipeline entirely: `/factory:profiler` writes and
 maintains `.factory/profile.json` (§2c), the file the stage roles above depend
@@ -84,6 +97,10 @@ events, so **filing a plain issue is all a requester does**:
 | `factory:release-approved` on a tracker (gate G0) | Every `factory:backlog` issue in that milestone is moved to `factory:intake` and its **Intake Analyst** runs, all in the same run |
 | Human applies `factory:spec-approved` (gate G1) | **Planner**, then **Architect** chained in the same run |
 | Human applies `factory:design-approved` (gate G2) | **Dispatcher** — marks unblocked tasks `factory:ready` |
+| `factory:expedite` applied to an epic (§4a) | Authorised against the `expedite` approvers, then the **auto-advance map** acts on whatever state the epic is already in: G1/G2 approve themselves, ready tasks start their implementers, and every later stage chains with no human start — up to gate GS, which it never opens |
+| `factory:expedite` removed | Nothing runs. Auto-advance stops; the normal human controls resume from the current state, said once on the issue |
+| A role finishes on an expedited issue | The engine starts the next role in the map (§4a) on the issue whose state that run just changed — the Actions engine by re-dispatching itself over `FACTORY_CROSS_REPO_TOKEN`, the orchestrator inside its own graph run |
+| Owner/collaborator comments exactly `Approved` on an epic in `factory:epic-ready` (gate GS) | **Release Manager** phase 2 — the assembled epic is carried to the integration branch and verified there. Authorised against the `staging` approvers, falling back to `release` (§4) |
 | `factory:in-staging` applied by the Release Manager | Nothing runs — the `release` approvers are assigned and @-mentioned to merge the promotion PRs. Gate G3 is a merge click, not a role (§6a) |
 | Owner/collaborator comments exactly `Approved` on an issue in `factory:spec-ready` or `factory:design-ready` | The gate's document PR(s) in this repo are squash-merged, the label flips to the approved state, and the next stage (Planner→Architect, or Dispatcher) runs in the same workflow run. Strict match — "Approved, but..." is just a comment. G3 is deliberately not comment-approvable |
 | The same comment on a release tracker in `factory:release-ready` | Gate G0 — the label flips to `factory:release-approved` and the milestone's issues are released (there is no document PR to merge) |
@@ -247,6 +264,8 @@ the GitHub usernames responsible for it:
 | `spec` | Gate G1 — approve the spec PR | Issue reaches `factory:spec-ready` | Merge the PR + apply the label, or comment `Approved` |
 | `design` | Gate G2 — approve the plan+design PR | Issue reaches `factory:design-ready` | Same |
 | `implementation` | Start implementers on ready tasks | A task reaches `factory:ready` | Comment `Approved` on the task, or Run workflow (role: implementer) |
+| `expedite` | Who may put an epic on the fast path (§4a) | — (it is applied, not awaited) | Apply `factory:expedite` to the epic. This pre-approves G1, G2 and every implementation start, which is why applying it is itself authorised |
+| `staging` | Gate GS — release the assembled epic to staging | Epic reaches `factory:epic-ready` | Comment `Approved` on the epic. Falls back to the `release` list when the key is absent |
 | `release` | Gate G3 — production go | Issue reaches `factory:in-staging` and the Release Manager posts the merge list | Merge the promotion PRs (integration → default branch) in the posted order |
 
 Mechanics:
@@ -355,11 +374,12 @@ role prompts and every trace convention are identical whichever engine runs
 ## 3. Label state machine
 
 State labels are mutually exclusive; exactly one `factory:*` state label per
-issue at a time. Four labels are not states and sit alongside one:
+issue at a time. Five labels are not states and sit alongside one:
 `factory:release` (a *kind* marker identifying a release tracker, which also
 carries one `factory:release-*` state), `factory:profile` (a *kind* marker
 identifying the repo's profile issue, §2c), `factory:in-progress` (a run is live
-on this issue right now) and `factory:blocked` (halted, whatever the state).
+on this issue right now), `factory:expedite` (this epic advances itself, §4a)
+and `factory:blocked` (halted, whatever the state).
 Create them with `scripts/setup-labels.sh`.
 
 | Label | Meaning | Set by | Advanced by |
@@ -379,11 +399,13 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:in-review` | Draft PR under agent review | Implementer | Reviewer → `factory:in-test` (or back to `factory:ready`), or a human comments `Review Done` → `factory:in-test` directly |
 | `factory:in-test` | QA verifying scenarios | Reviewer | QA → `factory:ready-to-ship` |
 | `factory:ready-to-ship` | Green; awaiting the merge onto the epic branch (§6b), or onto the staging branch when the epic has no epic branch (§6a) | QA | Release → `factory:on-epic` (or `factory:in-staging`) |
-| `factory:on-epic` | Merged onto the epic branch and green there; awaiting the epic → integration merge (§6b). Only with `epics: true` | Release | Release merges the integration PR → `factory:in-staging` |
+| `factory:on-epic` | Merged onto the epic branch and green there; awaiting the rest of the epic (§6b). Only with `epics: true` | Release | The epic's last task lands → the **epic** goes `factory:epic-ready` |
+| `factory:epic-ready` | *On the epic:* every task is assembled and green, and nothing has touched staging yet. Awaiting **gate GS** | Release, or Dispatch on a re-run that finds the epic complete | Human (GS) → Release carries the epic to integration → `factory:in-staging` |
 | `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
 | `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
 | `factory:profile` | *Kind:* this issue is the home of `.factory/profile.json` (§2c) | Factory Console's profile step, or a human | Profiler removes it when it finishes; re-apply to re-run |
+| `factory:expedite` | *Marker:* this epic advances itself — every stage after the spec runs without waiting for a human, up to gate GS (§4a) | Human triage, authorised against the `expedite` approvers | Human removes it; the normal gates resume from the current state |
 | `factory:in-progress` | *Marker:* a factory agent run is live on this issue right now | Pipeline, when an agent job starts | Pipeline, when that job ends (always, including failure and timeout) |
 | `factory:blocked` | Needs human attention | Any agent | Human |
 | `factory:incident` | Post-deploy regression | Ops Monitor | Human + Release (rollback) |
@@ -403,6 +425,12 @@ Create them with `scripts/setup-labels.sh`.
   merge and apply `factory:design-approved`, or comment `Approved` on the epic.
   Note: comment approval merges the design PR in the epic's repo; sibling-repo
   design PRs still need their own merge.
+- **GS — Release to staging:** the epic is at `factory:epic-ready` — every task
+  implemented, reviewed, tested and assembled, and nothing of it on staging yet
+  (§6b). A `staging` approver (falling back to the `release` list) comments
+  exactly `Approved` on the epic, and the Release Manager carries the whole
+  epic to the integration branch and verifies it there. This is the gate an
+  expedited epic (§4a) stops at: the auto-advance map never opens it.
 - **G3 — Promotion to the default branch:** every PR into `main` is merged
   **by a human via the GitHub UI** — never by an agent. By the time a human
   sees one, the change is already merged onto the integration branch and proved
@@ -412,16 +440,125 @@ Create them with `scripts/setup-labels.sh`.
   factory-side (see §8a): agents are hard-blocked from pushing to `main` and
   from using PR-merge tools. The merge button *is* the gate.
 
-The **integration merge** that precedes G3 is deliberately *not* a gate: the
-Release Manager merges each green task PR onto the epic branch (§6b) — or
-directly onto the integration branch when the epic has none (§6a) — in
-dependency order, running the repo's checks after each one, and carries the
-completed epic to the integration branch as one train. It costs a human
-nothing and it is what makes G3 a decision about a proven build rather than a
-hopeful one. Its states are `factory:on-epic` and `factory:in-staging` (§3).
+**Epic assembly** — merging each green task PR onto the epic branch (§6b) in
+dependency order, running the repo's checks after each one — is deliberately
+*not* a gate. It costs a human nothing and it is what makes the later gates
+decisions about a proven build rather than hopeful ones. Its state is
+`factory:on-epic` (§3), and it ends at `factory:epic-ready`.
+
+Leaving the epic branch *is* a gate, and that is GS. The epic → integration
+merge deploys staging, so a human says when: one approval per epic, at the
+moment the whole epic is assembled and green, rather than a start button per
+task. (Before this state existed, a human started the Release Manager's
+second phase by hand with nothing on the issue asking them to; GS is that same
+click, now notified, authorised and recorded.) Under `epics: false` there is
+no epic branch to leave, so GS is where the task PRs merge onto the
+integration branch instead — the gate means the same thing either way:
+*approving this puts the epic on staging*.
 
 Everything else runs unattended. Any human may take over any stage at any time
 by doing the work manually and setting the next label.
+
+## 4a. Expedite: the epic that advances itself
+
+Gates G1 and G2 and every start button between them exist because somebody
+wants to look. For an epic nobody intends to look at — a well-understood
+change, the fifth repeat of a pattern, work a maintainer would rubber-stamp at
+every step — they are five to twenty touches that add latency and no judgement.
+
+`factory:expedite` is a **marker** on an epic (§3), applied by a human at any
+step, that waives the *waiting* without waiving the *work*: the spec is still
+written, the design is still written, every task is still reviewed and tested.
+Only the pauses go.
+
+It is not the fast lane. `factory:fast-track` (§5) skips the ceremony for a
+change too small to deserve it and produces no spec, no tasks and no design.
+Expedite keeps all of it and runs it end to end. The two labels are refused on
+each other's issues.
+
+### What it advances
+
+While the marker is on the epic and the issue is not `factory:blocked`:
+
+| The issue is at | What happens instead of waiting |
+|---|---|
+| epic `factory:spec-ready` | **Gate G1 approves itself** — the spec PR merges, the epic flips to `factory:spec-approved`, the Planner runs (chaining the Architect as always) |
+| epic `factory:design-ready` | **Gate G2 approves itself** — the design PR(s) merge, the epic flips to `factory:design-approved`, the Dispatcher runs |
+| task `factory:ready` | Its Implementer starts, with no `Approved` comment |
+| task `factory:in-review` | The Reviewer runs |
+| task `factory:in-test` | QA runs |
+| task `factory:ready-to-ship` | With `epics: true`, Release phase 1 merges it onto the epic branch (`factory:on-epic`). With `epics: false`, **nothing** — see below |
+| the epic's last task lands | The epic flips to `factory:epic-ready` and **the chain ends** |
+
+The map is read the same way whether a state was just *reached* by a role
+finishing or was already there when the marker was *applied*: expediting an
+epic that has been sitting at `factory:design-ready` for a week starts it
+moving immediately.
+
+### What it never touches
+
+- **Gate G0** (release scope) is upstream of the spec and unaffected: an
+  expedited issue still waits for its milestone. Applied before a spec exists,
+  the marker is simply dormant — it is not refused, and its first act is the
+  G1 approval whenever intake gets there.
+- **Gate GS** (release to staging) is where the chain stops, always.
+- **Gate G3** (production) is unchanged in every respect: a human merging a
+  promotion PR in the GitHub UI, never comment-approvable, never an agent.
+
+Nothing auto-advanced ever merges to the integration branch or the default
+branch. That is why `epics: false` stops the chain at
+`factory:ready-to-ship`: with no epic branch, the Release Manager's *first*
+merge is onto the integration branch, and that merge is the staging deploy.
+Under `epics: true` phase 1 merges onto the epic branch, which is the factory's
+own scratch space, so the chain runs it. Either way the epic ends at
+`factory:epic-ready` and a human opens GS.
+
+### Scope, inheritance and refusals
+
+The marker lives on the **epic**. Task sub-issues are expedited exactly when
+their epic carries it right now, resolved through the task's `task(<epic>)`
+title and its `Part of <owner>/<repo>#<n>` marker — the same resolution, and
+the same cross-repo `FACTORY_CROSS_REPO_TOKEN` requirement, as the re-dispatch
+on task close (§7). The label is deliberately **not** copied onto tasks: a copy
+drifts the moment somebody takes expedite off the epic.
+
+Applying it is authorised against the `expedite` approvers (§2b), because
+applying it *is* the G1 and G2 approval. An unauthorised application is
+reverted with a comment, exactly like a hand-applied gate label. Removing it
+is unrestricted — removal only puts humans back in the loop, which is always
+safe.
+
+It is refused, with a comment, on release trackers, on the profile issue, and
+on `factory:fast-track` issues (that lane has no pre-G3 gate to waive).
+
+### Stopping it
+
+- **Remove the label.** Auto-advance stops; runs already live finish normally;
+  no state changes. The pipeline continues under the normal gates from
+  wherever each issue stands, and the factory says so once on the issue.
+- **`factory:blocked`** pauses it exactly as it pauses everything else. A human
+  reply clears the label, re-runs the halted stage, and the chain resumes with
+  it if the marker is still on.
+- **The rework cap** is unchanged: the Reviewer sending a task back is the
+  map's only loop, and the existing two-round limit (§8) ends it in
+  `factory:blocked` rather than a third automatic implementer.
+- **`factory:in-progress`** guards every auto-start exactly as it guards a
+  human `Approved`, so a chained run can never double up on a live one.
+
+### The engines
+
+Both engines run the map from one decision table, pinned by the shared
+conformance fixtures (§2e) — as always, behaviour and fixtures move together.
+They execute it differently because their event models differ:
+
+- **The orchestrator** appends follow-ups inside the graph run it is already
+  in, the way it already fans a release out.
+- **The Actions engine** re-dispatches itself: one `workflow_dispatch` per
+  follow-up issue, so each role gets its own run, its own timeout and its own
+  model resolution. That needs **`FACTORY_CROSS_REPO_TOKEN`** — the workflow
+  token cannot start workflows (§2a). Without the PAT the chain cannot run at
+  all, so it says so once on the issue and names the manual control; the run
+  ends green and nothing stalls silently.
 
 ## 5. OpenSpec conventions
 
@@ -438,7 +575,9 @@ by doing the work manually and setting the next label.
   it needs a migration, a new dependency, a new public contract, or a design
   decision worth arguing separately. Its PR is based on the integration branch
   (§6a) — merging it puts the change on staging, not in production; the
-  promotion PR still carries it to the default branch.
+  promotion PR still carries it to the default branch. `factory:expedite`
+  (§4a) is refused on a fast-track issue: this lane has no pre-G3 gate to
+  waive, so the two labels never sit together.
 - **Commands (OpenSpec v1.7 core profile):** `/opsx:explore`, `/opsx:propose`,
   `/opsx:apply`, `/opsx:update`, `/opsx:sync`, `/opsx:archive`.
 - **Archive:** only the Ops Monitor archives, and only after production soak
@@ -587,7 +726,9 @@ the conflicting files named; it is resolved on the epic branch, never
 silently.
 
 **Leaving the epic branch.** When every task is `factory:on-epic` and the
-epic branch's full suite is green, the Release Manager merges the integration
+epic branch's full suite is green, the epic goes to `factory:epic-ready` and
+waits: this is **gate GS** (§4), the one human decision between an assembled
+epic and staging. On approval the Release Manager merges the integration
 branch into the epic branch (re-verifying if they diverged), then opens and
 merges **one integration PR per repo** — head the epic branch, base the
 integration branch, a merge commit so task history and a single-revert
@@ -595,7 +736,8 @@ demotion path survive. That merge is the release train assembling; from there
 §6a applies unchanged: staging verification, then the human-merged promotion
 PR at gate G3. If staging goes red and the diagnosis lands on this epic, its
 integration merge commit is reverted and the epic returns to
-`factory:on-epic` — one epic demoted, not the estate.
+`factory:on-epic` — one epic demoted, not the estate — and re-arms GS when it
+is repaired and assembled again.
 
 **Lifecycle end.** The epic branch is deleted by the Ops Monitor at archive
 time — after the promotion PR carrying the epic has merged (or the epic issue
@@ -716,7 +858,9 @@ on and this section becomes defence-in-depth rather than the primary control.
    point (§10); the `factory:intake` label it applies only starts the pipeline
    once the labels step below has run.
 2. **Labels** — `GITHUB_TOKEN=... bash scripts/setup-labels.sh <owner> <repo...>`
-   creates the 23 `factory:*` labels (§3). Run it once per repo.
+   creates the 25 `factory:*` labels (§3). Run it once per repo, and again
+   after a factory upgrade that adds labels — `factory:expedite` and
+   `factory:epic-ready` are the newest (§4a).
 3. **Secrets** — add `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN` as a
    **repository** secret (Settings → Secrets and variables → Actions).
    Environment secrets do *not* reach jobs that don't declare `environment:`,

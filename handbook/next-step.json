@@ -14,7 +14,13 @@
     "the list is empty). 'who' is the actor; 'how' is the exact move, and it",
     "must name a real control — a comment to type, a PR to merge, a button,",
     "or a role to start. 'An agent will pick it up' is only true where the",
-    "pipeline actually routes the state on its own."
+    "pipeline actually routes the state on its own.",
+    "",
+    "An optional 'expedited' variant per state carries the wording used when",
+    "the issue's epic holds factory:expedite (FACTORY.md §4a) — there the",
+    "factory advances the state itself and the reader is owed the opposite",
+    "message: nothing to do. Renderers fall back to who/how when a state has",
+    "no variant, which is right for every state expedite does not advance."
   ],
   "states": {
     "factory:backlog": {
@@ -39,7 +45,11 @@
     },
     "factory:spec-ready": {
       "who": "gate G1 — {approvers}",
-      "how": "Review the spec PR this issue links, then either merge it, or comment exactly `Approved` here — the factory then merges it for you and starts the Planner. Strict match: \"Approved, but…\" is just a comment."
+      "how": "Review the spec PR this issue links, then either merge it, or comment exactly `Approved` here — the factory then merges it for you and starts the Planner. Strict match: \"Approved, but…\" is just a comment.",
+      "expedited": {
+        "who": "the factory — this epic is expedited",
+        "how": "Gate G1 approves itself: the spec PR is merged and the Planner started, without waiting for you. The spec PR is still there to read, and removing `factory:expedite` puts the gates back from wherever the epic has got to."
+      }
     },
     "factory:spec-approved": {
       "who": "the factory",
@@ -51,7 +61,11 @@
     },
     "factory:design-ready": {
       "who": "gate G2 — {approvers}",
-      "how": "Review the design PR(s) this issue links, then either merge them, or comment exactly `Approved` here — the factory then merges and releases the unblocked tasks for implementation."
+      "how": "Review the design PR(s) this issue links, then either merge them, or comment exactly `Approved` here — the factory then merges and releases the unblocked tasks for implementation.",
+      "expedited": {
+        "who": "the factory — this epic is expedited",
+        "how": "Gate G2 approves itself: the design PR(s) are merged, the Dispatcher runs, and every unblocked task starts its Implementer without waiting for you. Remove `factory:expedite` to put the gates back."
+      }
     },
     "factory:design-approved": {
       "who": "the factory",
@@ -59,23 +73,43 @@
     },
     "factory:ready": {
       "who": "the implementation approvers — {approvers}",
-      "how": "Comment exactly `Approved` on this task to start its Implementer, or press **Approve** on it in the Factory Console. Only one start per task: while a run is live the approval is declined, because a second one would put a second Implementer on the same branch."
+      "how": "Comment exactly `Approved` on this task to start its Implementer, or press **Approve** on it in the Factory Console. Only one start per task: while a run is live the approval is declined, because a second one would put a second Implementer on the same branch.",
+      "expedited": {
+        "who": "the factory — this task's epic is expedited",
+        "how": "Its Implementer starts on its own; no `Approved` is needed. If the Reviewer sends this task back here, the next Implementer starts automatically too — until the two-round rework cap, which stops at `factory:blocked` and asks for you."
+      }
     },
     "factory:in-review": {
       "who": "a human, then the Reviewer",
-      "how": "`factory:in-review` starts nothing on its own. Start the review — the Factory Console's **Start the Reviewer** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `reviewer`, issue `{issue}`). The Reviewer reads the draft PR this task links and moves it to `factory:in-test`, or back to `factory:ready` with changes requested. Reviewed it yourself instead? Comment exactly `Review Done` here to skip the Reviewer and move straight to `factory:in-test` — there is no changes-requested equivalent for that path; if you found problems, review the draft PR directly on GitHub. Do not merge the draft PR yourself either way: review and QA are what make it mergeable, and the Release Manager merges it."
+      "how": "`factory:in-review` starts nothing on its own. Start the review — the Factory Console's **Start the Reviewer** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `reviewer`, issue `{issue}`). The Reviewer reads the draft PR this task links and moves it to `factory:in-test`, or back to `factory:ready` with changes requested. Reviewed it yourself instead? Comment exactly `Review Done` here to skip the Reviewer and move straight to `factory:in-test` — there is no changes-requested equivalent for that path; if you found problems, review the draft PR directly on GitHub. Do not merge the draft PR yourself either way: review and QA are what make it mergeable, and the Release Manager merges it.",
+      "expedited": {
+        "who": "the factory — this task's epic is expedited",
+        "how": "The Reviewer starts on its own; nothing here needs you. Its verdict moves this task to `factory:in-test`, or back to `factory:ready` for another round. The draft PR is there to read if you want to review it yourself — `Review Done` still works and still skips the Reviewer."
+      }
     },
     "factory:in-test": {
       "who": "a human, then QA",
-      "how": "`factory:in-test` starts nothing on its own. Start QA — the Factory Console's **Start QA** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `qa`, issue `{issue}`). QA verifies the WHEN/THEN scenarios, posts the test report here and moves the task to `factory:ready-to-ship`."
+      "how": "`factory:in-test` starts nothing on its own. Start QA — the Factory Console's **Start QA** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `qa`, issue `{issue}`). QA verifies the WHEN/THEN scenarios, posts the test report here and moves the task to `factory:ready-to-ship`.",
+      "expedited": {
+        "who": "the factory — this task's epic is expedited",
+        "how": "QA starts on its own and posts its test report here. Nothing needs you unless it stops at `factory:blocked`."
+      }
     },
     "factory:ready-to-ship": {
       "who": "a human, then the Release Manager",
-      "how": "`factory:ready-to-ship` starts nothing on its own. Start the Release Manager — the Factory Console's **Start the Release Manager** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `release`, issue `{issue}`). It merges this task onto its epic branch (or onto the integration branch when the epic has none) and verifies it there."
+      "how": "`factory:ready-to-ship` starts nothing on its own. Start the Release Manager — the Factory Console's **Start the Release Manager** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `release`, issue `{issue}`). It merges this task onto its epic branch (or onto the integration branch when the epic has none) and verifies it there.",
+      "expedited": {
+        "who": "the factory, or you — it depends on this repo's branch policy",
+        "how": "With epic branches on (`\"epics\": true`), the Release Manager starts on its own and merges this task onto the epic branch — nothing needs you. With epic branches off, the expedite chain deliberately stops here: the next merge would land on the integration branch and deploy staging, which is never automatic. Start the Release Manager yourself then — the Console's **Start the Release Manager** button, or Run workflow (role: `release`, issue `{issue}`)."
+      }
     },
     "factory:on-epic": {
-      "who": "the epic, then the Release Manager",
-      "how": "This task is merged onto its epic branch and green there. It waits for the rest of the epic: once every task is `factory:on-epic`, the Release Manager carries the whole epic to the integration branch in one PR. Start that on the **epic** issue, not here."
+      "who": "the rest of the epic",
+      "how": "This task is merged onto its epic branch and green there, and it is done: nothing further happens to it on its own. It waits for its siblings — when the last one lands, the **epic** goes to `factory:epic-ready` and asks for gate GS there, not here."
+    },
+    "factory:epic-ready": {
+      "who": "gate GS — {approvers}",
+      "how": "Every task in this epic is implemented, reviewed, tested and assembled on the epic branch, and none of it has touched staging yet. Comment exactly `Approved` here (or press **Approve** in the Factory Console) and the Release Manager carries the whole epic to the integration branch and verifies it there. That is a staging release, not a production one — production is still gate G3, a human merging the promotion PR."
     },
     "factory:in-staging": {
       "who": "gate G3 — {approvers}",

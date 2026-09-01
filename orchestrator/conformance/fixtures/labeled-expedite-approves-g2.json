@@ -1,0 +1,62 @@
+{
+  "name": "labeled-expedite-approves-g2",
+  "description": "expedite on an epic at design-ready approves gate G2 itself and starts the dispatcher",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "expedite": [
+        "boss"
+      ],
+      "staging": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:design-ready",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 5,
+    "label": "factory:expedite",
+    "sender": "boss"
+  },
+  "expect": {
+    "role": "dispatch",
+    "issues": [
+      "5"
+    ],
+    "labels": {
+      "5": {
+        "has": [
+          "factory:design-approved",
+          "factory:expedite"
+        ],
+        "not": [
+          "factory:design-ready"
+        ]
+      }
+    }
+  }
+}

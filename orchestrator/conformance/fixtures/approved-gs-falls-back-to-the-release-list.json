@@ -1,0 +1,44 @@
+{
+  "name": "approved-gs-falls-back-to-the-release-list",
+  "description": "with no staging key, gate GS is owned by whoever already owns the production go",
+  "config": {
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "release": [
+        "shipper"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Epic",
+        "labels": [
+          "factory:epic-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Approved",
+      "login": "shipper",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "release",
+    "issues": [
+      "5"
+    ]
+  }
+}

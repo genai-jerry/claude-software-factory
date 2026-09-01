@@ -16,11 +16,12 @@ from .github_app import RepoPort, parse_json_or_empty
 from .next_step import (
     GATE_OF_STATE,
     already_said,
+    approvers_for,
     load_table,
     render,
     state_of,
 )
-from .router import AGENT_MARK, IN_PROGRESS
+from .router import AGENT_MARK, IN_PROGRESS, is_expedited
 
 log = logging.getLogger("factory-orchestrator.guards")
 
@@ -134,13 +135,14 @@ def report_next_step(port: RepoPort, issue: int, role: str, factory_checkout) ->
         if already_said(port.list_comments(issue), state):
             log.info("#%s already carries the hand-off notice for %s", issue, state)
             return
-        gate = GATE_OF_STATE.get(state or "")
         approvers = []
-        if gate:
+        if GATE_OF_STATE.get(state or ""):
             cfg = parse_json_or_empty(port.get_file(".github/factory-approvers.json"))
-            value = cfg.get(gate)
-            approvers = [x for x in value if isinstance(x, str)] if isinstance(value, list) else []
-        port.create_comment(issue, f"{render(table, role, issue, state, approvers)}\n{AGENT_MARK}")
+            approvers = approvers_for(state, cfg)
+        expedited = is_expedited(port, iss)
+        port.create_comment(
+            issue,
+            f"{render(table, role, issue, state, approvers, expedited)}\n{AGENT_MARK}")
         log.info("said what happens next on #%s (%s)", issue, state or "no state")
     except Exception:  # noqa: BLE001 - a missing notice must not fail a good run
         log.warning("could not post the hand-off notice on #%s", issue, exc_info=True)
