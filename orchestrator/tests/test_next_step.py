@@ -184,3 +184,40 @@ def test_no_table_means_no_notice_rather_than_a_failed_run(tmp_path):
     repo = _repo(["factory:in-review"])
     report_next_step(repo, 5, "implementer", tmp_path)  # an older factory ref
     assert repo.comments.get(5, []) == []
+
+
+def test_the_guard_reads_a_cross_repo_epics_marker():
+    """The wording the user saw was the bug: a click expedite had waived.
+
+    The task is in one repo and its expedited epic in another (FACTORY.md §7),
+    so the marker is only reachable through a port on the other repo. The
+    Actions engine's twin (scripts/say_next_step.py) does this read over its
+    PAT; this one has to match it or the two say opposite things.
+    """
+    repo = FakeRepo(
+        {5: {"number": 5, "title": "task(3): add endpoint",
+             "body": "Part of o/backend#3",
+             "labels": [{"name": "factory:ready"}],
+             "user": {"type": "User"}, "state": "open", "milestone": None}},
+        {}, owner="o", repo="ui")
+    epic = FakeRepo(
+        {3: {"number": 3, "title": "Epic", "labels": [{"name": "factory:expedite"}],
+             "user": {"type": "User"}, "state": "open", "milestone": None}},
+        {}, owner="o", repo="backend")
+
+    report_next_step(repo, 5, "dispatch", ROOT, port_for=lambda o, r: epic)
+    body = repo.comments[5][0]["body"]
+    assert "the factory — this task's epic is expedited" in body
+    assert "Comment exactly `Approved`" not in body
+
+
+def test_without_cross_repo_access_the_notice_asks_a_human():
+    """Unchanged: an epic this engine cannot read is not an expedited one."""
+    repo = FakeRepo(
+        {5: {"number": 5, "title": "task(3): add endpoint",
+             "body": "Part of o/backend#3",
+             "labels": [{"name": "factory:ready"}],
+             "user": {"type": "User"}, "state": "open", "milestone": None}},
+        {}, owner="o", repo="ui")
+    report_next_step(repo, 5, "dispatch", ROOT)
+    assert "Comment exactly `Approved`" in repo.comments[5][0]["body"]

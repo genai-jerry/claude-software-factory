@@ -87,3 +87,14 @@ def test_private_key_bad_base64_rejected():
            "GITHUB_APP_PRIVATE_KEY_B64": "!!!not-base64!!!"}
     with pytest.raises(ConfigError, match="B64"):
         load_config(env)
+
+
+def test_claimed_repos_is_the_estate_the_engine_drives():
+    cfg = load_config({**BASE, "CLAIMED_REPOS": " o/backend , o/ui,o/backend ,junk, "})
+    # Order preserved, blanks and non-owner/repo entries dropped, no repeats:
+    # this list is both the sweep's walk and the cross-repo fan-out's search.
+    assert cfg.claimed_repos == ("o/backend", "o/ui")
+
+
+def test_no_claimed_repos_is_an_empty_estate():
+    assert load_config(BASE).claimed_repos == ()

@@ -24,6 +24,7 @@ import json
 import logging
 import operator
 import tempfile
+from itertools import zip_longest
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
@@ -174,13 +175,20 @@ class Engine:
 def build_graph(engine: Engine, checkpointer=None):
     def route_node(state: PipelineState) -> dict[str, Any]:
         port = engine.port(state["owner"], state["repo"])
-        result = Router(port, engine.repo_config(port), port_for=engine.port).route(
+        result = Router(port, engine.repo_config(port), port_for=engine.port,
+                        estate=engine.cfg.claimed_repos).route(
             state["event_name"], state["payload"])
         # `result.repo` is set only for a cross-repo epic (FACTORY.md §7):
         # the task that closed lives here, the epic and its dispatcher live
-        # there. Everything else runs in the repo the event came from.
-        pending = [{"role": result.role, "issue": int(n), "repo": result.repo}
-                   for n in result.issues] if result.role != "none" else []
+        # there. `result.issue_repos` is the other direction — one decision
+        # covering tasks in several repos, as an expedited cross-repo epic's
+        # fan-out does. Everything else runs in the repo the event came from.
+        # zip_longest so a decision that sets no per-issue repos (every one of
+        # them) still yields one entry per issue, all in `result.repo`.
+        pending = [{"role": result.role, "issue": int(n), "repo": where or result.repo}
+                   for n, where in zip_longest(result.issues, result.issue_repos,
+                                               fillvalue="")
+                   ] if result.role != "none" else []
         log.info(
             "route event=%s repo=%s/%s role=%s issues=%s release=%s",
             state["event_name"], state["owner"], state["repo"],
@@ -231,18 +239,24 @@ def build_graph(engine: Engine, checkpointer=None):
             expedited_seen = True
             labels = [(l if isinstance(l, str) else l.get("name"))
                       for l in issue.get("labels", [])]
-            router = Router(c_port, engine.repo_config(c_port), port_for=engine.port)
+            router = Router(c_port, engine.repo_config(c_port), port_for=engine.port,
+                            estate=engine.cfg.claimed_repos)
             nxt = router.expedite_now(issue, labels)
             if nxt != "none":
                 pending.append({"role": nxt, "issue": c["issue"], "repo": c_repo})
                 log.info("Expedited #%s: %s next", c["issue"], nxt)
             # The Dispatcher's own state does not advance — its output is on
             # the tasks it just released, so the fan-out is theirs, not its.
+            # Across the estate: with a cross-repo epic (§7) the Dispatcher
+            # releases sub-issues in every affected repo, and searching only
+            # the epic's own repo starts its share and parks the rest.
             if c["role"] == "dispatch":
-                for task in expedited_ready_tasks(c_port, c["issue"]):
-                    pending.append({"role": "implementer", "issue": task, "repo": c_repo})
-                    log.info("Expedited epic #%s: starting implementer on task #%s",
-                             c["issue"], task)
+                for task_repo, task in expedited_ready_tasks(
+                        c_port, c["issue"], router.sibling_ports()):
+                    pending.append({"role": "implementer", "issue": task,
+                                    "repo": task_repo})
+                    log.info("Expedited epic #%s: starting implementer on task %s#%s",
+                             c["issue"], task_repo, task)
 
         # Gate G0's mechanical half: release the milestone once, then fan the
         # freed issues out as intake runs. Mirrors release-chain +
@@ -411,7 +425,8 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             # role has just moved the label (or deliberately not), so this
             # reads the state it actually ended in rather than the one the
             # run started from.
-            report_next_step(port, issue, role, factory_checkout(engine))
+            report_next_step(port, issue, role, factory_checkout(engine),
+                             port_for=engine.port)
         summary["status"] = status
         log.info("role finish role=%s repo=%s/%s#%s run=%s status=%s traced=%s",
                  role, owner, repo, issue, run_id, status, traced)

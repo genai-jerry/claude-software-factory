@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Callable
 
 from .github_app import RepoPort
 from .ledger import Ledger
@@ -38,8 +39,18 @@ RELEASE_APPROVED = "factory:release-approved"
 DISPATCH_MARK = "<!-- factory-release-dispatched -->"
 
 
-def sweep_repo(port: RepoPort, ledger: Ledger) -> int:
-    """Queue synthetic events for missed steps; returns how many were queued."""
+def sweep_repo(port: RepoPort, ledger: Ledger,
+               port_for: Callable[[str, str], RepoPort] | None = None) -> int:
+    """Queue synthetic events for missed steps; returns how many were queued.
+
+    `port_for` opens a port on any repo this engine is installed on. Only the
+    expedite check needs it, and only for a cross-repo epic (FACTORY.md §7):
+    a task in a sibling repo carries no marker of its own, so deciding whether
+    it is expedited means reading an epic in another repo. Without it that
+    read cannot happen and the task reads as un-expedited — which for every
+    other sweep would be harmless, but here means the one state where a lost
+    delivery is silent *and* terminal never gets swept at all.
+    """
     queued = 0
     full = f"{port.owner}/{port.repo}"
     for issue in port.list_issues(state="open"):
@@ -65,7 +76,7 @@ def sweep_repo(port: RepoPort, ledger: Ledger) -> int:
                     # on a human by design and must never be swept.
                     if (EXPEDITED_READY in labels and IN_PROGRESS not in labels
                             and "factory:blocked" not in labels
-                            and is_expedited(port, issue)):
+                            and is_expedited(port, issue, port_for)):
                         queued += _queue_labeled(ledger, port, issue, EXPEDITED_READY)
 
         if RELEASE_APPROVED in labels and "factory:release" in labels:

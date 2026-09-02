@@ -135,4 +135,49 @@ def test_the_dispatch_fan_out_skips_live_and_blocked_tasks():
         11: {"number": 11, "title": "task(6) elsewhere", "labels": [{"name": "factory:ready"}]},
         12: {"number": 12, "title": "Not a task", "labels": [{"name": "factory:ready"}]},
     }, {})
-    assert expedited_ready_tasks(world, 5) == [8]
+    assert expedited_ready_tasks(world, 5) == [("o/r", 8)]
+
+
+def test_the_dispatch_fan_out_reaches_a_cross_repo_epics_sibling_repos():
+    """The epic is in the coordination repo; its tasks are not (FACTORY.md §7).
+
+    Searching only the epic's own repo is what left every sibling repo's task
+    parked at `factory:ready` under an expedited epic — the marker waived the
+    click, and nothing was ever going to look for them over there.
+    """
+    epic_repo = FakeRepo({
+        5: {"number": 5, "title": "Epic", "labels": [{"name": EXPEDITE}]},
+        8: {"number": 8, "title": "task(5) backend", "labels": [{"name": "factory:ready"}]},
+    }, {}, owner="o", repo="backend")
+    ui = FakeRepo({
+        3: {"number": 3, "title": "task(5) the screen", "body": "Part of o/backend#5",
+            "labels": [{"name": "factory:ready"}]},
+        4: {"number": 4, "title": "task(5) already running", "body": "Part of o/backend#5",
+            "labels": [{"name": "factory:ready"}, {"name": "factory:in-progress"}]},
+        # Same number, another repo's epic: without the qualified marker this
+        # would be indistinguishable from one of ours.
+        6: {"number": 6, "title": "task(5) someone else's epic",
+            "body": "Part of o/other#5", "labels": [{"name": "factory:ready"}]},
+        # An unqualified task in a sibling repo names no epic repo at all, so
+        # it cannot be claimed by this one.
+        7: {"number": 7, "title": "task(5) unqualified", "labels": [{"name": "factory:ready"}]},
+        # The title is authoritative for the number (§7), so a marker naming a
+        # different one forfeits its repo — this is o/ui's own task(5).
+        9: {"number": 9, "title": "task(5) stray marker", "body": "Part of o/backend#99",
+            "labels": [{"name": "factory:ready"}]},
+    }, {}, owner="o", repo="ui")
+
+    assert expedited_ready_tasks(epic_repo, 5, [ui]) == [("o/backend", 8), ("o/ui", 3)]
+
+
+def test_a_sibling_repo_that_cannot_be_listed_does_not_lose_the_others():
+    class Unreachable(FakeRepo):
+        def list_issues(self, **kw):
+            raise RuntimeError("403")
+
+    epic_repo = FakeRepo({
+        5: {"number": 5, "title": "Epic", "labels": [{"name": EXPEDITE}]},
+        8: {"number": 8, "title": "task(5) backend", "labels": [{"name": "factory:ready"}]},
+    }, {}, owner="o", repo="backend")
+    assert expedited_ready_tasks(
+        epic_repo, 5, [Unreachable({}, {}, owner="o", repo="ui")]) == [("o/backend", 8)]

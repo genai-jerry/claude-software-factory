@@ -10,6 +10,7 @@ comments carry the agent marker so they can never self-trigger.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .github_app import RepoPort, parse_json_or_empty
@@ -116,13 +117,20 @@ def report_failure(port: RepoPort, issue: int, role: str, run_url: str,
         log.warning("could not report the failed %s run on #%s", role, issue, exc_info=True)
 
 
-def report_next_step(port: RepoPort, issue: int, role: str, factory_checkout) -> None:
+def report_next_step(port: RepoPort, issue: int, role: str, factory_checkout,
+                     port_for: Callable[[str, str], RepoPort] | None = None) -> None:
     """Say what the next actor is expected to do, on the issue, after the run.
 
     Called only on the success path: a failed run already has its own report,
     and a hand-off notice under it would name a state the role never reached.
     Best-effort like every other notice here — a run that worked must not be
     reported as failed because a comment did not post.
+
+    `port_for` is what lets the expedite check read an epic in another repo
+    (FACTORY.md §7). Without it a cross-repo task reads as un-expedited and
+    this notice names an approver and asks for a click expedite already
+    waived — the Actions engine's twin (scripts/say_next_step.py) does the
+    cross-repo read over its PAT, and this one has to match it.
     """
     table = load_table(factory_checkout)
     if table is None:
@@ -139,7 +147,7 @@ def report_next_step(port: RepoPort, issue: int, role: str, factory_checkout) ->
         if GATE_OF_STATE.get(state or ""):
             cfg = parse_json_or_empty(port.get_file(".github/factory-approvers.json"))
             approvers = approvers_for(state, cfg)
-        expedited = is_expedited(port, iss)
+        expedited = is_expedited(port, iss, port_for)
         port.create_comment(
             issue,
             f"{render(table, role, issue, state, approvers, expedited)}\n{AGENT_MARK}")

@@ -113,3 +113,63 @@ class TestCrossRepoRedispatch:
                             "user": {"type": "User"}, "state": "open", "milestone": None}
         result = route_close(task, port_for=lambda o, r: pytest.fail("should not leave the repo"))
         assert (result.role, result.issue, result.repo) == ("dispatch", "250", "")
+
+
+class TestCrossRepoExpediteFanOut:
+    """Expediting a cross-repo epic has to start the tasks that are not here.
+
+    The epic sits in the coordination repo; its sub-issues sit in the repos
+    that implement them, and nothing on the epic names those repos. Searching
+    only the epic's own repo started the coordination repo's share and left
+    every sibling repo's task parked at `factory:ready` under a marker that
+    had already waived the click — the exact "stuck at approval while the epic
+    is expedited" report this closes.
+    """
+
+    APPROVERS = RepoConfig(approvers={"expedite": ["boss"], "implementation": ["boss"]})
+
+    def world(self):
+        epic = FakeRepo({
+            250: {"number": 250, "title": "Reorganise the list", "body": "",
+                  "labels": [{"name": "factory:design-approved"},
+                             {"name": "factory:expedite"}],
+                  "user": {"type": "User"}, "state": "open", "milestone": None},
+            265: {"number": 265, "title": "task(250): the API", "body": "",
+                  "labels": [{"name": "factory:ready"}],
+                  "user": {"type": "Bot"}, "state": "open", "milestone": None},
+        }, {}, owner="genai-jerry", repo="lighthouse-backend")
+        ui = FakeRepo({
+            215: {"number": 215, "title": "task(250): the screen",
+                  "body": "Part of genai-jerry/lighthouse-backend#250",
+                  "labels": [{"name": "factory:ready"}],
+                  "user": {"type": "Bot"}, "state": "open", "milestone": None},
+        }, {}, owner="genai-jerry", repo="lighthouse-ui")
+        return epic, ui
+
+    def route(self, epic, ports, estate):
+        return Router(epic, self.APPROVERS, port_for=lambda o, r: ports[f"{o}/{r}"],
+                      estate=estate).route(
+            "issues",
+            {"action": "labeled", "issue": epic.issues[250],
+             "label": {"name": "factory:expedite"},
+             "sender": {"login": "boss"},
+             "repository": {"full_name": "genai-jerry/lighthouse-backend"}})
+
+    def test_it_starts_the_parked_tasks_in_every_repo_of_the_estate(self):
+        epic, ui = self.world()
+        ports = {"genai-jerry/lighthouse-backend": epic, "genai-jerry/lighthouse-ui": ui}
+        result = self.route(epic, ports, list(ports))
+        assert result.role == "implementer"
+        # Index-aligned: the epic's own repo is the default, only the sibling
+        # is named, and two repos could hold the same number.
+        assert result.issues == ["265", "215"]
+        assert result.issue_repos == ["", "genai-jerry/lighthouse-ui"]
+        body = epic.comments[250][0]["body"]
+        assert "genai-jerry/lighthouse-ui#215 → implementer" in body
+        assert "- #265 → implementer" in body
+
+    def test_a_single_repo_estate_is_unchanged(self):
+        """No estate to search means this repo, and no per-issue repos."""
+        epic, _ui = self.world()
+        result = self.route(epic, {"genai-jerry/lighthouse-backend": epic}, [])
+        assert (result.role, result.issues, result.issue_repos) == ("implementer", ["265"], [""])

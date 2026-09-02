@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -122,6 +122,13 @@ class RouteResult:
     #: the epic in another, and the role that answers a task event then has to
     #: run over there. Empty means "the repo the event came from".
     repo: str = ""
+    #: Per-issue overrides of `repo`, index-aligned with `issues`; `""` means
+    #: "use `repo`". One decision can span repos — an expedited cross-repo
+    #: epic starts every affected repo's parked tasks in the same pass — and a
+    #: single `repo` cannot say that. A list rather than a lookup by number,
+    #: because two repos can each hold a task with the same number. Empty
+    #: (the common case) means every issue runs in `repo`.
+    issue_repos: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -231,12 +238,39 @@ def _is_task_title(title: str | None) -> bool:
 
 class Router:
     def __init__(self, port: RepoPort, config: RepoConfig,
-                 port_for: Callable[[str, str], RepoPort] | None = None):
+                 port_for: Callable[[str, str], RepoPort] | None = None,
+                 estate: Sequence[str] = ()):
         self.port = port
         self.cfg = config
         #: How to reach a repo that is not this event's own. Without it a
         #: cross-repo lookup is skipped rather than guessed at.
         self.port_for = port_for
+        #: Every `owner/repo` this engine drives. A cross-repo epic's tasks
+        #: are not in the epic's repo (FACTORY.md §7), and nothing on the epic
+        #: names where they are, so the fan-out searches the estate. Empty
+        #: means "this repo only", which is what a single-repo estate is.
+        self.estate = tuple(estate)
+
+    def sibling_ports(self) -> list[RepoPort]:
+        """Ports on the rest of the estate, for searches that span repos.
+
+        Empty without `port_for` (nothing to open them with) — the caller then
+        sees this repo alone, which is the same safe narrowing every other
+        cross-repo read makes when it cannot reach out.
+        """
+        if self.port_for is None:
+            return []
+        here = f"{self.port.owner}/{self.port.repo}"
+        out = []
+        for full in self.estate:
+            if full == here or "/" not in full:
+                continue
+            owner, name = full.split("/", 1)
+            try:
+                out.append(self.port_for(owner, name))
+            except Exception:  # noqa: BLE001 - one unreachable repo is not a failure
+                log.warning("Could not open %s for a cross-repo search", full)
+        return out
 
     # -- helpers mirroring the JS router ----------------------------------
     def say(self, n: int, body: str) -> None:
@@ -1037,7 +1071,7 @@ class Router:
                     log.info("Refused %s on #%s", EXPEDITE, i["number"])
                 else:
                     r.role = self.expedite_now(i, labels)
-                    parked: list[int] = []
+                    parked: list[tuple[str, int]] = []
                     if r.role == "none" and not (
                             "factory:blocked" in labels or IN_PROGRESS in labels):
                         # The epic's own state is past everything expedite
@@ -1050,10 +1084,19 @@ class Router:
                         # right now" and every task stayed parked for good:
                         # the label event that put them at factory:ready is
                         # long gone, so nothing else was ever going to look.
-                        parked = expedited_ready_tasks(self.port, i["number"])
+                        # Across the estate, not just here: a cross-repo epic
+                        # (§7) keeps its sub-issues in the affected repos and
+                        # nothing on the epic names them, so searching only
+                        # this repo starts the coordination repo's share and
+                        # parks every sibling repo's for good.
+                        parked = expedited_ready_tasks(
+                            self.port, i["number"], self.sibling_ports())
                     if parked:
+                        here = f"{self.port.owner}/{self.port.repo}"
                         r.role = "implementer"
-                        r.issues = [str(x) for x in parked]
+                        r.issues = [str(n) for _full, n in parked]
+                        r.issue_repos = ["" if full == here else full
+                                         for full, _n in parked]
                         self.say(i["number"], "\n".join([
                             "**Expedited.** From here this epic advances itself: gates G1 and G2 "
                             "approve themselves, and every task runs implement → review → test → "
@@ -1061,7 +1104,8 @@ class Router:
                             "",
                             f"{len(parked)} task(s) were already waiting for the implementation "
                             "click this marker waives — starting them now:",
-                            *[f"- #{x} → implementer" for x in parked],
+                            *[f"- #{n} → implementer" if full == here
+                              else f"- {full}#{n} → implementer" for full, n in parked],
                             "",
                             "Two gates are never waived: **GS**, releasing the assembled epic to "
                             "staging, and **G3**, promoting it to production. Remove the label at "
@@ -1108,30 +1152,59 @@ class Router:
                     log.info("factory:fast-track applied - running the fast lane")
 
 
-def expedited_ready_tasks(port: RepoPort, epic: int) -> list[int]:
+def expedited_ready_tasks(port: RepoPort, epic: int,
+                          siblings: Sequence[RepoPort] = ()) -> list[tuple[str, int]]:
     """The epic's open `task(<epic>)` sub-issues sitting at factory:ready.
+
+    Returned as `(owner/repo, number)` pairs, because they are not all in one
+    repo: a cross-repo epic (FACTORY.md §7) lives in the coordination repo and
+    keeps its sub-issues in each affected repo, so searching only `port` finds
+    the coordination repo's share and silently parks every other repo's. That
+    is what `siblings` is for — the rest of the estate, each already opened by
+    the caller.
 
     The Dispatcher's own state does not move when it releases tasks — its
     output is on the tasks — so an expedited epic's fan-out is read from the
     tasks themselves. Anything already carrying a run marker or blocked is
     left alone: the same two guards a human `Approved` passes.
+
+    A repo that cannot be listed is skipped with a warning rather than
+    failing the fan-out: starting the tasks we can see beats starting none.
     """
-    try:
-        found = port.list_issues(labels="factory:ready", state="open")
-    except Exception:  # noqa: BLE001 - no fan-out is better than a wrong one
-        log.warning("Could not list ready tasks for epic #%s", epic)
-        return []
-    out = []
-    for it in found:
-        if it.get("pull_request") is not None:
+    out: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for p in (port, *siblings):
+        full = f"{p.owner}/{p.repo}"
+        if full in seen:
             continue
-        m = re.match(r"^task\((\d+)\)", it.get("title") or "")
-        if not m or int(m.group(1)) != epic:
+        seen.add(full)
+        try:
+            found = p.list_issues(labels="factory:ready", state="open")
+        except Exception:  # noqa: BLE001 - no fan-out is better than a wrong one
+            log.warning("Could not list ready tasks for epic #%s in %s", epic, full)
             continue
-        ls = _names(it.get("labels"))
-        if IN_PROGRESS in ls or "factory:blocked" in ls:
-            continue
-        out.append(it["number"])
+        for it in found:
+            if it.get("pull_request") is not None:
+                continue
+            m = re.match(r"^task\((\d+)\)", it.get("title") or "")
+            if not m or int(m.group(1)) != epic:
+                continue
+            # In a sibling repo the number alone is ambiguous — task(5) there
+            # could belong to some other repo's epic #5 — so the qualified
+            # `Part of owner/repo#n` marker has to name this epic's repo.
+            # Read exactly as `is_expedited` reads it: the title is
+            # authoritative for the number, so a marker naming a different one
+            # forfeits its repo and the task is a local one we cannot claim.
+            if full != f"{port.owner}/{port.repo}":
+                epic_repo, body_number = epic_ref_from_body(it.get("body"))
+                if body_number is not None and body_number != epic:
+                    epic_repo = None
+                if epic_repo != f"{port.owner}/{port.repo}":
+                    continue
+            ls = _names(it.get("labels"))
+            if IN_PROGRESS in ls or "factory:blocked" in ls:
+                continue
+            out.append((full, it["number"]))
     return out
 
 
