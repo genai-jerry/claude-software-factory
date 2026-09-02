@@ -7,11 +7,13 @@ from typing import Any
 
 
 class FakeRepo:
-    owner = "o"
-    repo = "r"
-
     def __init__(self, issues: dict[int, dict[str, Any]] | None = None,
-                 comments: dict[int, list[dict[str, str]]] | None = None):
+                 comments: dict[int, list[dict[str, str]]] | None = None,
+                 owner: str = "o", repo: str = "r"):
+        # Named, because a cross-repo estate (FACTORY.md §7) is more than one
+        # of these and the searches that span it key off owner/repo.
+        self.owner = owner
+        self.repo = repo
         self.issues: dict[int, dict[str, Any]] = issues or {}
         self.comments: dict[int, list[dict[str, str]]] = comments or {}
         self.created: list[dict[str, Any]] = []

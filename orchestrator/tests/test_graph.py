@@ -302,3 +302,59 @@ def test_a_dispatch_token_expiry_is_carried_not_guessed(tmp_path):
                    "github_token_expires_at": "2026-08-29T09:05:01Z"},
     })
     assert engine.app.cached[3] == "2026-08-29T09:05:01Z"
+
+
+# -- a cross-repo epic's expedite fan-out -------------------------------------
+
+class MultiRepoRunner(ScriptedRunner):
+    """Records the repo each role ran against, which is the whole question here."""
+
+    def run(self, *, owner, repo, role, issue, model, github_token, **_):
+        self.calls.append({"role": role, "issue": issue, "model": model,
+                           "repo": f"{owner}/{repo}"})
+        return RoleOutcome(status="success", transcript=f"ran {role}", exit_code=0)
+
+
+def test_expediting_a_cross_repo_epic_starts_every_repos_parked_tasks(tmp_path):
+    """The reported stall: tasks in a sibling repo stayed at `factory:ready`.
+
+    Both tasks are #8 on purpose — one per repo. A per-issue repo keyed by
+    number would collapse them and run one task twice in one repo.
+    """
+    approvers = {**APPROVERS, "expedite": ["boss"]}
+
+    class Repo(ConfiguredRepo):
+        files = {".github/factory-orchestrator.json": json.dumps({"engine": "langgraph"}),
+                 ".github/factory-approvers.json": json.dumps(approvers)}
+
+    backend = Repo({5: issue(5, "Epic", ["factory:design-approved"]),
+                    8: issue(8, "task(5) the API", ["factory:ready"], user="Bot")},
+                   {}, owner="o", repo="backend")
+    ui = Repo({8: {"number": 8, "title": "task(5) the screen",
+                   "body": "Part of o/backend#5",
+                   "labels": [{"name": "factory:ready"}],
+                   "user": {"type": "Bot"}, "state": "open", "milestone": None}},
+              {}, owner="o", repo="ui")
+    ports = {"o/backend": backend, "o/ui": ui}
+
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/l.db",
+                       "CLAIMED_REPOS": "o/backend,o/ui"})
+    ledger = Ledger(cfg.database_url)
+    runner = MultiRepoRunner(backend, {})
+    engine = Engine(cfg, ledger, FakeApp(backend), runner, probe=lambda m: True,
+                    transcript_dir=str(tmp_path / "tr"),
+                    port_factory=lambda o, r: ports[f"{o}/{r}"])
+    (tmp_path / "tr").mkdir(exist_ok=True)
+    saver = SqliteSaver(sqlite3.connect(":memory:", check_same_thread=False))
+    graph = build_graph(engine, checkpointer=saver)
+
+    backend.add_labels(5, ["factory:expedite"])
+    Processor(engine, graph)("issues", {
+        "action": "labeled", "issue": backend.issues[5],
+        "label": {"name": "factory:expedite"}, "sender": {"login": "boss"},
+        "repository": {"full_name": "o/backend"}})
+
+    assert sorted((c["repo"], c["issue"]) for c in runner.calls) == [
+        ("o/backend", 8), ("o/ui", 8)]
+    assert {c["role"] for c in runner.calls} == {"implementer"}
+    assert "o/ui#8 → implementer" in backend.comments[5][0]["body"]

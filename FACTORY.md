@@ -504,6 +504,17 @@ one sitting at `factory:ready` (skipping any that are `factory:in-progress` or
 would waive a click nobody was left to make: the label event that parked those
 tasks is long gone, and nothing else looks at them again.
 
+For a **cross-repo** epic (§7) those sub-issues are not in the epic's repo, and
+nothing on the epic names the repos they are in. The orchestrator therefore
+searches its whole estate — every `owner/repo` in `CLAIMED_REPOS` — and claims
+a sibling repo's `task(<epic>)` only when its `Part of <owner>/<repo>#<n>`
+marker names this epic's repo, so two epics that happen to share a number
+cannot take each other's tasks. The Actions engine has no estate list (a run
+knows only its own repo), so its fan-out covers the epic's repo alone; a
+sibling repo's tasks are started by that repo's own `factory:ready` handler
+when the marker is already on at dispatch time, and otherwise need the
+`Approved` click.
+
 ### What it never touches
 
 - **Gate G0** (release scope) is upstream of the spec and unaffected: an
@@ -564,7 +575,11 @@ conformance fixtures (§2e) — as always, behaviour and fixtures move together.
 They execute it differently because their event models differ:
 
 - **The orchestrator** appends follow-ups inside the graph run it is already
-  in, the way it already fans a release out.
+  in, the way it already fans a release out. Its reconciliation sweep is the
+  backstop for the one lost delivery that is silent *and* terminal: an
+  expedited task parked at `factory:ready` with no recorded run, in any repo of
+  the estate, is re-queued within a sweep interval. Elsewhere a missed webhook
+  only delays a notification; here nobody is coming to click.
 - **The Actions engine** re-dispatches itself: one `workflow_dispatch` per
   follow-up issue, so each role gets its own run, its own timeout and its own
   model resolution. That needs **`FACTORY_CROSS_REPO_TOKEN`** — the workflow

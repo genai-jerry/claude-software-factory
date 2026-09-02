@@ -77,8 +77,7 @@ def build_service():
 
 def start_reconciler(engine, ledger, console: tuple | None = None,
                      interval_seconds: int = 900) -> threading.Thread:
-    repos_env = os.environ.get("CLAIMED_REPOS", "")
-    repos = [r.strip() for r in repos_env.split(",") if "/" in r]
+    repos = engine.cfg.claimed_repos
 
     def loop() -> None:
         while True:
@@ -87,7 +86,8 @@ def start_reconciler(engine, ledger, console: tuple | None = None,
             for full in repos:
                 owner, repo = full.split("/", 1)
                 try:
-                    sweep_repo(engine.port(owner, repo), ledger)
+                    sweep_repo(engine.port(owner, repo), ledger,
+                               port_for=engine.port)
                 except Exception:  # noqa: BLE001
                     log.exception("reconcile sweep failed for %s", full)
             time.sleep(interval_seconds)

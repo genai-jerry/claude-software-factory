@@ -86,6 +86,11 @@ class Config:
     dispatch_token: Secret = field(default_factory=lambda: Secret(""))
     # Optional cross-repo PAT for multi-repo estates (same role as in Actions).
     cross_repo_token: Secret = field(default_factory=lambda: Secret(""))
+    # The repos this engine drives, owner/repo each. The reconciliation sweep
+    # walks them, and a cross-repo epic (FACTORY.md §7) fans its tasks out
+    # over them: the epic lives in the coordination repo and its sub-issues do
+    # not, so "the epic's own repo" is not where all of its tasks are.
+    claimed_repos: tuple[str, ...] = ()
 
     def agent_credential_env(self) -> dict[str, str]:
         """Env for the Claude CLI. OAuth wins: Claude Code prefers
@@ -140,6 +145,16 @@ def _private_key(e: dict[str, str]) -> str:
         raise ConfigError("GITHUB_APP_PRIVATE_KEY_B64 is not valid base64") from exc
 
 
+def _claimed_repos(value: str) -> tuple[str, ...]:
+    """`CLAIMED_REPOS` as owner/repo entries, in order, without duplicates."""
+    out: list[str] = []
+    for part in value.split(","):
+        full = part.strip()
+        if "/" in full and full not in out:
+            out.append(full)
+    return tuple(out)
+
+
 def load_config(env: dict[str, str] | None = None) -> Config:
     e = os.environ if env is None else env
     return Config(
@@ -159,4 +174,5 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         public_base_url=e.get("PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/"),
         dispatch_token=Secret(e.get("DISPATCH_TOKEN", "")),
         cross_repo_token=Secret(e.get("FACTORY_CROSS_REPO_TOKEN", "")),
+        claimed_repos=_claimed_repos(e.get("CLAIMED_REPOS", "")),
     )
