@@ -32,11 +32,12 @@ GATE_OF_STATE = {
     "factory:ready": "implementation",
     "factory:epic-ready": "staging",
     "factory:in-staging": "release",
+    "factory:manual-test": "testers",
 }
 #: A gate whose own key is absent or empty borrows another's list. GS is the
 #: only one: an estate that has not adopted `staging` keeps releasing to
 #: staging under whoever already owns the production go (FACTORY.md §2b).
-GATE_FALLBACK = {"staging": "release"}
+GATE_FALLBACK = {"staging": "release", "testers": "implementation"}
 
 
 def load_table(factory_checkout: Path | None) -> dict | None:
@@ -72,7 +73,7 @@ def approvers_for(state: str | None, config: dict) -> list[str]:
 
 
 def render(table: dict, role: str, issue: int, state: str | None,
-           approvers: list[str], expedited: bool = False) -> str:
+           approvers: list[str], expedited: bool = False, tested: bool = False) -> str:
     entry = table["states"].get(state) if state else None
     if entry is None:
         entry = table["none"]
@@ -81,6 +82,12 @@ def render(table: dict, role: str, issue: int, state: str | None,
     # to press. Only the states expedite actually advances carry a variant.
     if expedited and isinstance(entry.get("expedited"), dict):
         entry = entry["expedited"]
+    # Where the repo runs system tests (FACTORY.md §4b) two states have a
+    # different story: an epic's build is not over when its tasks are, and a
+    # landed task is waiting on cases as well as siblings. Only those two
+    # carry a variant, and a repo without the policy never sees one.
+    elif tested and isinstance(entry.get("tested"), dict):
+        entry = entry["tested"]
     who_list = ", ".join("@" + u for u in approvers) if approvers else \
         "any owner, member or collaborator"
 

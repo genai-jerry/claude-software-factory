@@ -196,6 +196,12 @@ jobs:
             // The epic is assembled and green, and nothing of it has touched
             // staging. This is gate GS, and it is where expedite stops.
             const EPIC_READY = 'factory:epic-ready';
+            // System test cases (FACTORY.md §4b). These are states, but they only ever
+            // sit on a test(<epic>) sub-issue: a case a human runs against the
+            // assembled epic. No role is ever started on one.
+            const MANUAL_TEST = 'factory:manual-test';
+            const TEST_PASSED = 'factory:test-passed';
+            const TEST_FAILED = 'factory:test-failed';
             // Labels that say nothing about where an issue is in the pipeline.
             const ORTHOGONAL = [IN_PROGRESS, EXPEDITE, 'factory:blocked'];
 
@@ -239,7 +245,7 @@ jobs:
             // member or collaborator". GS is the only fallback: an estate that
             // has not adopted `staging` keeps releasing to staging under
             // whoever already owns the production go (FACTORY.md §2b).
-            const GATE_FALLBACK = { staging: 'release' };
+            const GATE_FALLBACK = { staging: 'release', testers: 'implementation' };
             const approverList = (gate) => {
               const cfg = loadJson('.github/factory-approvers.json');
               for (const key of [gate, GATE_FALLBACK[gate]]) {
@@ -250,6 +256,16 @@ jobs:
               }
               return [];
             };
+            // System tests are opt-in (FACTORY.md §4b): no file, an unparseable one,
+            // or system_tests anything but true means no Test Planner, no test cases,
+            // and every decision below exactly as it was before §4b existed.
+            const testingCfg = loadJson('.github/factory-testing.json');
+            const systemTests = testingCfg.system_tests === true;
+            // "gate" (the default when the file is present) holds an epic short of
+            // factory:epic-ready until every open case has passed; "advisory" reports
+            // instead. It decides nothing for a repo with no epic branch, where the
+            // cases only run after gate GS has already been opened.
+            const testMode = testingCfg.mode === 'advisory' ? 'advisory' : 'gate';
             // Release gating is opt-in: no file (or "gating":"none") keeps the
             // original behaviour where a filed issue goes straight to intake.
             const releaseCfg = loadJson('.github/factory-release.json');
@@ -260,6 +276,11 @@ jobs:
 
             const namesOf = (ls) => (ls || []).map(l => (typeof l === 'string' ? l : l.name));
             const isTaskTitle = (t) => /^task\(\d+\)/.test(t || '');
+            // A system test case sub-issue (§4b): test(<epic>): ST-<n> <title>. Kept
+            // apart from task( on purpose - a case is never dispatched to an
+            // implementer, never counts against the planner's cap, and carries only
+            // the three test states.
+            const isTestTitle = (t) => /^test\(\d+\)/.test(t || '');
             // "Part of owner/repo#250" — the qualified parent marker (FACTORY.md §7).
             // The unqualified forms mean the issue's own repo.
             const epicRefFromBody = (body) => {
@@ -681,6 +702,19 @@ jobs:
               const isApproval = /^\s*approved\s*[.!]?\s*$/i.test(body);
               const isPlanRelease = /^\s*plan\s+release\s*[.!]?\s*$/i.test(body);
               const isReviewDone = /^\s*review\s+done\s*[.!]?\s*$/i.test(body);
+              // System test controls (FACTORY.md §4b). Strict matches, like
+              // every other factory comment control: "Test Passed, mostly" is
+              // a comment.
+              const isPlanTests = /^\s*plan\s+tests\s*[.!]?\s*$/i.test(body);
+              const isTestPassed = /^\s*test\s+passed\s*[.!]?\s*$/i.test(body);
+              const isTestFailed = /^\s*test\s+failed\s*[.!]?\s*$/i.test(body);
+              const isTestCase = isTestTitle(i.title);
+              // test(<epic>): ST-<n> <title> -> the epic number and the case.
+              const caseOf = (t) => {
+                const m = /^test\((\d+)\):\s*(ST-\d+)?\s*(.*)$/.exec(t || '');
+                return m ? { epic: Number(m[1]), id: m[2] || null, title: (m[3] || '').trim() }
+                         : { epic: null, id: null, title: '' };
+              };
               const isTracker = labels.includes(RELEASE_KIND);
               const assocOk = ['OWNER', 'MEMBER', 'COLLABORATOR']
                 .includes(context.payload.comment.author_association);
@@ -756,6 +790,137 @@ jobs:
                     '`factory:in-test`. This shortcut only relabels the task; if the draft PR is still marked ' +
                     'draft, mark it ready for review yourself.');
                   core.info('Review marked done via comment - skipping the Reviewer');
+                }
+              } else if (isPlanTests) {
+                // Adoption (§4b): an epic that passed gate G2 before system
+                // tests were enabled has no plan, and the chain that would
+                // have written one is long finished. This is how a human asks
+                // for one. Unrestricted on purpose - writing a plan only adds
+                // documents and work, and the plan is reviewed before any
+                // case reaches a tester.
+                const st = stateOf(labels);
+                const ADOPTABLE = ['factory:planned', 'factory:design-ready',
+                                   'factory:design-approved', EPIC_READY, 'factory:in-staging'];
+                if (!systemTests) {
+                  await say(i.number,
+                    'System tests are not enabled in this repository, so there is no plan to write.\n\n' +
+                    'Add `.github/factory-testing.json` with `"system_tests": true` ' +
+                    '(template: `templates/factory-testing.json`) and comment `Plan tests` again. ' +
+                    'See FACTORY.md §4b.');
+                } else if (!assocOk) {
+                  await say(i.number,
+                    `@${sender} — asking for a system test plan requires owner, member or collaborator access on this repository.`);
+                } else if (isTracker || labels.includes(PROFILE_KIND) || labels.includes(FAST_TRACK) ||
+                           isTaskTitle(i.title) || isTestCase) {
+                  await say(i.number,
+                    '`Plan tests` only works on an **epic** — a requirement issue with an approved spec and a ' +
+                    'task breakdown. This issue is ' +
+                    (isTracker ? 'a release tracker'
+                      : labels.includes(PROFILE_KIND) ? "this repository's profile issue"
+                      : labels.includes(FAST_TRACK) ? 'in the fast lane, which has no change folder to plan against'
+                      : isTestCase ? 'a system test case' : 'a task sub-issue') +
+                    ', so nothing was started.');
+                } else if (i.state === 'closed' || labels.includes('factory:deployed')) {
+                  await say(i.number,
+                    '`Plan tests` has no effect here — this epic has shipped. System tests prove a change ' +
+                    'before it is promoted, and there is nothing left to hold.\n\n' +
+                    'A defect in released behaviour is a new issue (or `factory:incident` if production is affected).');
+                } else if (!ADOPTABLE.includes(st)) {
+                  await say(i.number,
+                    `\`Plan tests\` has no effect while this epic is at **${st}** — nothing was started.\n\n` +
+                    'A system test plan needs the task breakdown to work out which tasks each case depends on, ' +
+                    'and that arrives with the **Planner** at `factory:planned`. Ask again once it has run.');
+                } else {
+                  role = 'testplanner';
+                  core.info(`System test plan requested on #${i.number} (${st}) - starting the Test Planner`);
+                }
+              } else if (isTestPassed && isTestCase && labels.includes(MANUAL_TEST)) {
+                // The tester's verdict. Authorised against `testers`, which
+                // falls back to the implementation list (someone always owns
+                // it) and then to any owner/member/collaborator.
+                if (!authorized('testers')) {
+                  await refuse('testers', 'recording a system test as passed');
+                } else {
+                  const c = caseOf(i.title);
+                  await dropLabel(i.number, MANUAL_TEST);
+                  await addLabels(i.number, [TEST_PASSED]);
+                  await say(i.number,
+                    `**${c.id || 'This case'} passed** — recorded by @${sender}. Closing it.`);
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: i.number, state: 'closed',
+                  }).catch(() => {});
+                  core.info(`System test #${i.number} passed - closed`);
+                  // The last pass is what completes an epic (§4b), and the
+                  // Dispatcher is the one place that decides completeness.
+                  // Route it at the epic and let it work that out.
+                  const parent = c.epic ? await github.rest.issues.get({
+                    owner, repo, issue_number: c.epic,
+                  }).then(r => r.data).catch(() => null) : null;
+                  if (parent && namesOf(parent.labels).includes('factory:design-approved')) {
+                    role = 'dispatch';
+                    issue = String(c.epic);
+                    core.info(`Re-dispatching epic #${c.epic} - a pass may have completed it`);
+                  }
+                }
+              } else if (isTestFailed && isTestCase && labels.includes(MANUAL_TEST)) {
+                // A failure only adds work, so any collaborator may report one.
+                const c = caseOf(i.title);
+                const already = /(?:^|\n)\s*blocked by\s*#(\d+)/i.exec(i.body || '');
+                if (!assocOk) {
+                  await say(i.number,
+                    `@${sender} — reporting a system test failure requires owner, member or collaborator access on this repository.`);
+                } else if (already) {
+                  await say(i.number,
+                    `This case is already failed — the fix is #${already[1]}, and this case returns to ` +
+                    '`factory:manual-test` when it lands. Add what you saw to that thread rather than ' +
+                    'filing a second fix.');
+                } else {
+                  const epicLabels = c.epic ? await github.rest.issues.get({
+                    owner, repo, issue_number: c.epic,
+                  }).then(r => namesOf(r.data.labels)).catch(() => []) : [];
+                  const expedited = epicLabels.includes(EXPEDITE);
+                  const { data: fix } = await github.rest.issues.create({
+                    owner, repo,
+                    title: `task(${c.epic}): fix ${c.id || 'a system test'} — ${c.title}`,
+                    body: [
+                      `A system test case failed. This task is the fix.`,
+                      '',
+                      `- Case: #${i.number} (${c.id || 'unnumbered'}) — ${c.title}`,
+                      `- Reported by: @${sender}`,
+                      `- Epic: #${c.epic}`,
+                      '',
+                      'What the tester saw:',
+                      '',
+                      (body || '').trim().split('\n').map(l => '> ' + l).join('\n'),
+                      '',
+                      'The case, its steps and its expected result are in the epic\'s system test plan ' +
+                      '(`system-tests/test-plan.md` in the change folder). Fix the behaviour the case ' +
+                      'proves — not the case.',
+                      '',
+                      '<!-- factory-agent -->',
+                    ].join('\n'),
+                    labels: ['factory:ready'],
+                  });
+                  await say(fix.number, expedited
+                    ? 'Filed from a failed system test — this epic is expedited, so its implementer starts ' +
+                      'on its own. Nothing to approve.'
+                    : 'Filed from a failed system test. An implementer can start: comment `Approved` here, ' +
+                      'run the "Factory pipeline" workflow with role=implementer and this issue number, or ' +
+                      'press **Approve** in the Factory Console.' +
+                      (approverList('implementation').length
+                        ? ' cc ' + approverList('implementation').map(u => '@' + u).join(', ')
+                        : ''));
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: i.number,
+                    body: `${(i.body || '').trimEnd()}\n\nBlocked by #${fix.number}\n`,
+                  }).catch(() => {});
+                  await dropLabel(i.number, MANUAL_TEST);
+                  await addLabels(i.number, [TEST_FAILED]);
+                  await say(i.number,
+                    `**${c.id || 'This case'} failed** — reported by @${sender}. Filed #${fix.number} to fix it.\n\n` +
+                    'This case waits at `factory:test-failed` until that task is implemented, reviewed, tested ' +
+                    'and assembled; the Dispatcher then puts it back to `factory:manual-test` for a re-run.');
+                  core.info(`System test #${i.number} failed - filed fix #${fix.number}`);
                 }
               } else if (isApproval && labels.includes('factory:ready')) {
                 // Implementation start is NOT a gate (the gates are G0 release,
@@ -873,6 +1038,31 @@ jobs:
                     `"Review Done" has no effect while this is at **${stateOf(labels)}** — nothing changed.\n\n` +
                     'It only applies to `factory:in-review`: marking a human review complete so the task moves ' +
                     'to `factory:in-test` without waiting on the Reviewer agent.');
+                } else if (isTestPassed || isTestFailed) {
+                  const what = isTestPassed ? '"Test Passed"' : '"Test Failed"';
+                  if (!systemTests) {
+                    await say(i.number,
+                      `${what} has no effect — system tests are not enabled in this repository ` +
+                      '(`.github/factory-testing.json`, FACTORY.md §4b). Nothing changed.');
+                  } else if (!isTestCase) {
+                    await say(i.number,
+                      `${what} only applies to a **system test case** — a \`test(<epic>)\` sub-issue the ` +
+                      'Test Planner opened. This is not one, so nothing changed.');
+                  } else if (labels.includes(TEST_PASSED)) {
+                    await say(i.number, `${what} has no effect — this case has already passed.`);
+                  } else if (labels.includes(TEST_FAILED)) {
+                    const fx = /(?:^|\n)\s*blocked by\s*#(\d+)/i.exec(i.body || '');
+                    await say(i.number,
+                      `${what} has no effect while this case is at \`factory:test-failed\`` +
+                      (fx ? ` — its fix is #${fx[1]}, and the case returns to \`factory:manual-test\` when that lands.`
+                          : ' — a fix is in flight, and the case returns to `factory:manual-test` when it lands.'));
+                  } else {
+                    await say(i.number,
+                      `${what} has no effect yet — this case is not runnable.\n\n` +
+                      'It becomes `factory:manual-test` when its plan is merged and every task it lists under ' +
+                      '`Blocked by` is assembled onto the epic branch (or staging, for an epic without one). ' +
+                      'The Dispatcher says so on the epic when it releases it.');
+                  }
                 }
                 core.info('Issue not factory:blocked - comments only resume blocked stages or approve gates');
               } else {
@@ -1118,6 +1308,26 @@ jobs:
                   core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
                   return;
                 }
+                // A system test case (§4b) moves on two comments and the
+                // Dispatcher, never on a role. A code state applied to one -
+                // by hand, or by a script that mistook it for a task - would
+                // put an implementer, reviewer or QA run on a document.
+                const CODE_STATES = ['factory:ready', 'factory:in-review', 'factory:in-test',
+                                     'factory:ready-to-ship', 'factory:on-epic'];
+                if (isTestTitle(i.title) && CODE_STATES.includes(name) && !senderIsApp) {
+                  await dropLabel(i.number, name);
+                  await say(i.number,
+                    `\`${name}\` was applied by @${sender}, but this is a **system test case**, not a task. ` +
+                    'Reverted.\n\n' +
+                    'Cases are released to `factory:manual-test` by the Dispatcher once the code they ' +
+                    'exercise is assembled, and they move from there on exactly `Test Passed` or exactly ' +
+                    '`Test Failed` (FACTORY.md §4b). No implementer, reviewer or QA run is ever started ' +
+                    'on one.');
+                  core.info(`Reverted ${name} on system test case #${i.number}`);
+                  core.setOutput('role', 'none'); core.setOutput('issue', issue);
+                  core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
+                  return;
+                }
                 const gateOf = {
                   'factory:release-approved': 'release_scope',
                   'factory:spec-approved': 'spec',
@@ -1149,7 +1359,8 @@ jobs:
                                    'factory:design-ready': ['design', 'Gate G2 (design approval)'],
                                    [EPIC_READY]: ['staging', 'Gate GS (releasing this epic to staging)'],
                                    'factory:in-staging': ['release', 'Gate G3 (promotion to the default branch)'],
-                                   'factory:ready': ['implementation', 'Implementation start'] };
+                                   'factory:ready': ['implementation', 'Implementation start'],
+                                   [MANUAL_TEST]: ['testers', 'A system test case'] };
                 // An expedited task's implementer starts here rather than
                 // waiting for a click that expedite has already given (§4a),
                 // so the implementation approvers are not asked for one. Every
@@ -1197,7 +1408,9 @@ jobs:
                     await github.rest.issues.addAssignees({
                       owner, repo, issue_number: i.number, assignees: list,
                     }).catch(() => {});
-                    const how = gate === 'implementation'
+                    const how = gate === 'testers'
+                      ? 'The code this case exercises is assembled, so it can be run now. The steps, the data and the expected result are in the epic\'s system test plan, linked above. When you have run it, comment exactly "Test Passed" or exactly "Test Failed" here, with what you saw.'
+                      : gate === 'implementation'
                       ? 'Comment exactly "Approved" here to start it, or use Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
                       : gate === 'staging'
                       ? 'Every task in this epic is implemented, reviewed, tested and assembled, and none of it has touched staging yet. Comment exactly "Approved" here and the Release Manager carries the whole epic to the integration branch and verifies it there. That is a staging release — production is still gate G3.'
@@ -1408,7 +1621,7 @@ jobs:
           # epic in-session per their step 0a. Missing policy or epics:false
           # leaves the default checkout.
           case "$ROLE" in
-            planner|architect|dispatch|release|ops) ;;
+            planner|testplanner|architect|dispatch|release|ops) ;;
             *) echo "Role $ROLE resolves its own branches - default checkout kept"; exit 0 ;;
           esac
           # The change folder lives where the stages read (FACTORY.md §6a):
@@ -1461,7 +1674,7 @@ jobs:
             # tasks may already have merged onto the integration branch, so
             # cutting one here would strand them.
             case "$ROLE" in
-              planner|architect) ;;
+              planner|testplanner|architect) ;;
               *) echo "No $BR on the remote (pre-flip epic) - default checkout kept"; exit 0 ;;
             esac
             DEF="$DEFAULT_BRANCH"
@@ -2120,9 +2333,474 @@ jobs:
             >/dev/null 2>&1 || true
           echo "Cleared factory:in-progress from #$ISSUE."
 
-  architect-chain:
+  # Stage 2a (FACTORY.md §4b). The Test Planner sits between the Planner and
+  # the Architect: it needs tasks.md for each case's `Depends on:`, and the
+  # Architect benefits from reading the plan before designing for it. Gated on
+  # the same fact as the architect hop (the Planner reached factory:planned)
+  # plus the repo's system-test policy, so a repo without the policy file runs
+  # planner -> architect exactly as it always has.
+  testplanner-chain:
     needs: [route, agent]
     if: needs.agent.result == 'success' && needs.route.outputs.role == 'planner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the planner advanced the epic, and that system tests are on
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+        run: |
+          ON=$(python3 -c "
+          import json
+          try: print(json.load(open('.github/factory-testing.json')).get('system_tests') is True)
+          except Exception: print(False)" 2>/dev/null || echo False)
+          if [ "$ON" != "True" ]; then
+            echo "System tests are off in this repo (.github/factory-testing.json) - no test plan to write."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          elif gh api "repos/${{ github.repository }}/issues/${{ needs.route.outputs.issue }}" --jq '.labels[].name' | grep -qx 'factory:planned'; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Planner did not reach factory:planned (blocked or split) - not chaining the Test Planner."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Mark the epic in progress
+        # See the same step in the `agent` job. The planner's run cleared the
+        # marker on its way out; the Test Planner is a second role on the
+        # same epic, so it re-marks it for the duration of its own run.
+        if: steps.gate.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/labels" \
+            -f name='factory:in-progress' -f color='1F6FEB' \
+            -f description='A factory agent run is live on this issue right now' \
+            >/dev/null 2>&1 || true
+          echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
+          echo "Marked #$ISSUE factory:in-progress for the Test Planner run."
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.proceed == 'true'
+        with:
+          fetch-depth: 0
+      - name: Start the Test Planner on the epic's home branch (§6/§6a)
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          # Same ladder as the agent job: the change folder lives on the epic
+          # branch, else the integration branch, else the default branch —
+          # and the rule is "the first that CARRIES it" (FACTORY.md §6a).
+          has_folder() {
+            git ls-tree -d --name-only "origin/$1" openspec/changes/ 2>/dev/null \
+              | grep -q "^openspec/changes/$ISSUE-"
+          }
+          EPICS=$(python3 -c "
+          import json
+          try: print(json.load(open('.github/factory-branches.json')).get('epics') is True)
+          except Exception: print(False)" 2>/dev/null || echo False)
+          STAGING=$(python3 -c "
+          import json
+          def load(p):
+              try: return json.load(open(p))
+              except Exception: return {}
+          prof = (load('.factory/profile.json').get('branches') or {}).get('staging')
+          pol = load('.github/factory-branches.json')
+          if isinstance(prof, str) and prof: print(prof)
+          elif pol.get('required') is False: print('')
+          else:
+              s = pol.get('staging')
+              print(s if isinstance(s, str) and s else 'staging')" 2>/dev/null || echo staging)
+          if [ "$EPICS" = "True" ]; then
+            BR="factory/epic-$ISSUE"
+            if git fetch origin "$BR" 2>/dev/null; then
+              git checkout -B "$BR" FETCH_HEAD
+              echo "Checked out epic branch $BR"; exit 0
+            fi
+            echo "No $BR on the remote (pre-flip epic?) - trying the integration branch"
+          fi
+          if [ -n "$STAGING" ] && git fetch origin "$STAGING" 2>/dev/null && has_folder "$STAGING"; then
+            git checkout -B "$STAGING" FETCH_HEAD
+            echo "Checked out integration branch $STAGING (§6a)"
+          else
+            echo "No change folder on ${STAGING:-<none>} - default checkout kept"
+          fi
+      - name: Load factory role definition
+        if: steps.gate.outputs.proceed == 'true'
+        id: roledef
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FACTORY_REPO_INPUT: ${{ inputs.factory_repo }}
+          FACTORY_REF: ${{ inputs.factory_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # Factory resolution mirrors the agent job: referenced workflows name
+          # the repo the uses: line resolved to; workflow_ref names the caller.
+          FACTORY_REPO="${FACTORY_REPO_INPUT:-}"
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --jq '[.referenced_workflows[]?.path | select(contains(".github/workflows/factory-pipeline.yml"))][0] // ""' \
+              2>/dev/null | cut -d/ -f1-2)
+          fi
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(printf '%s' "$WORKFLOW_REF" | cut -d/ -f1-2)
+          fi
+          echo "Cloning factory $FACTORY_REPO@$FACTORY_REF"
+          if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$FACTORY_REF" \
+              "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"; then
+            echo "::error::Could not clone https://github.com/$FACTORY_REPO (ref $FACTORY_REF). Pass factory_repo on the caller stub — the same owner/repo as the uses: line. A missing repository looks like: fatal: could not read Username for 'https://github.com'."
+            exit 1
+          fi
+          {
+            echo 'text<<FACTORY_DEF_EOF'
+            cat "$RUNNER_TEMP/factory/FACTORY.md"
+            printf '\n\n===== ROLE INSTRUCTIONS (testplanner) =====\n\n'
+            cat "$RUNNER_TEMP/factory/commands/testplanner.md"
+            echo 'FACTORY_DEF_EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Install Claude Code CLI (model probe)
+        if: steps.gate.outputs.proceed == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Resolve testplanner model (first accessible in preference chain)
+        if: steps.gate.outputs.proceed == 'true'
+        id: model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ROLE: testplanner
+        run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
+          echo "Preference chain for $ROLE: $CHAIN"
+          MODEL=""
+          for m in $CHAIN; do
+            echo "Probing model access: $m"
+            if timeout 120 claude -p "Reply with exactly: OK" --model "$m" --max-turns 1 >/dev/null 2>&1; then
+              MODEL="$m"; echo "Selected model: $m"; break
+            fi
+            echo "::warning::Model $m is not accessible with this credential - trying next in chain"
+          done
+          if [ -z "$MODEL" ]; then
+            echo "::error::No model in the preference chain is accessible - check credentials/plan or edit .github/factory-models.json"
+            exit 1
+          fi
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+      - name: Run testplanner role
+        if: steps.gate.outputs.proceed == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          OPENSPEC_TELEMETRY: "0"
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Events the factory itself raised reach a role - see the agent job.
+          allowed_bots: ${{ inputs.allowed_bots }}
+          prompt: |
+            You are running the "testplanner" role of the Software Factory inside
+            GitHub Actions (chained after the planner), on repository
+            ${{ github.repository }}.
+
+            The factory handbook and your role instructions follow verbatim
+            below. Execute them, treating number
+            ${{ needs.route.outputs.issue }} as the epic issue argument
+            ($ARGUMENTS).
+
+            Operating rules:
+            - Use the gh CLI for GitHub operations; GH_TOKEN is set.
+            - HARD RULES: never push to main or master; never merge a pull request.
+              End EVERY comment you post with a line containing exactly:
+              <!-- factory-agent -->
+            - `factory:in-progress` is the pipeline's own "a run is live" marker
+              on the epic. Ignore it, and never add or remove it yourself.
+            - Cross-repo epics: clone other affected repos with
+              `gh repo clone ${{ github.repository_owner }}/<repo> /tmp/<repo>` (GH_TOKEN
+              grants access when the FACTORY_CROSS_REPO_TOKEN secret is set) and commit
+              each repo's design.md to its own change folder via a factory branch + PR.
+              If cross-repo access is missing, comment on the epic and apply
+              factory:blocked.
+
+            ===== FACTORY HANDBOOK =====
+
+            ${{ steps.roledef.outputs.text }}
+          # Headless runs have no one to answer a permission prompt, so anything
+          # not explicitly allowed here is DENIED. Without this block the role
+          # reads the repo, then silently fails to run `gh`, write files or
+          # commit — the run goes green and the epic sits at its current label.
+          # Keep in sync with the same list in factory-test.yml.
+          claude_args: |
+            --max-turns 100
+            --model ${{ steps.model.outputs.model }}
+            --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Clear the in-progress marker
+        if: always() && needs.route.outputs.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          gh api -X DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/factory%3Ain-progress" \
+            >/dev/null 2>&1 || true
+          echo "Cleared factory:in-progress from #$ISSUE."
+
+  # A Release Manager run that lands a task on the epic branch unblocks its
+  # dependents — and, where system tests are on (FACTORY.md §4b), releases the
+  # cases whose code is now assembled. Nothing else observes that: the §2a
+  # re-dispatch fires on a task *closing*, which GitHub only does for a merge
+  # into the default branch, so under epics:true a merge onto the epic branch
+  # released nothing at all. This is that missing edge, and it runs whether or
+  # not system tests are on.
+  dispatch-chain:
+    needs: [route, agent]
+    if: needs.agent.result == 'success' && needs.route.outputs.role == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Resolve the epic and check it is still dispatching
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          RAN_ON: ${{ needs.route.outputs.issue }}
+        run: |
+          # The Release Manager is started on a task (the factory:ready-to-ship
+          # hand-off) or on the epic itself (gate GS). Either way the dispatch
+          # belongs to the epic: a task title names it, and anything else IS
+          # the epic.
+          TITLE=$(gh api "repos/$GITHUB_REPOSITORY/issues/$RAN_ON" --jq '.title' 2>/dev/null || echo "")
+          EPIC=$(printf '%s' "$TITLE" | sed -n 's/^task(\([0-9]\{1,\}\)).*/\1/p')
+          [ -n "$EPIC" ] || EPIC="$RAN_ON"
+          echo "epic=$EPIC" >> "$GITHUB_OUTPUT"
+          # Only while the epic is in its implementation phase, exactly like
+          # the task-closed re-dispatch: past it (or short of it) a dispatch
+          # has nothing to release.
+          if gh api "repos/$GITHUB_REPOSITORY/issues/$EPIC" --jq '.labels[].name' 2>/dev/null | grep -qx 'factory:design-approved'; then
+            echo "Release run touched epic #$EPIC - re-dispatching to release what it unblocked."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Epic #$EPIC is not factory:design-approved - nothing to re-dispatch."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Mark the epic in progress
+        # See the same step in the `agent` job. The planner's run cleared the
+        # marker on its way out; the Dispatcher is a second role on the same
+        # epic, so it re-marks it for the duration of its own run.
+        if: steps.gate.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.gate.outputs.epic }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/labels" \
+            -f name='factory:in-progress' -f color='1F6FEB' \
+            -f description='A factory agent run is live on this issue right now' \
+            >/dev/null 2>&1 || true
+          echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
+          echo "Marked #$ISSUE factory:in-progress for the dispatch run."
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.proceed == 'true'
+        with:
+          fetch-depth: 0
+      - name: Start the Dispatcher on the epic's home branch (§6/§6a)
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          ISSUE: ${{ steps.gate.outputs.epic }}
+        run: |
+          # Same ladder as the agent job: the change folder lives on the epic
+          # branch, else the integration branch, else the default branch —
+          # and the rule is "the first that CARRIES it" (FACTORY.md §6a).
+          has_folder() {
+            git ls-tree -d --name-only "origin/$1" openspec/changes/ 2>/dev/null \
+              | grep -q "^openspec/changes/$ISSUE-"
+          }
+          EPICS=$(python3 -c "
+          import json
+          try: print(json.load(open('.github/factory-branches.json')).get('epics') is True)
+          except Exception: print(False)" 2>/dev/null || echo False)
+          STAGING=$(python3 -c "
+          import json
+          def load(p):
+              try: return json.load(open(p))
+              except Exception: return {}
+          prof = (load('.factory/profile.json').get('branches') or {}).get('staging')
+          pol = load('.github/factory-branches.json')
+          if isinstance(prof, str) and prof: print(prof)
+          elif pol.get('required') is False: print('')
+          else:
+              s = pol.get('staging')
+              print(s if isinstance(s, str) and s else 'staging')" 2>/dev/null || echo staging)
+          if [ "$EPICS" = "True" ]; then
+            BR="factory/epic-$ISSUE"
+            if git fetch origin "$BR" 2>/dev/null; then
+              git checkout -B "$BR" FETCH_HEAD
+              echo "Checked out epic branch $BR"; exit 0
+            fi
+            echo "No $BR on the remote (pre-flip epic?) - trying the integration branch"
+          fi
+          if [ -n "$STAGING" ] && git fetch origin "$STAGING" 2>/dev/null && has_folder "$STAGING"; then
+            git checkout -B "$STAGING" FETCH_HEAD
+            echo "Checked out integration branch $STAGING (§6a)"
+          else
+            echo "No change folder on ${STAGING:-<none>} - default checkout kept"
+          fi
+      - name: Load factory role definition
+        if: steps.gate.outputs.proceed == 'true'
+        id: roledef
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FACTORY_REPO_INPUT: ${{ inputs.factory_repo }}
+          FACTORY_REF: ${{ inputs.factory_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # Factory resolution mirrors the agent job: referenced workflows name
+          # the repo the uses: line resolved to; workflow_ref names the caller.
+          FACTORY_REPO="${FACTORY_REPO_INPUT:-}"
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --jq '[.referenced_workflows[]?.path | select(contains(".github/workflows/factory-pipeline.yml"))][0] // ""' \
+              2>/dev/null | cut -d/ -f1-2)
+          fi
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(printf '%s' "$WORKFLOW_REF" | cut -d/ -f1-2)
+          fi
+          echo "Cloning factory $FACTORY_REPO@$FACTORY_REF"
+          if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$FACTORY_REF" \
+              "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"; then
+            echo "::error::Could not clone https://github.com/$FACTORY_REPO (ref $FACTORY_REF). Pass factory_repo on the caller stub — the same owner/repo as the uses: line. A missing repository looks like: fatal: could not read Username for 'https://github.com'."
+            exit 1
+          fi
+          {
+            echo 'text<<FACTORY_DEF_EOF'
+            cat "$RUNNER_TEMP/factory/FACTORY.md"
+            printf '\n\n===== ROLE INSTRUCTIONS (dispatch) =====\n\n'
+            cat "$RUNNER_TEMP/factory/commands/dispatch.md"
+            echo 'FACTORY_DEF_EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Install Claude Code CLI (model probe)
+        if: steps.gate.outputs.proceed == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Resolve dispatch model (first accessible in preference chain)
+        if: steps.gate.outputs.proceed == 'true'
+        id: model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ROLE: dispatch
+        run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
+          echo "Preference chain for $ROLE: $CHAIN"
+          MODEL=""
+          for m in $CHAIN; do
+            echo "Probing model access: $m"
+            if timeout 120 claude -p "Reply with exactly: OK" --model "$m" --max-turns 1 >/dev/null 2>&1; then
+              MODEL="$m"; echo "Selected model: $m"; break
+            fi
+            echo "::warning::Model $m is not accessible with this credential - trying next in chain"
+          done
+          if [ -z "$MODEL" ]; then
+            echo "::error::No model in the preference chain is accessible - check credentials/plan or edit .github/factory-models.json"
+            exit 1
+          fi
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+      - name: Run dispatch role
+        if: steps.gate.outputs.proceed == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          OPENSPEC_TELEMETRY: "0"
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Events the factory itself raised reach a role - see the agent job.
+          allowed_bots: ${{ inputs.allowed_bots }}
+          prompt: |
+            You are running the "dispatch" role of the Software Factory inside
+            GitHub Actions (chained after the planner), on repository
+            ${{ github.repository }}.
+
+            The factory handbook and your role instructions follow verbatim
+            below. Execute them, treating number
+            ${{ steps.gate.outputs.epic }} as the epic issue argument
+            ($ARGUMENTS).
+
+            Operating rules:
+            - Use the gh CLI for GitHub operations; GH_TOKEN is set.
+            - HARD RULES: never push to main or master; never merge a pull request.
+              End EVERY comment you post with a line containing exactly:
+              <!-- factory-agent -->
+            - `factory:in-progress` is the pipeline's own "a run is live" marker
+              on the epic. Ignore it, and never add or remove it yourself.
+            - Cross-repo epics: clone other affected repos with
+              `gh repo clone ${{ github.repository_owner }}/<repo> /tmp/<repo>` (GH_TOKEN
+              grants access when the FACTORY_CROSS_REPO_TOKEN secret is set) and commit
+              each repo's design.md to its own change folder via a factory branch + PR.
+              If cross-repo access is missing, comment on the epic and apply
+              factory:blocked.
+
+            ===== FACTORY HANDBOOK =====
+
+            ${{ steps.roledef.outputs.text }}
+          # Headless runs have no one to answer a permission prompt, so anything
+          # not explicitly allowed here is DENIED. Without this block the role
+          # reads the repo, then silently fails to run `gh`, write files or
+          # commit — the run goes green and the epic sits at its current label.
+          # Keep in sync with the same list in factory-test.yml.
+          claude_args: |
+            --max-turns 100
+            --model ${{ steps.model.outputs.model }}
+            --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Say what happens next
+        # Every run leaves the issue saying what is expected of the next
+        # actor. A role that finished cleanly used to say nothing at all: the
+        # label moved and the thread went quiet, and the states with no
+        # trigger of their own (in-review, in-test, ready-to-ship) were the
+        # pipeline waiting on a human with nothing on the issue to say so.
+        #
+        # After the no-op guard on purpose — this comment must never be the
+        # "visible trace" that lets a role which did nothing pass for one that
+        # worked. github.token, like every other notice here: a comment from
+        # the workflow token emits no events and can never trigger a run.
+        # The gate is part of the condition: an epic this dispatch did not
+        # touch says nothing, and the release run already said its piece.
+        if: success() && steps.gate.outputs.proceed == 'true' && steps.gate.outputs.epic != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.gate.outputs.epic }}
+          ROLE: dispatch
+        run: python3 "$RUNNER_TEMP/factory/scripts/say_next_step.py"
+      - name: Clear the in-progress marker
+        if: always() && steps.gate.outputs.epic != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.gate.outputs.epic }}
+        run: |
+          gh api -X DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/factory%3Ain-progress" \
+            >/dev/null 2>&1 || true
+          echo "Cleared factory:in-progress from #$ISSUE."
+
+  architect-chain:
+    # Waits on the test-plan hop so the design PR carries tasks.md,
+    # system-tests/ and design.md as one gate-G2 review. testplanner-chain
+    # skips itself where system tests are off, and a skipped job is not a
+    # failure — so a repo without the policy file chains exactly as before.
+    needs: [route, agent, testplanner-chain]
+    if: >-
+      always()
+      && needs.agent.result == 'success'
+      && needs.route.outputs.role == 'planner'
+      && needs.testplanner-chain.result != 'failure'
+      && needs.testplanner-chain.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

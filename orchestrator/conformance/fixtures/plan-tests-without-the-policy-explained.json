@@ -1,0 +1,56 @@
+{
+  "name": "plan-tests-without-the-policy-explained",
+  "description": "Plan tests where system tests are off says so and starts nothing",
+  "config": {
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Plan tests",
+      "login": "dev",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "not enabled",
+          "factory-testing.json"
+        ]
+      }
+    }
+  }
+}

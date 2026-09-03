@@ -42,6 +42,10 @@
               "const": "invalid-json"
             }
           ]
+        },
+        "testing": {
+          "description": ".github/factory-testing.json contents (FACTORY.md \u00a74b), or \"invalid-json\". Absent means the file is absent, which means system tests are off.",
+          "$ref": "#/$defs/configFile"
         }
       }
     },

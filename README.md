@@ -36,7 +36,7 @@ release at once. Handbook: [FACTORY.md §2d](FACTORY.md).
 
 ## What is repo-specific, and what isn't
 
-The eleven role prompts are byte-identical everywhere. Everything a role needs to
+The thirteen role prompts are byte-identical everywhere. Everything a role needs to
 know about *your* codebase — stack, test/build/lint commands, conventions,
 review checklist, known-failing tests, health checks — lives in one data file,
 `.factory/profile.json`. Pointing the factory at a new project means writing
@@ -94,7 +94,7 @@ so a Claude Code plugin cannot deliver them. Hence:
 
 | Channel | Delivers |
 |---|---|
-| Claude Code plugin `factory` | 11 role prompts, the handbook, the protected-branch hook |
+| Claude Code plugin `factory` | 13 role prompts, the handbook, the protected-branch hook |
 | Reusable Actions workflows | the pipeline, the branch guard, the pilot harness |
 
 Both serve the same files from the same tagged commit — in CI the runner clones
@@ -160,7 +160,7 @@ Handbook: [FACTORY.md §6a](FACTORY.md).
 ## Layout
 
 ```
-commands/            11 role prompts       → /factory:<role>
+commands/            13 role prompts       → /factory:<role>
 hooks/               protect-branches.py + hooks.json
 .github/workflows/   reusable pipeline, harness, branch guard
 templates/           everything a consuming repo copies

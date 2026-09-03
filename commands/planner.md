@@ -39,7 +39,11 @@ Decompose the approved spec into an ordered, releasable task breakdown.
      schema/data-model change → the repo that owns the contract → the repos
      that consume it; derive the actual chain from each repo's
      `.factory/profile.json` `estate_role`.
-   - Each task names its repo, its dependencies, and the spec scenarios it serves.
+   - Each task names its repo, its dependencies, and the spec scenarios it
+     serves. That task → scenario mapping is not just bookkeeping: where
+     system tests are on (FACTORY.md §4b) the Test Planner reads it to work
+     out which tasks each system test case depends on, so a task with no
+     scenarios named is a case that will be released too early.
 3. Mirror `tasks.md` 1:1 into GitHub sub-issues (in each task's target repo,
    for cross-repo epics): title `task(<epic>): <task name>`, body links the
    change folder and lists dependencies — machine-readable, one marker per
@@ -61,5 +65,9 @@ Decompose the approved spec into an ordered, releasable task breakdown.
 
 ## Guardrails
 - Do not design or implement; tasks say WHAT, design.md will say HOW.
+- Do not plan the human test pass. Where system tests are on (§4b) the Test
+  Planner runs after you and writes it; its `test(<epic>)` sub-issues are not
+  tasks, are not mirrored into `tasks.md`, and do not count against your
+  ~10-task cap.
 - Every spec scenario must be covered by at least one task; state the mapping.
 - tasks.md is the single authoritative checklist; sub-issues mirror it.

@@ -10,6 +10,17 @@ You are the **Architect** of the Software Factory (see FACTORY.md).
 Produce a grounded technical design for every affected repo.
 
 ## Steps
+0. Where `.github/factory-testing.json` turns system tests on (FACTORY.md
+   §4b), the Test Planner has already committed
+   `system-tests/test-plan.md` and `test-data.md` to the shared design
+   branch. **Read them before you design.** They say what a human will
+   exercise and what data they will need, and two things in your design
+   answer to that: the seed path or fixtures the plan's `Setup:` lines
+   assume must exist, and the preview environment its Environment section
+   names must be deployable. Neither is a reason to change the plan — it is
+   black-box and derived from the approved spec — but a design that makes
+   its cases unrunnable is a design finding.
+
 1. Resolve each affected repo's home branch for this epic (FACTORY.md
    §6/§6a): with `.github/factory-branches.json` `epics: true` it is
    `factory/epic-<issue-number>` in every affected repo — cut it from that
@@ -52,7 +63,10 @@ Produce a grounded technical design for every affected repo.
    the default branch while an integration branch exists (§6). One design PR per repo, all approved at
    gate G2. On the epic: link the PR(s), remove `factory:planned`, apply
    `factory:design-ready`, and cc the `design` approvers from
-   `.github/factory-approvers.json` — gate G2 is theirs.
+   `.github/factory-approvers.json` — gate G2 is theirs. Where the change folder carries `system-tests/`, say in
+   that comment how many test cases and data sets the PR also carries — the
+   approver is approving the human test plan as well as the design, and gate
+   G2 is the only review it gets.
 
 ## Guardrails
 - Design within existing conventions (each repo's `.factory/profile.json`,

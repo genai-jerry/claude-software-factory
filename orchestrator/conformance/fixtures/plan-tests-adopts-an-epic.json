@@ -1,0 +1,61 @@
+{
+  "name": "plan-tests-adopts-an-epic",
+  "description": "Plan tests on a mid-build epic starts the Test Planner and changes no state",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Plan tests",
+      "login": "dev",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "testplanner",
+    "issues": [
+      "9"
+    ],
+    "labels": {
+      "9": {
+        "has": [
+          "factory:design-approved"
+        ]
+      }
+    }
+  }
+}

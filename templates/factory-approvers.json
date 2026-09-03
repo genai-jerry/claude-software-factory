@@ -1,10 +1,11 @@
 {
-  "_comment": "Gate -> GitHub usernames. release_scope = G0 approval (which issues make up a release milestone); spec = G1 approval; design = G2 approval; implementation = who is notified when tasks become factory:ready and may start implementers; expedite = who may apply factory:expedite, which pre-approves G1, G2 and every implementation start (§4a); staging = GS approval (release the assembled epic to the integration branch), falling back to the release list when absent; release = G3 production go. Empty list = any owner/member/collaborator may approve that gate.",
+  "_comment": "Gate -> GitHub usernames. release_scope = G0 approval (which issues make up a release milestone); spec = G1 approval; design = G2 approval; implementation = who is notified when tasks become factory:ready and may start implementers; expedite = who may apply factory:expedite, which pre-approves G1, G2 and every implementation start (§4a); staging = GS approval (release the assembled epic to the integration branch), falling back to the release list when absent; testers = who is notified when a system test case reaches factory:manual-test and who may comment 'Test Passed' on it (§4b), falling back to the implementation list when absent; release = G3 production go. Empty list = any owner/member/collaborator may approve that gate.",
   "release_scope": ["genai-jerry"],
   "spec": ["genai-jerry"],
   "design": ["genai-jerry"],
   "implementation": ["genai-jerry"],
   "expedite": ["genai-jerry"],
   "staging": ["genai-jerry"],
+  "testers": ["genai-jerry"],
   "release": ["genai-jerry"]
 }

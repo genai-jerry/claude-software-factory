@@ -1,0 +1,223 @@
+# Tasks: System Test Generation
+
+Companion Console change: `add-system-test-tasks-console` in
+`software-factory-view` — build it after sections 1 and 6 land, from the
+final label, state and comment names.
+
+## 1. Canon and config
+
+- [x] 1.1 Add `factory:manual-test`, `factory:test-passed` and
+      `factory:test-failed` to `scripts/setup-labels.sh` with colours and
+      descriptions; move the count note 25 → 28; verify the script is still
+      idempotent against a repo that already has the labels.
+- [x] 1.2 Add `templates/factory-testing.json` (`system_tests`, `mode`, a
+      `_comment` that states the `epics: false` behaviour) and a `testers`
+      key with its fallback (`implementation`) to
+      `templates/factory-approvers.json`; add `testplanner` to
+      `templates/factory-models.json` on the planner's chain; verify all
+      three parse.
+- [x] 1.3 Write FACTORY.md §4b "System tests": the two artifacts, the Test
+      Planner, test sub-issues and their three states, the two comments,
+      the fix task, gate GS accounting in both modes, the `epics: false`
+      evidence-only rule, and what expedite does not touch. Update §2
+      (stage 2a row; "twelve prompts" → thirteen, also in §10 and README),
+      §2a (trigger rows: Test Passed / Test Failed, Release → Dispatcher
+      chain, testplanner in the G1 chain row), §2b (`testers` row), §3
+      (three state rows; "five labels are not states" unchanged), §4 (GS
+      wording), §5 (the `factory` schema), §9 (setup step), §10 (footprint
+      row); verify every scenario in the four delta specs has a home.
+- [x] 1.4 Ship `templates/openspec/schemas/factory/` — `schema.yaml` forked
+      from `spec-driven` with `test-plan` (requires specs, tasks) and
+      `test-data` (requires test-plan) appended, plus
+      `templates/test-plan.md` and `templates/test-data.md`; verify
+      `openspec schema validate factory` passes when the directory is copied
+      into a scratch repo, and `openspec status` lists both artifacts.
+- [x] 1.5 Update `docs/setup-guide.md` (config table row, optional schema
+      step, `testers` note) and `wiki/Factory-Pipeline-States.md` (the test
+      states beside `factory:on-epic`, the Test Planner in the G1 chain);
+      verify the wiki diagram renders.
+
+## 2. The Test Planner role
+
+- [x] 2.1 Write `commands/testplanner.md`: input (`factory:planned` epic),
+      the home-branch and change-folder resolution copied from
+      `planner.md`, reads (`proposal.md`, `specs/`, `tasks.md`, profile
+      `qa_notes` / `deploy`), the two artifacts in the `test-artifacts`
+      format, `Depends on:` derived from the Planner's task → scenario
+      mapping, `openspec instructions test-plan` when the repo has adopted
+      the schema else the shipped templates, commit on
+      `factory/<epic>-design`, one `test(<epic>)` sub-issue per case with
+      `Covers:` and `Blocked by` lines and `Part of` when cross-repo, the
+      checklist comment on the epic, the idempotent re-run rule (never
+      renumber; withdraw), and guardrails (black-box, synthetic data only,
+      never a `factory:*` label on a test sub-issue, never a state change
+      to the epic); verify against every `test-planner` scenario.
+- [x] 2.1a Extend `commands/testplanner.md` with the adoption path: allowed
+      from `factory:planned` through `factory:in-staging`; commit onto the
+      open `factory/<epic>-design` branch when there is one, else cut
+      `factory/<epic>-tests` from the epic's home branch and open a
+      `test(<epic>): system test plan` PR based on it, cc'ing the `design`
+      approvers and saying what merging it releases; leave the epic in the
+      state it was found; refuse with the reason before `factory:planned`,
+      on shipped or closed epics, on sub-issues, trackers, the profile issue
+      and fast-track issues; verify against every adoption scenario in
+      `test-planner` and `test-artifacts`.
+- [x] 2.2 Update `commands/planner.md` (state that test sub-issues are not
+      in the ~10 cap and that the task → scenario mapping is what the Test
+      Planner reads), `commands/architect.md` (read `system-tests/` when
+      present; the G2 hand-off names the plan's case and data-set counts;
+      design for the plan's data and environment needs), and
+      `commands/reviewer.md` (a real value under `system-tests/` is a
+      blocking finding on a design PR); verify no prompt applies a test
+      state.
+- [x] 2.3 Update `commands/dispatch.md`: `test(<epic>)` children as a second
+      kind; dependency "done" = the assembled state (`factory:on-epic`, or
+      `factory:in-staging` without an epic branch); release to
+      `factory:manual-test` with the testers assigned and the environment
+      named; `factory:test-failed` → `factory:manual-test` when the fix is
+      assembled; the completeness check (step 4) gains the `mode: gate`
+      clause and posts the test matrix in the GS notice; ignore `test(`
+      children when the policy is off; verify against every
+      `manual-test-tasks` Dispatcher scenario.
+- [x] 2.3a Add the two adoption preconditions to `commands/dispatch.md`: a
+      case is released only when its plan is merged on the home branch (name
+      the open plan PR in the summary otherwise), and a **closed** dependency
+      counts as assembled alongside `factory:on-epic` /
+      `factory:in-staging`; re-post the `factory:epic-ready` notice once when
+      a case becomes runnable on an epic already at that state, and never
+      revert a state to accommodate a late plan; verify with an epic adopted
+      at `factory:epic-ready` and one adopted at `factory:design-approved`.
+- [x] 2.4 Update `commands/release.md`: phase 1 step 5 gains the same
+      completeness clause and the "assembled, waiting on N tests" report;
+      phase 1b/2 list the test matrix in promotion PR bodies and the
+      merge-list comment, flagging unverified cases; `commands/ops.md` cites
+      the matrix in the verification summary and archives `system-tests/`
+      with the change; `commands/qa.md` notes `Execution: automatable` cases
+      as hints only; verify the release prompt matches the gate scenarios in
+      both modes.
+
+## 3. The decision table (both routers + fixtures)
+
+- [x] 3.1 Add `isTestTitle` (`^test\(\d+\)`) beside `isTaskTitle` in both
+      routers and a `testing` config loader (`.github/factory-testing.json`,
+      absent/invalid ⇒ off) with a `testing` key in the fixture schema and
+      `SCHEMA.md`; verify existing fixtures pass unchanged.
+- [x] 3.2 Implement the `issue_comment` branch for `Plan tests` (strict
+      match, unrestricted, route `testplanner` at the epic, with the refusal
+      replies for too-early, shipped, wrong-kind and policy-off) and for
+      `Test Passed` (authorise
+      against `testers` → `implementation` → anyone; flip to
+      `factory:test-passed`, close, receipt; then route `dispatch` to the
+      epic when it is `factory:design-approved`) and `Test Failed` (open the
+      `task(<epic>): fix ST-<n> — <title>` sub-issue at `factory:ready` with
+      the start notice, append `Blocked by`, flip to `factory:test-failed`;
+      refuse a second failure); the wrong-state and not-enabled replies;
+      in both engines.
+- [x] 3.3 Implement the `labeled` handling: `factory:manual-test` assigns
+      and @-mentions the testers (like `factory:ready` does the
+      implementation approvers); a code state hand-applied to a `test(`
+      sub-issue is reverted with a comment; `factory:expedite` applied to an
+      epic whose open children are all test sub-issues says what it waits
+      on and starts nothing; in both engines.
+- [x] 3.4 Add conformance fixtures for every routing scenario in the
+      `manual-test-tasks` and `test-planner` specs (pass authorised /
+      unauthorised / wrong state / not enabled, fail files the fix, second
+      fail refused, last pass routes dispatch, pass with tasks still open
+      routes nothing, manual-test notifies testers with fallback, code state
+      on a test reverted, expedite on runnable tests, policy absent and
+      invalid) and for adoption (`Plan tests` routing testplanner from each
+      allowed state, each refusal, a case held back by an unmerged plan, a
+      closed dependency counting as assembled, an adopted epic at
+      `factory:epic-ready` keeping its state) and run them against both
+      routers; verify
+      `scripts/test-router.js` and `test_conformance.py` stay green.
+
+## 4. Chaining
+
+- [x] 4.1 Actions: extend `architect-chain` into a two-hop chain — after
+      the Planner reaches `factory:planned`, run `testplanner` when the
+      policy enables it, then `architect` when the epic is still
+      `factory:planned` — sharing the checkout ladder; add a
+      `dispatch-chain` job after a `release` run that lands anything
+      (epic still `factory:design-approved`); verify with a repo without
+      the policy file that the G1 chain is byte-for-byte today's.
+- [x] 4.2 Orchestrator: add the `testplanner` hop and the `release →
+      dispatch` hop to `chain_node`, with the policy read from the repo
+      config; verify a full epic (spec-ready → tests released → last pass →
+      epic-ready) completes in the devapp under `mode: gate`.
+- [x] 4.3 Add `testplanner` to every place the role set is enumerated
+      (workflow `role` validation and model resolution, `role_runner`, the
+      plugin's description and the harness); verify a manual
+      `workflow_dispatch` of `testplanner` on a `factory:planned` epic runs.
+
+## 5. Trace contract
+
+- [x] 5.1 Add `factory:manual-test`, `factory:test-failed` and
+      `factory:test-passed` entries to `handbook/next-step.json`
+      (`{approvers}` from `testers` → `implementation`), and a `tested`
+      wording variant for `factory:design-approved` and `factory:on-epic`
+      selected when the policy enables system tests; update both renderers
+      and `GATE_OF_STATE` / `GATE_FALLBACK`; verify `test_next_step.py`
+      renders identical text through both engines for the new states.
+
+## 6. Console
+
+- [x] 6.1 Implement `add-system-test-tasks-console` in
+      `software-factory-view` (label catalogue, `test(` task kind, tester
+      attention items, Pass/Fail actions, plan and data in the artifact
+      reader, test matrix on the GS panel, epic status wording); tracked in
+      that repo's change folder.
+
+## 7. Verification
+
+- [ ] 7.1 Pilot on one repo through the test harness
+      (`templates/workflows/factory-test.yml`): an epic with three
+      scenarios runs intake → G1 → Planner → Test Planner → Architect → G2;
+      the design PR carries all four documents; after dispatch,
+      implementation and assembly the test sub-issues are released; one
+      `Test Failed` files a fix that lands and re-releases the case; the
+      last `Test Passed` flips `factory:epic-ready` with the matrix; record
+      the trace as a wiki page beside `Run-Trace-Issue-16.md`.
+- [ ] 7.2 Pilot the adoption path on an epic that was already past gate G2
+      before the policy landed: `Plan tests` writes the plan and opens the
+      sub-issues with the epic's state untouched, the `factory/<epic>-tests`
+      PR merges, the next Dispatcher run releases the cases whose code is
+      assembled, and an epic adopted at `factory:epic-ready` keeps that state
+      with its matrix on the gate; record both traces on the same wiki
+      page.
+
+
+## What is not done, and why
+
+**7.1 and 7.2 — the two pilots — have not been run.** They are live
+exercises: a real repository with the caller stubs merged, Anthropic
+credentials, GitHub Actions runs, and a human to actually execute a test
+case and comment the verdict. None of that exists in a development
+checkout, and there is no honest way to tick them from here. Everything
+they would exercise is covered mechanically — 15 conformance fixtures over
+both routers, five graph tests over the two new chain hops, and the
+cross-engine hand-off parity tests — but that is not the same as one epic
+walking the whole path, and the pilots stay open until somebody walks it.
+
+Run 7.1 on a pilot repo with `.github/factory-testing.json` in place from
+the start, and 7.2 on an epic that was already past gate G2 when the file
+landed.
+
+## Deviations from this plan, and why
+
+- **4.1 said "extend architect-chain into a two-hop chain"; it is a
+  separate `testplanner-chain` job that architect-chain now waits on.**
+  Extending the one job meant a second copy of the whole run machinery
+  (checkout ladder, model probe, prompt assembly, cleanup) inside it,
+  which is what a separate job already is — and the file's other chain
+  jobs are all shaped that way. A skipped job is not a failure, so a repo
+  without the policy file chains planner → architect exactly as before;
+  `architect-chain`'s `if` says so explicitly.
+
+- **The `dispatch-chain` job is new scope the plan named only in passing.**
+  Section 4.1 asked for it in one clause ("add a dispatch-chain job after a
+  release run"); it turned out to be the change's load-bearing edge, since
+  a merge onto the epic branch closes no issue and so the §2a re-dispatch
+  never fired for one. It releases code-task dependents too, and it runs
+  whether or not system tests are on — a correction to behaviour older than
+  this change.

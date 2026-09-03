@@ -357,6 +357,11 @@ class RepoClient:
     def update_issue_state(self, number: int, state: str) -> None:
         self._req("PATCH", f"/issues/{number}", json={"state": state})
 
+    def update_issue_body(self, number: int, body: str) -> None:
+        """Rewrite an issue body — used to append a `Blocked by` marker to a
+        system test case when its failure files a fix task (FACTORY.md §4b)."""
+        self._req("PATCH", f"/issues/{number}", json={"body": body})
+
 
 def parse_json_or_empty(text: str | None) -> dict[str, Any]:
     """Mirror the JS router's loadJson: absent or unparseable means {}."""

@@ -1,0 +1,53 @@
+{
+  "name": "test-verdict-without-the-policy-explained",
+  "description": "a verdict in a repo with no factory-testing.json says system tests are off and changes nothing",
+  "config": {
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": []
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 30,
+    "comment": {
+      "body": "Test Passed",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "30": {
+        "countAtLeast": 1,
+        "contains": [
+          "not enabled"
+        ]
+      }
+    }
+  }
+}

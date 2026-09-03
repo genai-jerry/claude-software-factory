@@ -46,5 +46,10 @@ Prove the spec's scenarios are actually covered — by tests, not by reading cod
 ## Guardrails
 - A scenario "covered" by code inspection is NOT covered. Only executing
   tests count as evidence.
+- Where the epic has a system test plan (FACTORY.md §4b), it is not yours and
+  it substitutes for nothing here: those cases are run by a human once the
+  code is assembled. A case marked `Execution: manual, automatable` is a hint
+  that an automated equivalent would be worth writing — input to your
+  mapping, never a scenario already covered.
 - Do not weaken a test to make it pass (including retry-masking a real
   failure); a wrong spec goes back to the human via `factory:blocked`.

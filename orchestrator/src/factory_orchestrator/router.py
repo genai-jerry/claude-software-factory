@@ -40,7 +40,7 @@ AGENT_MARK = "<!-- factory-agent -->"
 #: A gate whose own approver key is absent or empty borrows another's list.
 #: GS is the only one: an estate that has not adopted `staging` keeps
 #: releasing to staging under whoever already owns the production go.
-GATE_FALLBACK = {"staging": "release"}
+GATE_FALLBACK = {"staging": "release", "testers": "implementation"}
 
 #: The auto-advance map (FACTORY.md §4a): the state an expedited issue is in,
 #: and what runs instead of waiting for a human. `gate:*` entries are the two
@@ -138,6 +138,10 @@ class RepoConfig:
     release: dict[str, Any] = field(default_factory=dict)
     approvers: dict[str, Any] = field(default_factory=dict)
     branches: dict[str, Any] = field(default_factory=dict)
+    #: `.github/factory-testing.json` (FACTORY.md §4b). Absent or unparseable
+    #: means system tests are off, and every decision behaves as it did
+    #: before §4b existed.
+    testing: dict[str, Any] = field(default_factory=dict)
     #: `.factory/profile.json`. Only `branches.staging` is read here, and only
     #: to resolve the integration branch's NAME for a repo that calls it
     #: something other than the org's policy value (FACTORY.md §6a).
@@ -170,6 +174,21 @@ class RepoConfig:
             return None
         name = self.branches.get("staging")
         return name if isinstance(name, str) and name else "staging"
+
+    @property
+    def system_tests(self) -> bool:
+        """System tests are opt-in (§4b): only an explicit true turns them on."""
+        return self.testing.get("system_tests") is True
+
+    @property
+    def test_mode(self) -> str:
+        """`"gate"` (the default when the file is present) or `"advisory"`.
+
+        Decides only whether open cases hold an epic short of
+        `factory:epic-ready`. It says nothing for a repo with no epic branch,
+        where the cases only become runnable after gate GS has been opened.
+        """
+        return "advisory" if self.testing.get("mode") == "advisory" else "gate"
 
     @property
     def exempt_labels(self) -> list[str]:
@@ -230,6 +249,42 @@ def _sender_is_app(payload: dict[str, Any]) -> bool:
 
 def _names(labels: list[Any] | None) -> list[str]:
     return [(l if isinstance(l, str) else l.get("name")) for l in (labels or [])]
+
+
+#: System test case states (FACTORY.md §4b). Ordinary states, but they only
+#: ever sit on a `test(<epic>)` sub-issue — a case a human runs against the
+#: assembled epic. No role is ever started on one, which is why none of them
+#: appears in EXPEDITE_MAP.
+MANUAL_TEST = "factory:manual-test"
+TEST_PASSED = "factory:test-passed"
+TEST_FAILED = "factory:test-failed"
+
+#: Code states, refused on a system test case: applying one would put an
+#: implementer, reviewer or QA run on a document.
+CODE_STATES = ("factory:ready", "factory:in-review", "factory:in-test",
+               "factory:ready-to-ship", "factory:on-epic")
+
+#: The epic states from which a system test plan may still be adopted (§4b).
+#: Earlier there is no task breakdown to derive `Depends on:` from; later the
+#: work has shipped.
+ADOPTABLE_STATES = ("factory:planned", "factory:design-ready",
+                    "factory:design-approved", EPIC_READY, "factory:in-staging")
+
+_CASE_RE = re.compile(r"^test\((\d+)\):\s*(ST-\d+)?\s*(.*)$")
+_BLOCKED_BY_RE = re.compile(r"(?:^|\n)\s*blocked by\s*#(\d+)", re.IGNORECASE)
+
+
+def _is_test_title(title: str | None) -> bool:
+    """A system test case sub-issue: `test(<epic>): ST-<n> <title>` (§4b)."""
+    return bool(re.match(r"^test\(\d+\)", title or ""))
+
+
+def _case_of(title: str | None) -> tuple[int | None, str | None, str]:
+    """(epic number, case id, case title) from a test sub-issue's title."""
+    m = _CASE_RE.match(title or "")
+    if not m:
+        return None, None, ""
+    return int(m.group(1)), m.group(2), (m.group(3) or "").strip()
 
 
 def _is_task_title(title: str | None) -> bool:
@@ -590,6 +645,12 @@ class Router:
         is_approval = bool(re.match(r"^\s*approved\s*[.!]?\s*$", body, re.IGNORECASE))
         is_plan_release = bool(re.match(r"^\s*plan\s+release\s*[.!]?\s*$", body, re.IGNORECASE))
         is_review_done = bool(re.match(r"^\s*review\s+done\s*[.!]?\s*$", body, re.IGNORECASE))
+        # System test controls (FACTORY.md §4b). Strict matches, like every
+        # other factory comment control.
+        is_plan_tests = bool(re.match(r"^\s*plan\s+tests\s*[.!]?\s*$", body, re.IGNORECASE))
+        is_test_passed = bool(re.match(r"^\s*test\s+passed\s*[.!]?\s*$", body, re.IGNORECASE))
+        is_test_failed = bool(re.match(r"^\s*test\s+failed\s*[.!]?\s*$", body, re.IGNORECASE))
+        is_test_case = _is_test_title(i.get("title"))
         is_tracker = RELEASE_KIND in labels
         assoc_ok = (payload.get("comment") or {}).get("author_association") in (
             "OWNER", "MEMBER", "COLLABORATOR")
@@ -660,6 +721,132 @@ class Router:
                          "`factory:in-test`. This shortcut only relabels the task; if the draft PR is still "
                          "marked draft, mark it ready for review yourself.")
                 log.info("Review marked done via comment - skipping the Reviewer")
+        elif is_plan_tests:
+            # Adoption (§4b): an epic past gate G2 has no plan and no chain
+            # left to write one. Unrestricted on purpose — writing a plan only
+            # adds documents and work, and the plan is reviewed before any
+            # case reaches a tester.
+            st = self.state_of(labels)
+            if not cfg.system_tests:
+                self.say(i["number"],
+                         "System tests are not enabled in this repository, so there is no plan to "
+                         "write.\n\nAdd `.github/factory-testing.json` with `\"system_tests\": true` "
+                         "(template: `templates/factory-testing.json`) and comment `Plan tests` again. "
+                         "See FACTORY.md §4b.")
+            elif not assoc_ok:
+                self.say(i["number"],
+                         f"@{sender} — asking for a system test plan requires owner, member or "
+                         "collaborator access on this repository.")
+            elif (is_tracker or PROFILE_KIND in labels or FAST_TRACK in labels
+                    or _is_task_title(i.get("title")) or is_test_case):
+                what = ("a release tracker" if is_tracker
+                        else "this repository's profile issue" if PROFILE_KIND in labels
+                        else "in the fast lane, which has no change folder to plan against"
+                        if FAST_TRACK in labels
+                        else "a system test case" if is_test_case else "a task sub-issue")
+                self.say(i["number"],
+                         "`Plan tests` only works on an **epic** — a requirement issue with an approved "
+                         f"spec and a task breakdown. This issue is {what}, so nothing was started.")
+            elif i.get("state") == "closed" or "factory:deployed" in labels:
+                self.say(i["number"],
+                         "`Plan tests` has no effect here — this epic has shipped. System tests prove a "
+                         "change before it is promoted, and there is nothing left to hold.\n\n"
+                         "A defect in released behaviour is a new issue (or `factory:incident` if "
+                         "production is affected).")
+            elif st not in ADOPTABLE_STATES:
+                self.say(i["number"],
+                         f"`Plan tests` has no effect while this epic is at **{st}** — nothing was "
+                         "started.\n\nA system test plan needs the task breakdown to work out which "
+                         "tasks each case depends on, and that arrives with the **Planner** at "
+                         "`factory:planned`. Ask again once it has run.")
+            else:
+                r.role = "testplanner"
+                log.info("System test plan requested on #%s (%s) - starting the Test Planner",
+                         i["number"], st)
+        elif is_test_passed and is_test_case and MANUAL_TEST in labels:
+            # The tester's verdict. `testers` falls back to the implementation
+            # list (someone always owns it), then to any collaborator.
+            if not authorized("testers"):
+                refuse("testers", "recording a system test as passed")
+            else:
+                epic, case_id, _title = _case_of(i.get("title"))
+                self.drop_label(i["number"], MANUAL_TEST)
+                self.port.add_labels(i["number"], [TEST_PASSED])
+                self.say(i["number"],
+                         f"**{case_id or 'This case'} passed** — recorded by @{sender}. Closing it.")
+                try:
+                    self.port.update_issue_state(i["number"], "closed")  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001 - a stuck-open case is not a failed route
+                    log.warning("Could not close system test #%s", i["number"])
+                log.info("System test #%s passed - closed", i["number"])
+                # The last pass is what completes an epic (§4b), and the
+                # Dispatcher is the one place that decides completeness.
+                parent = self.port.get_issue(epic) if epic else None
+                if parent and "factory:design-approved" in _names(parent.get("labels")):
+                    r.role = "dispatch"
+                    r.issue = str(epic)
+                    log.info("Re-dispatching epic #%s - a pass may have completed it", epic)
+        elif is_test_failed and is_test_case and MANUAL_TEST in labels:
+            # A failure only adds work, so any collaborator may report one.
+            epic, case_id, case_title = _case_of(i.get("title"))
+            already = _BLOCKED_BY_RE.search(i.get("body") or "")
+            if not assoc_ok:
+                self.say(i["number"],
+                         f"@{sender} — reporting a system test failure requires owner, member or "
+                         "collaborator access on this repository.")
+            elif already:
+                self.say(i["number"],
+                         f"This case is already failed — the fix is #{already.group(1)}, and this case "
+                         "returns to `factory:manual-test` when it lands. Add what you saw to that "
+                         "thread rather than filing a second fix.")
+            else:
+                parent = self.port.get_issue(epic) if epic else None
+                expedited = bool(parent) and EXPEDITE in _names(parent.get("labels"))
+                quoted = "\n".join("> " + line for line in (body or "").strip().split("\n"))
+                fix = self.port.create_issue(
+                    title=f"task({epic}): fix {case_id or 'a system test'} — {case_title}",
+                    body="\n".join([
+                        "A system test case failed. This task is the fix.",
+                        "",
+                        f"- Case: #{i['number']} ({case_id or 'unnumbered'}) — {case_title}",
+                        f"- Reported by: @{sender}",
+                        f"- Epic: #{epic}",
+                        "",
+                        "What the tester saw:",
+                        "",
+                        quoted,
+                        "",
+                        "The case, its steps and its expected result are in the epic's system test plan "
+                        "(`system-tests/test-plan.md` in the change folder). Fix the behaviour the case "
+                        "proves — not the case.",
+                        "",
+                        AGENT_MARK,
+                    ]),
+                    labels=["factory:ready"],
+                )
+                impl = cfg.approver_list("implementation")
+                self.say(fix["number"],
+                         "Filed from a failed system test — this epic is expedited, so its implementer "
+                         "starts on its own. Nothing to approve."
+                         if expedited else
+                         "Filed from a failed system test. An implementer can start: comment `Approved` "
+                         "here, run the \"Factory pipeline\" workflow with role=implementer and this "
+                         "issue number, or press **Approve** in the Factory Console."
+                         + (" cc " + ", ".join("@" + u for u in impl) if impl else ""))
+                try:
+                    self.port.update_issue_body(  # type: ignore[attr-defined]
+                        i["number"],
+                        f"{(i.get('body') or '').rstrip()}\n\nBlocked by #{fix['number']}\n")
+                except Exception:  # noqa: BLE001 - the label still records the failure
+                    log.warning("Could not append the fix marker to #%s", i["number"])
+                self.drop_label(i["number"], MANUAL_TEST)
+                self.port.add_labels(i["number"], [TEST_FAILED])
+                self.say(i["number"],
+                         f"**{case_id or 'This case'} failed** — reported by @{sender}. Filed "
+                         f"#{fix['number']} to fix it.\n\nThis case waits at `factory:test-failed` "
+                         "until that task is implemented, reviewed, tested and assembled; the "
+                         "Dispatcher then puts it back to `factory:manual-test` for a re-run.")
+                log.info("System test #%s failed - filed fix #%s", i["number"], fix["number"])
         elif is_approval and "factory:ready" in labels:
             if not authorized("implementation"):
                 refuse("implementation", "starting implementation")
@@ -749,6 +936,32 @@ class Router:
                          "changed.\n\n"
                          "It only applies to `factory:in-review`: marking a human review complete so the task "
                          "moves to `factory:in-test` without waiting on the Reviewer agent.")
+            elif is_test_passed or is_test_failed:
+                what = '"Test Passed"' if is_test_passed else '"Test Failed"'
+                if not cfg.system_tests:
+                    self.say(i["number"],
+                             f"{what} has no effect — system tests are not enabled in this repository "
+                             "(`.github/factory-testing.json`, FACTORY.md §4b). Nothing changed.")
+                elif not is_test_case:
+                    self.say(i["number"],
+                             f"{what} only applies to a **system test case** — a `test(<epic>)` "
+                             "sub-issue the Test Planner opened. This is not one, so nothing changed.")
+                elif TEST_PASSED in labels:
+                    self.say(i["number"], f"{what} has no effect — this case has already passed.")
+                elif TEST_FAILED in labels:
+                    fx = _BLOCKED_BY_RE.search(i.get("body") or "")
+                    self.say(i["number"],
+                             f"{what} has no effect while this case is at `factory:test-failed`" + (
+                                 f" — its fix is #{fx.group(1)}, and the case returns to "
+                                 "`factory:manual-test` when that lands." if fx else
+                                 " — a fix is in flight, and the case returns to `factory:manual-test` "
+                                 "when it lands."))
+                else:
+                    self.say(i["number"],
+                             f"{what} has no effect yet — this case is not runnable.\n\n"
+                             "It becomes `factory:manual-test` when its plan is merged and every task it "
+                             "lists under `Blocked by` is assembled onto the epic branch (or staging, for "
+                             "an epic without one). The Dispatcher says so on the epic when it releases it.")
             log.info("Issue not factory:blocked - comments only resume blocked stages or approve gates")
         else:
             resume = {
@@ -939,6 +1152,21 @@ class Router:
             if name == IN_PROGRESS:
                 log.info("%s is a run marker applied by this pipeline - nothing to route", IN_PROGRESS)
                 return
+            # A system test case (§4b) moves on two comments and the
+            # Dispatcher, never on a role. A code state applied to one — by
+            # hand, or by a script that mistook it for a task — would put an
+            # implementer, reviewer or QA run on a document.
+            if (_is_test_title(i.get("title")) and name in CODE_STATES
+                    and not _sender_is_app(payload)):
+                self.drop_label(i["number"], name)
+                self.say(i["number"],
+                         f"`{name}` was applied by @{sender}, but this is a **system test case**, not a "
+                         "task. Reverted.\n\nCases are released to `factory:manual-test` by the "
+                         "Dispatcher once the code they exercise is assembled, and they move from there "
+                         "on exactly `Test Passed` or exactly `Test Failed` (FACTORY.md §4b). No "
+                         "implementer, reviewer or QA run is ever started on one.")
+                log.info("Reverted %s on system test case #%s", name, i["number"])
+                return
             gate_of = {
                 "factory:release-approved": "release_scope",
                 "factory:spec-approved": "spec",
@@ -976,6 +1204,7 @@ class Router:
                 EPIC_READY: ("staging", "Gate GS (releasing this epic to staging)"),
                 "factory:in-staging": ("release", "Gate G3 (promotion to the default branch)"),
                 "factory:ready": ("implementation", "Implementation start"),
+                MANUAL_TEST: ("testers", "A system test case"),
             }
             # An expedited task's implementer starts here rather than waiting
             # for a click that expedite has already given (§4a), so the
@@ -1019,7 +1248,12 @@ class Router:
                 lst = cfg.approver_list(gate)
                 if lst:
                     self.port.add_assignees(i["number"], lst)
-                    if gate == "implementation":
+                    if gate == "testers":
+                        how = ("The code this case exercises is assembled, so it can be run now. The "
+                               "steps, the data and the expected result are in the epic's system test "
+                               "plan, linked above. When you have run it, comment exactly "
+                               '"Test Passed" or exactly "Test Failed" here, with what you saw.')
+                    elif gate == "implementation":
                         how = ('Comment exactly "Approved" here to start it, or use Actions → '
                                '"Factory pipeline" → Run workflow (role: implementer, this issue number).')
                     elif gate == "staging":

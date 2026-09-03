@@ -1,0 +1,61 @@
+{
+  "name": "plan-tests-on-an-assembled-epic",
+  "description": "Plan tests at factory:epic-ready is allowed and leaves the gate state alone",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:epic-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Plan tests",
+      "login": "dev",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "testplanner",
+    "issues": [
+      "9"
+    ],
+    "labels": {
+      "9": {
+        "has": [
+          "factory:epic-ready"
+        ]
+      }
+    }
+  }
+}

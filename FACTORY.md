@@ -16,7 +16,7 @@ codebase lives in that repo's `.factory/profile.json` (§2c) — never in these
 prompts. An estate of N repositories runs N profiles and one copy of this
 document.
 
-**How it reaches your repos:** this file, the twelve role prompts, and the
+**How it reaches your repos:** this file, the thirteen role prompts, and the
 protected-branch hook ship as the `factory` Claude Code plugin; the pipeline
 ships as reusable GitHub Actions workflows. A consuming repo holds nine files,
 none of them logic. See §10.
@@ -43,6 +43,7 @@ body.** This prevents the two-sources-of-truth drift.
 | 0 | Release | `/factory:scrum` | A release plan for one milestone — scope, sequencing, risks — and the gate-G0 hand-off that lets its issues start (§2d) |
 | 1 | Intake | `/factory:intake` | `proposal.md` + `specs/` via `/opsx:explore` + `/opsx:propose`, opened as a PR |
 | 2 | Plan | `/factory:planner` | `tasks.md` (≤ ~10 tasks, one PR each) mirrored into GitHub sub-issues; opens the shared design PR |
+| 2a | Test plan | `/factory:testplanner` | `system-tests/test-plan.md` + `test-data.md` — the cases a human runs against the assembled epic — mirrored into `test(<epic>)` sub-issues. Only where system tests are enabled (§4b); chained between the Planner and the Architect |
 | 3 | Design | `/factory:architect` | `design.md` per affected repo (same branch/PR as `tasks.md` in the epic's repo); shared contract snippet identical across repos |
 | 4 | Implement | `/factory:implementer` | Branch + commits + draft PR per task via `/opsx:apply` |
 | 5 | Review | `/factory:reviewer` | Line-level review; approve or request changes |
@@ -74,7 +75,7 @@ maintains `.factory/profile.json` (§2c), the file the stage roles above depend
 on. It is setup and upkeep, not delivery — it never touches an epic.
 
 Role prompts are supplied by the `factory` plugin, so every repo runs the
-**same twelve prompts** — there is no per-repo copy to drift. Stack-specific
+**same thirteen prompts** — there is no per-repo copy to drift. Stack-specific
 knowledge lives in each repo's `.factory/profile.json` (§2c), which the
 implementer, reviewer, qa, release and ops roles load at the start of every
 run. In a multi-repo estate, nominate one **coordination repo** (the one that
@@ -95,7 +96,7 @@ events, so **filing a plain issue is all a requester does**:
 | A push to the default branch touching a manifest, lockfile, CI workflow or tool config | **Profiler** — re-verifies the profile against the new commit, opening a PR only where it disagrees (§2c) |
 | Owner/collaborator comments exactly `Plan release` on a release tracker | **Scrum Master** — reads the whole milestone and posts the release plan |
 | `factory:release-approved` on a tracker (gate G0) | Every `factory:backlog` issue in that milestone is moved to `factory:intake` and its **Intake Analyst** runs, all in the same run |
-| Human applies `factory:spec-approved` (gate G1) | **Planner**, then **Architect** chained in the same run |
+| Human applies `factory:spec-approved` (gate G1) | **Planner**, then — where system tests are on (§4b) — the **Test Planner**, then the **Architect**, all chained in the same run |
 | Human applies `factory:design-approved` (gate G2) | **Dispatcher** — marks unblocked tasks `factory:ready` |
 | `factory:expedite` applied to an epic (§4a) | Authorised against the `expedite` approvers, then the **auto-advance map** acts on whatever state the epic is already in: G1/G2 approve themselves, ready tasks start their implementers, and every later stage chains with no human start — up to gate GS, which it never opens |
 | `factory:expedite` removed | Nothing runs. Auto-advance stops; the normal human controls resume from the current state, said once on the issue |
@@ -107,6 +108,10 @@ events, so **filing a plain issue is all a requester does**:
 | Owner/collaborator comments exactly `Approved` on a task sub-issue in `factory:ready` | That task's **Implementer** starts. Not a gate — implementation had no trigger of its own; authorised against the `implementation` approver list. Declined while the task already carries `factory:in-progress`: the label stays `factory:ready` for the whole run, so a second `Approved` would put a second implementer on the same task and branch. The pipeline replies saying so and starts nothing |
 | Any collaborator comments exactly `Review Done` on a task sub-issue in `factory:in-review` | The label flips straight to `factory:in-test`, skipping the Reviewer — for a human who reviewed the draft PR themselves. Like starting the Reviewer, there is no approver list for this stage. Declined while the task carries `factory:in-progress` (the Reviewer may be mid-run); no changes-requested equivalent — review the draft PR on GitHub if it needs work |
 | A task sub-issue closes (its PR merged) while its epic is `factory:design-approved` | **Dispatcher** re-runs on the epic, releasing any task the merge just unblocked. Without this, tasks freed by a later merge sit with no `factory:*` label at all |
+| A Release Manager run lands a task on the epic branch (or on integration) | **Dispatcher** re-runs on the epic in the same run, releasing whatever that landing unblocked — code tasks and system test cases alike (§4b). A merge onto the epic branch closes no issue, so the row above cannot see it |
+| Owner/collaborator comments exactly `Plan tests` on an epic (§4b) | **Test Planner** — writes the system test plan for an epic that has none, whatever stage it has reached. This is how an epic already in flight adopts system tests |
+| A `testers` approver comments exactly `Test Passed` on a `factory:manual-test` case | The case closes at `factory:test-passed`, and the **Dispatcher** re-runs on the epic — the last pass is what completes it (§4b) |
+| Any collaborator comments exactly `Test Failed` on a `factory:manual-test` case | A `task(<epic>): fix ST-<n>` sub-issue is filed at `factory:ready` with the failure quoted, and the case moves to `factory:test-failed` until that fix lands (§4b) |
 | Human replies on a `factory:blocked` issue | `factory:blocked` is cleared and the blocked stage re-runs, re-reading the whole thread (agent comments carry an `<!-- factory-agent -->` marker so they never self-trigger) |
 | Actions → "Factory pipeline" → *Run workflow* | Any role on any issue/PR number (the manual/retry path; used for reviewer/qa/release/ops until those are event-wired) |
 
@@ -228,7 +233,7 @@ Schema: `templates/profile.schema.json`. Worked example:
 
 To change how the factory codes in a repo, edit its profile — not the prompts.
 This is also what makes the factory portable: pointing it at a new project is
-writing one profile, not rewriting twelve prompts.
+writing one profile, not rewriting thirteen prompts.
 
 ### Who writes it
 
@@ -266,6 +271,7 @@ the GitHub usernames responsible for it:
 | `implementation` | Start implementers on ready tasks | A task reaches `factory:ready` | Comment `Approved` on the task, or Run workflow (role: implementer) |
 | `expedite` | Who may put an epic on the fast path (§4a) | — (it is applied, not awaited) | Apply `factory:expedite` to the epic. This pre-approves G1, G2 and every implementation start, which is why applying it is itself authorised |
 | `staging` | Gate GS — release the assembled epic to staging | Epic reaches `factory:epic-ready` | Comment `Approved` on the epic. Falls back to the `release` list when the key is absent |
+| `testers` | Run the system test cases and record the verdict (§4b) | A case reaches `factory:manual-test` | Comment `Test Passed` (or `Test Failed`, which any collaborator may do) on the case. Falls back to the `implementation` list when the key is absent |
 | `release` | Gate G3 — production go | Issue reaches `factory:in-staging` and the Release Manager posts the merge list | Merge the promotion PRs (integration → default branch) in the posted order |
 
 Mechanics:
@@ -401,6 +407,9 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:ready-to-ship` | Green; awaiting the merge onto the epic branch (§6b). With no epic branch it waits here for the whole epic instead — its only next branch is the integration branch, and that merge is behind gate GS | QA | Release → `factory:on-epic`; with no epic branch, gate GS → `factory:in-staging` |
 | `factory:on-epic` | Merged onto the epic branch and green there; awaiting the rest of the epic (§6b). Only with `epics: true` | Release | The epic's last task lands → the **epic** goes `factory:epic-ready` |
 | `factory:epic-ready` | *On the epic:* every task is assembled and green, and nothing has touched staging yet. Awaiting **gate GS** | Release, or Dispatch on a re-run that finds the epic complete | Human (GS) → Release carries the epic to integration → `factory:in-staging` |
+| `factory:manual-test` | *On a `test(<epic>)` case:* the code it exercises is assembled; a human runs it (§4b) | Dispatcher | `Test Passed` → `factory:test-passed`; `Test Failed` → `factory:test-failed` |
+| `factory:test-passed` | *On a case:* it passed. The sub-issue closes | The `Test Passed` router branch | — (terminal) |
+| `factory:test-failed` | *On a case:* it failed, and a fix task is in flight | The `Test Failed` router branch | The fix lands → Dispatcher → back to `factory:manual-test` |
 | `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
 | `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
@@ -427,7 +436,9 @@ Create them with `scripts/setup-labels.sh`.
   design PRs still need their own merge.
 - **GS — Release to staging:** the epic is at `factory:epic-ready` — every task
   implemented, reviewed, tested and assembled, and nothing of it on staging yet
-  (§6b). A `staging` approver (falling back to the `release` list) comments
+  (§6b). Where system tests are on in `gate` mode (§4b) the epic reaches this
+  state only once every system test case has passed too, and the notice
+  carries the test matrix as evidence. A `staging` approver (falling back to the `release` list) comments
   exactly `Approved` on the epic, and the Release Manager carries the whole
   epic to the integration branch and verifies it there. This is the gate an
   expedited epic (§4a) stops at: the auto-advance map never opens it.
@@ -587,6 +598,148 @@ They execute it differently because their event models differ:
   all, so it says so once on the issue and names the manual control; the run
   ends green and nothing stalls silently.
 
+## 4b. System tests: what only a person can prove
+
+The factory proves an epic three ways before §4b: the Reviewer reads the
+diff, QA maps every WHEN/THEN scenario to an **automated** test and runs the
+suite, and the Release Manager runs the profile's health checks after each
+merge. None of that is a human exercising the assembled system the way its
+users will. Teams do that anyway — from a spreadsheet somebody wrote by
+reading the spec — and the factory neither knew it happened nor waited for
+it.
+
+System tests put that work where every other kind of work already lives: a
+document in the change folder, a sub-issue per unit of it, a state label, and
+a comment that records the verdict.
+
+**It is off until you turn it on.** `.github/factory-testing.json`:
+
+| Key | Values | Meaning |
+|---|---|---|
+| `system_tests` | `true` / `false` | Absent file ⇒ `false`: no Test Planner, no cases, every behaviour exactly as it was |
+| `mode` | `"gate"` / `"advisory"` | `"gate"` (the default when the file is present) holds an epic short of `factory:epic-ready` until every open case has passed; `"advisory"` flips it as today and lists the open cases as unverified |
+
+### The two artifacts
+
+`system-tests/test-plan.md` and `system-tests/test-data.md`, in the epic's
+change folder beside `tasks.md` and `design.md`. The plan is numbered cases —
+`### ST-<n>`, each naming the spec scenarios it `Covers:`, the tasks it
+`Depends on:`, its `Data:`, `Preconditions:`, `Steps:` and `Expected:` — plus
+a traceability table over every scenario in `specs/`. The data file is named
+synthetic sets the cases reference, with how to load and remove each.
+
+Both are **black-box**: derived from `proposal.md`, `specs/` and `tasks.md`,
+never from `design.md` or the code. If the implementation could change
+without changing what a tester would observe, it does not belong in the plan.
+All test data is synthetic — no production data, no real personal data, no
+credentials. A real value under `system-tests/` is a blocking review finding,
+exactly as §8 says of every artifact.
+
+Identifiers are stable: a revised plan never renumbers a case; one that no
+longer applies keeps its number and is marked `Withdrawn:`.
+
+OpenSpec learns about the two files through the **`factory` workflow
+schema** — `templates/openspec/schemas/factory/`, a fork of `spec-driven`
+with `test-plan` (requires `specs` and `tasks`) and `test-data` (requires
+`test-plan`) appended. Adopting it is optional and recommended (§9); the Test
+Planner writes the same files either way, from its own factory checkout when
+the repo has not adopted it. `openspec` tooling is an aid here, never a
+precondition of the pipeline.
+
+### The Test Planner
+
+Stage 2a. It runs on an epic at `factory:planned` — after the Planner has
+written `tasks.md`, before the Architect writes `design.md` — and both
+engines chain it in the same run as the other two, gated exactly as the
+Architect already is. Running it before the Architect is deliberate: the
+design can then answer the plan's needs (a seed command, a preview
+environment) rather than the plan bending to the design.
+
+It writes the two artifacts onto the Planner's `factory/<epic>-design` branch
+and opens one sub-issue per case: `test(<epic>): ST-<n> <title>`, in the
+epic's own repo, carrying the case's `Covers:` references and one machine-
+readable `Blocked by` line per code task it depends on — the same forms §7
+defines for task sub-issues. Test sub-issues do **not** count against the
+Planner's ~10-task cap, are not mirrored into `tasks.md`, and never carry a
+code state. Gate G2 then approves `tasks.md`, `system-tests/` and `design.md`
+as one PR.
+
+### Running a case
+
+The Dispatcher releases a case when its plan is merged on the epic's home
+branch **and** every task it depends on has reached its assembled state —
+`factory:on-epic` with an epic branch, `factory:in-staging` without one, or
+closed either way. It applies `factory:manual-test`, assigns the `testers`
+(§2b) and says which case, which plan, which environment.
+
+A tester runs it and comments exactly one of two things:
+
+- **`Test Passed`** — from a `testers` approver. The case flips to
+  `factory:test-passed` and closes.
+- **`Test Failed`** — from any collaborator, because a failure only adds
+  work. The factory opens `task(<epic>): fix ST-<n> — <title>` at
+  `factory:ready` with the failure quoted, adds `Blocked by #<fix>` to the
+  case, and moves it to `factory:test-failed`. That fix is an ordinary task:
+  implemented, reviewed, QA'd and assembled under whatever approvals and
+  expedite the epic has. When it lands, the Dispatcher returns the case to
+  `factory:manual-test`.
+
+Both are strict matches, like `Approved`. Evidence — screenshots, observed
+values — goes in the same thread and is not parsed.
+
+### What it does to gate GS
+
+Under `mode: gate` with an epic branch, "the epic is complete" gains a
+clause: every code task `factory:on-epic` **and** every open case
+`factory:test-passed`. An epic assembled with cases outstanding stays at
+`factory:design-approved`, its assembly report saying what it waits on, and
+the last `Test Passed` re-runs the Dispatcher, which makes the
+`factory:epic-ready` flip. Either way the GS notice carries the test matrix —
+case, verdict, tester — as the evidence the `staging` approver reads.
+
+**Without an epic branch there is nothing to hold.** Under `epics: false`
+the code first reaches a shared branch at gate GS itself, so cases are
+released at `factory:in-staging` and run on staging, between GS and G3. The
+factory does not gate G3 on them — that gate is a human's merge click, and
+pretending otherwise would mean withholding a merge list the factory has
+already been asked to post. Instead the Release Manager lists the matrix in
+every promotion PR body and in the merge-list comment, and says plainly when
+cases are unverified. `mode` makes no difference here.
+
+**Expedite (§4a) does not touch any of it.** None of the three states is in
+the auto-advance map. An expedited epic assembles itself, its cases are
+released, and then it waits for its testers exactly as it waits for gate GS.
+
+### Adopting it on an epic already in flight
+
+An epic that passed gate G2 before you turned system tests on has no plan,
+and the chain that would have written one is long finished. Comment exactly
+**`Plan tests`** on the epic and the Test Planner runs on the spot. It is
+unrestricted — writing a plan only adds documents and work — and
+`workflow_dispatch` with `role: testplanner` does the same, which is what an
+estate adopting many epics at once wants.
+
+It is allowed from `factory:planned` through `factory:in-staging` and
+**leaves the epic in whatever state it found**. Earlier than
+`factory:planned` there is no task breakdown to derive `Depends on:` from, so
+it is refused with the Planner named; it is refused too on shipped or closed
+epics, on sub-issues, on release trackers, on the profile issue and on
+fast-track issues.
+
+With the design PR already merged the plan goes on its own
+`factory/<epic>-tests` branch, cut from the epic's home branch, as one PR
+based on it, cc'ing the `design` approvers. **That merge is what makes the
+cases runnable** — one rule for both paths (on the normal path the plan
+merges at G2 long before any task assembles, so it never bites), and what
+stops a plan nobody has read appearing in front of testers on an epic whose
+code is already built.
+
+Adoption never moves an epic backwards. On one already at
+`factory:epic-ready` or on staging, the verdicts are evidence on the gate —
+the same posture as an epic with no epic branch — not a reason to revoke a
+state the factory has already granted; the `factory:epic-ready` notice is
+re-posted once so the staging approver knows the evidence has changed.
+
 ## 5. OpenSpec conventions
 
 - **Change naming:** `openspec/changes/<epic-issue-number>-<slug>/`
@@ -607,8 +760,15 @@ They execute it differently because their event models differ:
   waive, so the two labels never sit together.
 - **Commands (OpenSpec v1.7 core profile):** `/opsx:explore`, `/opsx:propose`,
   `/opsx:apply`, `/opsx:update`, `/opsx:sync`, `/opsx:archive`.
+- **System tests (§4b):** where they are enabled, a change folder also carries
+  `system-tests/test-plan.md` and `system-tests/test-data.md`, written by the
+  Test Planner from the approved spec. The **`factory` workflow schema**
+  (`templates/openspec/schemas/factory/`) declares them to OpenSpec: copy it to
+  `openspec/schemas/factory/` and set `schema: factory` in
+  `openspec/config.yaml`. Optional — the role writes the same files without it.
 - **Archive:** only the Ops Monitor archives, and only after production soak
-  passes. Durable requirements accumulate in `openspec/specs/`.
+  passes. Durable requirements accumulate in `openspec/specs/`, and
+  `system-tests/` archives with its change.
 - **Telemetry:** disabled — set `OPENSPEC_TELEMETRY=0` in agent environments.
 
 ## 6. Branching and PRs
@@ -937,7 +1097,7 @@ on and this section becomes defence-in-depth rather than the primary control.
    point (§10); the `factory:intake` label it applies only starts the pipeline
    once the labels step below has run.
 2. **Labels** — `GITHUB_TOKEN=... bash scripts/setup-labels.sh <owner> <repo...>`
-   creates the 25 `factory:*` labels (§3). Run it once per repo, and again
+   creates the 28 `factory:*` labels (§3). Run it once per repo, and again
    after a factory upgrade that adds labels — `factory:expedite` and
    `factory:epic-ready` are the newest (§4a).
 3. **Secrets** — add `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN` as a
@@ -971,6 +1131,17 @@ on and this section becomes defence-in-depth rather than the primary control.
    `epics` later is safe at any moment: an epic only follows the new value
    while none of its gate documents has merged (§6b). Neither branch needs
    manual setup while `auto_create` is on (§6a).
+6b. **System tests (optional)** — copy `templates/factory-testing.json` to
+   `.github/factory-testing.json` to turn on the Test Planner, the
+   `test(<epic>)` cases and gate GS's test accounting (§4b). Add a `testers`
+   list to `.github/factory-approvers.json` (it falls back to
+   `implementation`), and `testplanner` to `.github/factory-models.json` (a
+   missing role already falls back to `claude-sonnet-5`). To let OpenSpec
+   track the two new artifacts, also copy `templates/openspec/schemas/factory/`
+   to `openspec/schemas/factory/` and set `schema: factory` in
+   `openspec/config.yaml` — optional, and independent of the pipeline.
+   Epics already past gate G2 adopt system tests one at a time, with a
+   `Plan tests` comment (§4b).
 7. **Install the factory** — §10.
 8. Protected-branch enforcement is factory-side (§8a) — nothing to configure on
    GitHub. If you later move to a plan with branch protection or rulesets, turn
@@ -987,7 +1158,7 @@ plugin cannot deliver them.
 
 | Channel | Delivers | Mechanism |
 |---|---|---|
-| Claude Code plugin `factory` | the 12 role prompts, this handbook, the protected-branch hook | marketplace install, or `--plugin-dir` for local development |
+| Claude Code plugin `factory` | the 13 role prompts, this handbook, the protected-branch hook | marketplace install, or `--plugin-dir` for local development |
 | Reusable GitHub Actions workflows | the pipeline, the test harness, the branch guard | `uses: <owner>/claude-software-factory/.github/workflows/<file>@v1` |
 
 Both channels serve the same files from the same tagged commit. In CI the
@@ -1007,6 +1178,7 @@ injects the handbook plus the role prompt into the agent's prompt directly.
 | `.github/factory-release.json` | per-repo release gating (§2d); optional — omit it and intake runs on every filed issue |
 | `.github/factory-branches.json` | the org's integration-branch policy (§6a); optional — omit it and the defaults (`staging`, required, auto-created) apply |
 | `.github/factory-orchestrator.json` | per-repo engine choice (§2e); optional — omit it and GitHub Actions drives the repo |
+| `.github/factory-testing.json` | per-repo system-test policy (§4b); optional — omit it and no Test Planner runs and no test case exists |
 | `.github/ISSUE_TEMPLATE/factory-requirement.yml` | the intake entry point — GitHub only renders issue forms present in the repo being filed against |
 | `.claude/settings.json` | plugin `settings.json` supports only `agent` and `subagentStatusLine` — a **permissions** block cannot ship in a plugin, and the merge deny list is half of §8a |
 

@@ -114,10 +114,22 @@ were started on an epic whose tasks are all assembled but which is not
 5. **When the epic is complete — and only then — open gate GS.** Complete
    means: with an epic branch, every task is `factory:on-epic` and the epic
    branch's full suite is green; without one, every task is
-   `factory:ready-to-ship`. On the **epic** issue, remove whatever state it
+   `factory:ready-to-ship`.
+
+   **With system tests on in `gate` mode** (`.github/factory-testing.json`,
+   FACTORY.md §4b) and an epic branch, complete also means every open
+   `test(<epic>)` case whose plan is merged is `factory:test-passed`. If the
+   code is assembled but cases are open, do **not** flip the epic: post the
+   assembly report, say it is assembled and waiting on those N cases (name
+   them and their testers), and stop. The last `Test Passed` re-runs the
+   Dispatcher, and that is what flips the epic. In `advisory` mode, and for
+   an epic with no epic branch, the cases never hold the flip — list any
+   open or failed case in the report as unverified. On the **epic** issue, remove whatever state it
    carries and apply `factory:epic-ready`, then post an **assembly report**:
    which task PR merged onto which branch in which order, the suite result,
-   and anything a human should weigh before this goes to staging.
+   and anything a human should weigh before this goes to staging. With system
+   tests on, that includes the **test matrix** — every case, its verdict and
+   who gave it — since gate GS is where a human weighs it.
 
    Then **stop**. `factory:epic-ready` is gate GS (FACTORY.md §4): a `staging`
    approver comments `Approved` on the epic, and that starts phase 1b as a
@@ -149,6 +161,14 @@ phase 1 — go back.
    affected repo's epic branch is green (§7); then merge them yourself in the
    contract-first order from step 1, each with a **merge commit** (never
    squash — task history and the single-revert demotion path must survive).
+7a. **With system tests on and no epic branch** (§4b), the merges you just
+   made are the first time this epic's code has reached a shared branch, so
+   its cases can only run now. The Dispatcher releases them as the tasks
+   reach `factory:in-staging`; say in your integration report that the cases
+   are now runnable and who the testers are. The factory does not hold gate
+   G3 on them — that gate is a human's merge click — so their verdicts travel
+   as evidence instead: see step 10.
+
 8. After each integration merge, watch that repo's staging deploy workflow and
    run its `deploy.health_checks`. When green: on the epic and its task
    issues, remove `factory:on-epic` (and `factory:epic-ready` from the epic),
@@ -165,15 +185,22 @@ phase 1 — go back.
     repo**: head = the integration branch, base = `branches.default`. Title
     `release(<epic>): promote <integration> to <default>`. Body: what ships
     (name every epic riding this promotion), the position of this repo in the
-    merge order, the staging evidence from step 9, and the rollback plan. If
+    merge order, the staging evidence from step 9, and the rollback plan. With
+    system tests on, add the **test matrix** — every case with its verdict
+    and tester — and, when any case is still open or failed, say so in as
+    many words at the top of the body: this promotion carries unverified
+    system tests, and the human merging it is the one deciding that is
+    acceptable. If
     the promotion PR conflicts because the default branch moved, merge the
     default branch **into the integration branch** and re-verify staging —
     never rewrite the integration branch's history, and never resolve it on
     the default branch side.
 11. On the epic, post the release summary with a **numbered merge list**: the
     exact promotion PRs for the human to merge via the GitHub UI, in order
-    (**gate G3**). Assign and @-mention the `release` approver list from
-    `.github/factory-approvers.json`.
+    (**gate G3**). Repeat the test matrix here, and repeat the unverified
+    warning if there is one — the merge list is what the approver acts on, so
+    that is where the warning has to be. Assign and @-mention the `release`
+    approver list from `.github/factory-approvers.json`.
 12. **You cannot and must not merge into `main`/`master` or push to it** — the
     protect-branches hook blocks it and PR-merge tools are denied
     (FACTORY.md §8a). The human's merge clicks are the promotion.

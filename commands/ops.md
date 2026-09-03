@@ -44,7 +44,11 @@ Prove the release is healthy, then close the loop.
      yourself — a merge, never a rebase; a conflict marks that epic
      `factory:blocked` with the conflicting files named.
    - Close the epic and its sub-issues with a verification summary:
-     scenario → evidence.
+     scenario → evidence. Where the epic ran system tests (FACTORY.md §4b),
+     cite the test matrix — case, verdict, tester — alongside the automated
+     evidence; those verdicts are part of what proves the release, and
+     `system-tests/` archives with the change folder like every other
+     artifact.
    - Remove `factory:deployed`.
 4. **On regression:**
    - File a `factory:incident` issue with diagnostics (log excerpts, failing

@@ -20,7 +20,13 @@
     "the issue's epic holds factory:expedite (FACTORY.md §4a) — there the",
     "factory advances the state itself and the reader is owed the opposite",
     "message: nothing to do. Renderers fall back to who/how when a state has",
-    "no variant, which is right for every state expedite does not advance."
+    "no variant, which is right for every state expedite does not advance.",
+    "",
+    "A 'tested' variant is the same idea for repos that enable system tests",
+    "(.github/factory-testing.json, FACTORY.md §4b): the states whose story",
+    "changes when an epic also has human-run cases to finish. Renderers pick",
+    "it the way they pick 'expedited', and fall back to who/how without the",
+    "policy — which is right for every repo that has not turned tests on."
   ],
   "states": {
     "factory:backlog": {
@@ -69,7 +75,11 @@
     },
     "factory:design-approved": {
       "who": "the factory",
-      "how": "The Dispatcher is marking every unblocked task `factory:ready`. Nothing to do until a task asks for its start approval."
+      "how": "The Dispatcher is marking every unblocked task `factory:ready`. Nothing to do until a task asks for its start approval.",
+      "tested": {
+        "who": "the factory, then the testers",
+        "how": "The Dispatcher is releasing every unblocked task. This epic runs system tests (FACTORY.md §4b): as each task is assembled onto the epic branch, the cases that depend on it become `factory:manual-test` for a human to run. The epic stays here until its tasks and its cases are all done — that is when it moves to `factory:epic-ready` and asks for gate GS."
+      }
     },
     "factory:ready": {
       "who": "the implementation approvers — {approvers}",
@@ -105,11 +115,27 @@
     },
     "factory:on-epic": {
       "who": "the rest of the epic",
-      "how": "This task is merged onto its epic branch and green there, and it is done: nothing further happens to it on its own. It waits for its siblings — when the last one lands, the **epic** goes to `factory:epic-ready` and asks for gate GS there, not here."
+      "how": "This task is merged onto its epic branch and green there, and it is done: nothing further happens to it on its own. It waits for its siblings — when the last one lands, the **epic** goes to `factory:epic-ready` and asks for gate GS there, not here.",
+      "tested": {
+        "who": "the rest of the epic, and its testers",
+        "how": "This task is merged onto its epic branch and green there, and it is done. Its siblings and the epic's system test cases are what remain: the Dispatcher has released every case this task's landing unblocked, and when the last task and the last case are done the **epic** goes to `factory:epic-ready` and asks for gate GS there, not here."
+      }
     },
     "factory:epic-ready": {
       "who": "gate GS — {approvers}",
       "how": "Every task in this epic is implemented, reviewed, tested and assembled on the epic branch, and none of it has touched staging yet. Comment exactly `Approved` here (or press **Approve** in the Factory Console) and the Release Manager carries the whole epic to the integration branch and verifies it there. That is a staging release, not a production one — production is still gate G3, a human merging the promotion PR."
+    },
+    "factory:manual-test": {
+      "who": "the testers — {approvers}",
+      "how": "This system test case is ready to run: the code it exercises is assembled. Its steps, its data and its expected result are in the epic's system test plan (`system-tests/test-plan.md` in the change folder), linked above. When you have run it, comment exactly `Test Passed` or exactly `Test Failed` here, with what you saw. `Test Failed` files a fix task and brings this case back when that lands."
+    },
+    "factory:test-failed": {
+      "who": "the fix task, then you again",
+      "how": "This case failed and the factory filed a task to fix it — named in the comment above. That task is implemented, reviewed, tested and assembled like any other; when it lands, the Dispatcher puts this case back to `factory:manual-test` for a re-run. Nothing here needs you until then."
+    },
+    "factory:test-passed": {
+      "who": "nobody — this case is done",
+      "how": "It passed and is closed. Where system tests gate the staging release, the epic reaches `factory:epic-ready` once every one of its cases has; if others are still open, the epic is waiting on them, not on this."
     },
     "factory:in-staging": {
       "who": "gate G3 — {approvers}",
