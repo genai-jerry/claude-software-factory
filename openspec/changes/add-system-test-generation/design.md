@@ -225,6 +225,52 @@ Alternative: send the depended-on code task back to `factory:ready`
 (rejected — that task is merged on the epic branch; reopening it would
 either fork its branch or rewrite epic history, and its PR is closed).
 
+### D10 — Adoption on an in-flight epic: a comment, a document PR, and no state change
+
+Every epic that exists when a repo turns system tests on is past the point
+where the chain would have written its plan, and for most estates that is
+every epic they currently care about. Three decisions make retrofitting work
+without a second state machine.
+
+**The trigger is a comment.** `Plan tests` on the epic, strict match, exactly
+the grammar of `Plan release` — and unrestricted, like it. Writing a plan
+only adds documents and work; the decision it feeds (gate GS) is authorised
+where it already is. A label was the alternative and was rejected: it would
+be a fourth kind marker whose only job is to be removed again, and the
+Console already posts literal comments as the acting user. `workflow_dispatch`
+with `role: testplanner` stays the scripted path, which is what an estate
+adopting twenty epics actually wants.
+
+**The plan gets its own document PR when the design PR is gone.**
+`factory/<epic>-tests`, cut from the epic's home branch, based on it, cc'ing
+the `design` approvers — the same people who would have reviewed it at G2.
+Nothing else in the factory changes: it is a document PR onto a branch the
+factory may write to, and it reaches the default branch with the promotion
+like every other document.
+
+**A merged plan is what makes cases runnable.** Stated once, in
+`test-artifacts`, and it removes the whole class of retrofit hazards: on an
+epic whose tasks are already assembled, the Dispatcher would otherwise
+release every case the moment the sub-issues appeared, putting a plan nobody
+had read in front of testers. On the normal path the plan merges at G2 long
+before any task assembles, so the rule costs nothing there. One rule, two
+paths, no special case.
+
+The remaining question is what a retrofit does to an epic that has already
+reached `factory:epic-ready` or gone to staging. **It does not move it.**
+Reverting a state the factory granted would mean an epic that was assembled
+and green becoming un-assembled because someone wrote a document — and gate
+GS is explicitly "re-armed, not remembered" only after a *staging failure*,
+which this is not. So the verdicts become evidence rather than a hold, which
+is precisely the posture D8 already takes for an epic with no epic branch:
+the matrix is on the GS panel and in the promotion PR body, unverified cases
+are named plainly, and the human at the gate decides. The one addition is
+that the `factory:epic-ready` notice is re-posted when a case becomes
+runnable after the flip, because the staging approver was shown evidence that
+has since changed. An epic adopted *before* it reaches completeness is
+ordinary: `mode: gate` holds it exactly as for an epic planned from the
+start.
+
 ## Risks / Trade-offs
 
 - [Plans that restate the spec] → The template forces `Steps:` and
@@ -249,7 +295,11 @@ either fork its branch or rewrite epic history, and its PR is closed).
   idempotent and label-guarded; the worst case is two summary comments. The
   orchestrator's ledger and the Actions `concurrency` group already
   serialise runs per issue.
-- [Fixture growth] → Around a dozen new fixtures; they are the contract, and
+- [A retrofit floods testers with cases for work finished months ago] →
+  Adoption is per-epic and by hand, the plan's merge is a second deliberate
+  step, and `mode: advisory` lets an estate adopt broadly without holding any
+  gate; the Console shows the case count before the plan is merged.
+- [Fixture growth] → Around fifteen new fixtures; they are the contract, and
   both routers already run every fixture in CI.
 
 ## Migration Plan
@@ -262,9 +312,12 @@ either fork its branch or rewrite epic history, and its PR is closed).
    `factory-approvers.json` and `testplanner` to `factory-models.json`,
    optionally adopt the OpenSpec schema.
 3. Epics already past G2 when the policy lands have no plan and no test
-   sub-issues; they finish as today. Running `testplanner` by hand on one
-   writes a plan and opens sub-issues, which the next Dispatcher run picks
-   up — documented as the adoption path for an in-flight epic.
+   sub-issues, and finish as today unless somebody adopts them (D10):
+   comment `Plan tests` on the epic, review and merge the
+   `factory/<epic>-tests` PR, and the next Dispatcher run releases the cases
+   whose code is assembled. Adopting an epic already at `factory:epic-ready`
+   or on staging is allowed and changes no state — its verdicts land on the
+   gate as evidence.
 4. Rollback: remove the policy file. Existing test sub-issues stay as
    history; the Dispatcher ignores `test(` children when the policy is off,
    and `Test Passed` / `Test Failed` answer "not enabled here".

@@ -50,8 +50,18 @@ final label, state and comment names.
       `Covers:` and `Blocked by` lines and `Part of` when cross-repo, the
       checklist comment on the epic, the idempotent re-run rule (never
       renumber; withdraw), and guardrails (black-box, synthetic data only,
-      never a `factory:*` label on a test sub-issue, leave the epic at
-      `factory:planned`); verify against every `test-planner` scenario.
+      never a `factory:*` label on a test sub-issue, never a state change
+      to the epic); verify against every `test-planner` scenario.
+- [ ] 2.1a Extend `commands/testplanner.md` with the adoption path: allowed
+      from `factory:planned` through `factory:in-staging`; commit onto the
+      open `factory/<epic>-design` branch when there is one, else cut
+      `factory/<epic>-tests` from the epic's home branch and open a
+      `test(<epic>): system test plan` PR based on it, cc'ing the `design`
+      approvers and saying what merging it releases; leave the epic in the
+      state it was found; refuse with the reason before `factory:planned`,
+      on shipped or closed epics, on sub-issues, trackers, the profile issue
+      and fast-track issues; verify against every adoption scenario in
+      `test-planner` and `test-artifacts`.
 - [ ] 2.2 Update `commands/planner.md` (state that test sub-issues are not
       in the ~10 cap and that the task → scenario mapping is what the Test
       Planner reads), `commands/architect.md` (read `system-tests/` when
@@ -69,6 +79,14 @@ final label, state and comment names.
       clause and posts the test matrix in the GS notice; ignore `test(`
       children when the policy is off; verify against every
       `manual-test-tasks` Dispatcher scenario.
+- [ ] 2.3a Add the two adoption preconditions to `commands/dispatch.md`: a
+      case is released only when its plan is merged on the home branch (name
+      the open plan PR in the summary otherwise), and a **closed** dependency
+      counts as assembled alongside `factory:on-epic` /
+      `factory:in-staging`; re-post the `factory:epic-ready` notice once when
+      a case becomes runnable on an epic already at that state, and never
+      revert a state to accommodate a late plan; verify with an epic adopted
+      at `factory:epic-ready` and one adopted at `factory:design-approved`.
 - [ ] 2.4 Update `commands/release.md`: phase 1 step 5 gains the same
       completeness clause and the "assembled, waiting on N tests" report;
       phase 1b/2 list the test matrix in promotion PR bodies and the
@@ -84,7 +102,10 @@ final label, state and comment names.
       routers and a `testing` config loader (`.github/factory-testing.json`,
       absent/invalid ⇒ off) with a `testing` key in the fixture schema and
       `SCHEMA.md`; verify existing fixtures pass unchanged.
-- [ ] 3.2 Implement the `issue_comment` branch for `Test Passed` (authorise
+- [ ] 3.2 Implement the `issue_comment` branch for `Plan tests` (strict
+      match, unrestricted, route `testplanner` at the epic, with the refusal
+      replies for too-early, shipped, wrong-kind and policy-off) and for
+      `Test Passed` (authorise
       against `testers` → `implementation` → anyone; flip to
       `factory:test-passed`, close, receipt; then route `dispatch` to the
       epic when it is `factory:design-approved`) and `Test Failed` (open the
@@ -104,7 +125,11 @@ final label, state and comment names.
       fail refused, last pass routes dispatch, pass with tasks still open
       routes nothing, manual-test notifies testers with fallback, code state
       on a test reverted, expedite on runnable tests, policy absent and
-      invalid) and run them against both routers; verify
+      invalid) and for adoption (`Plan tests` routing testplanner from each
+      allowed state, each refusal, a case held back by an unmerged plan, a
+      closed dependency counting as assembled, an adopted epic at
+      `factory:epic-ready` keeping its state) and run them against both
+      routers; verify
       `scripts/test-router.js` and `test_conformance.py` stay green.
 
 ## 4. Chaining
@@ -153,3 +178,10 @@ final label, state and comment names.
       `Test Failed` files a fix that lands and re-releases the case; the
       last `Test Passed` flips `factory:epic-ready` with the matrix; record
       the trace as a wiki page beside `Run-Trace-Issue-16.md`.
+- [ ] 7.2 Pilot the adoption path on an epic that was already past gate G2
+      before the policy landed: `Plan tests` writes the plan and opens the
+      sub-issues with the epic's state untouched, the `factory/<epic>-tests`
+      PR merges, the next Dispatcher run releases the cases whose code is
+      assembled, and an epic adopted at `factory:epic-ready` keeps that state
+      with its matrix on the gate; record both traces on the same wiki
+      page.

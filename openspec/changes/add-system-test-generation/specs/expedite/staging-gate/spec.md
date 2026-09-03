@@ -9,7 +9,8 @@ mean: the epic's implementation is complete and proven as far as it can be
 without touching staging — with `epics: true`, every task is
 `factory:on-epic`, the epic branch's full suite is green, **and, when
 `.github/factory-testing.json` sets `system_tests: true` with `mode: gate`,
-every open `test(<epic>)` sub-issue is `factory:test-passed`**; with
+every open `test(<epic>)` sub-issue whose plan is merged is
+`factory:test-passed`**; with
 `epics: false`, every task is `factory:ready-to-ship`. It SHALL be set on the
 epic by the factory: by the Release run that lands the last task in its end
 state, or by the Dispatcher when a re-dispatch — on task close, chained after
@@ -32,6 +33,13 @@ expedited and non-expedited epics alike.
   reaches `factory:on-epic`
 - **THEN** the epic still flips to `factory:epic-ready` — the informal
   "start Release phase 2 by hand" step no longer exists
+
+#### Scenario: An epic already at the gate is not re-closed
+
+- **WHEN** an epic already at `factory:epic-ready` adopts a system test plan
+  and its cases become runnable
+- **THEN** the epic keeps `factory:epic-ready` and the open cases are shown
+  as evidence on the gate, never as a reason to revoke it
 
 #### Scenario: Last test flips the epic
 

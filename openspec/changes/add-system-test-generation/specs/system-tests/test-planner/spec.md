@@ -20,9 +20,10 @@ gated exactly as the Architect is today: the Planner must have reached
 `factory:planned` for the Architect to proceed. Without the policy file, or
 with `system_tests` false, the chain SHALL be Planner → Architect exactly as
 today and no test artifacts or sub-issues SHALL exist. The role SHALL also be
-startable by hand on a `factory:planned` epic (Run workflow, or the Console)
-and SHALL be idempotent: a re-run on an epic that already has a plan revises
-it, keeping identifiers, rather than writing a second one.
+startable by hand on any epic in the states the adoption requirement below
+names (Run workflow, or the Console) and SHALL be idempotent: a re-run on an
+epic that already has a plan revises it, keeping identifiers, rather than
+writing a second one.
 
 #### Scenario: Chained between Planner and Architect
 
@@ -43,6 +44,67 @@ it, keeping identifiers, rather than writing a second one.
 
 - **WHEN** the Planner ends at `factory:blocked` or splits the epic
 - **THEN** neither the Test Planner nor the Architect runs, as today
+
+### Requirement: Adoption on an epic already in flight
+
+An epic that passed gate G2 before system tests were enabled — or before this
+change existed — has no plan and no test sub-issues, and the chain that would
+have written them is long finished. The factory SHALL therefore let a human
+ask for one: a comment whose body is exactly `Plan tests` on such an epic
+SHALL start the Test Planner on it. It is a strict match, like every other
+factory comment control, and it is unrestricted (any owner, member or
+collaborator) — writing a test plan only adds documents and work, which is
+always safe, and the plan itself is reviewed before any case becomes runnable
+(`test-artifacts`). `workflow_dispatch` with `role: testplanner` and the epic
+number SHALL do the same thing, so an estate can adopt many epics with a
+script rather than a comment each.
+
+The run SHALL be allowed on an epic at `factory:planned`,
+`factory:design-ready`, `factory:design-approved`, `factory:epic-ready` or
+`factory:in-staging`, and SHALL leave the epic in whatever state it found —
+it is a document run, and it never advances, reverts or gates the epic. It
+SHALL be refused, with a comment naming the reason, on an epic earlier than
+`factory:planned` (there is no `tasks.md` to derive `Depends on:` from — the
+reply names the Planner as what to wait for), on a `factory:deployed` or
+closed epic (that work has shipped; a defect there is an incident or a new
+issue), on task and test sub-issues, on release trackers, on the profile
+issue, on `factory:fast-track` issues (no change folder), and in a repo whose
+`.github/factory-testing.json` does not enable system tests.
+
+#### Scenario: Adopting on a mid-implementation epic
+
+- **WHEN** a collaborator comments `Plan tests` on an epic at
+  `factory:design-approved` whose tasks are half implemented
+- **THEN** the Test Planner runs, writes the plan and data, opens the test
+  sub-issues, and the epic is still `factory:design-approved` when it
+  finishes
+
+#### Scenario: Adopting on an assembled epic
+
+- **WHEN** the same comment lands on an epic at `factory:epic-ready`
+- **THEN** the Test Planner runs and the epic stays `factory:epic-ready` —
+  the cases become runnable when the plan merges, and they are evidence on
+  the gate rather than a hold (see `manual-test-tasks`)
+
+#### Scenario: Too early is refused with the reason
+
+- **WHEN** `Plan tests` is commented on an epic at `factory:spec-approved`
+- **THEN** nothing runs and the reply says there is no task breakdown yet and
+  that the Planner produces one at `factory:planned`
+
+#### Scenario: Refused where there is no spec to test
+
+- **WHEN** `Plan tests` is commented on a `factory:fast-track` issue, a
+  release tracker or the profile issue
+- **THEN** nothing runs and the reply names why that issue has no system test
+  plan
+
+#### Scenario: Scripted adoption across an estate
+
+- **WHEN** an operator dispatches `role: testplanner` for each of five
+  in-flight epics
+- **THEN** each run writes that epic's plan and opens its sub-issues, with no
+  comment on any epic required
 
 ### Requirement: What it reads and what it writes
 

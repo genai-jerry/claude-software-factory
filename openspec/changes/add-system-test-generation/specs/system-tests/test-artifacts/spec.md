@@ -133,6 +133,48 @@ cases are tracked as sub-issues, not as checkboxes.
   written from the factory's shipped templates, and the run reports that the
   repo has not adopted the schema without blocking on it
 
+### Requirement: Where the artifacts land when the design PR has gone
+
+The Test Planner writes onto the open `factory/<epic>-design` branch when
+there is one (`test-planner`). For an epic whose design PR has already merged
+— every epic adopted after gate G2 — there is no such branch, and the plan
+SHALL instead go on `factory/<epic>-tests`, cut from the epic's **home
+branch** (the epic branch under `epics: true`, else the branch that carries
+the change folder, FACTORY.md §6a), with one PR titled `test(<epic>): system
+test plan` based on that same branch. The PR SHALL cc the `design` approvers
+— they own document review for this epic — and say what merging it releases.
+It SHALL never be based on the default branch while the epic has a home
+branch, exactly like every other document PR.
+
+A plan SHALL become authoritative only when it is **merged on the home
+branch**: until then its cases exist as sub-issues but no case is runnable
+(`manual-test-tasks`). This is one rule for both paths rather than a special
+case for adoption — on the normal path the plan merges at gate G2, long
+before any task assembles, so the rule is invisible there; on an adopted
+epic whose tasks are already built it is what stops a plan nobody has read
+from putting cases in front of testers.
+
+#### Scenario: Adopted epic gets its own document PR
+
+- **WHEN** the Test Planner runs on an epic at `factory:design-approved`
+  whose design PR merged last week, under `epics: true`
+- **THEN** it commits the plan and data on `factory/<epic>-tests` cut from
+  `factory/epic-<epic>`, opens a PR based on that branch, and cc's the
+  `design` approvers
+
+#### Scenario: Merging the plan is what releases its cases
+
+- **WHEN** that PR is still open and every task a case depends on is
+  `factory:on-epic`
+- **THEN** the case stays pending, and the Dispatcher's summary says the plan
+  is not merged yet and names the PR
+
+#### Scenario: Open design PR is still the target
+
+- **WHEN** the Test Planner runs on an epic at `factory:planned` whose
+  `factory/<epic>-design` PR is open
+- **THEN** it commits onto that branch as usual and opens no second PR
+
 ### Requirement: The artifacts travel with the change
 
 `system-tests/` SHALL be treated as change content in every respect: it

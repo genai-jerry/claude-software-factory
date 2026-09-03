@@ -97,6 +97,21 @@ branch, and counted before the epic is called ready for staging.
   which GitHub does only for a PR merged to the default branch, so under
   `epics: true` dependents of a task merged onto the epic branch were released
   only by hand.
+- **Existing epics can adopt it.** An epic that passed gate G2 before system
+  tests were enabled has no plan and no chain left to write one, so a
+  collaborator comments exactly `Plan tests` on it (or dispatches
+  `role: testplanner`, the scripted path for adopting many at once) and the
+  Test Planner runs on the spot. It is allowed from `factory:planned` through
+  `factory:in-staging`, leaves the epic in whatever state it found, and is
+  refused with a reason before the task breakdown exists, on shipped epics,
+  and on issues with no spec to test. With the design PR already merged the
+  plan lands on a `factory/<epic>-tests` PR onto the epic's home branch,
+  cc'ing the `design` approvers. A case becomes runnable only once its plan is
+  **merged** — one rule for both paths, and what stops an unread plan
+  reaching testers. Adoption never moves an epic backwards: on one already at
+  `factory:epic-ready` or later the verdicts are evidence on the gate, exactly
+  as they are for an epic with no epic branch, rather than a hold that revokes
+  a state the factory already granted.
 - **Expedite is unchanged and stops short of a human's test.**
   `factory:manual-test` is absent from the auto-advance map; an expedited
   epic assembles itself and then waits for its testers exactly as it waits
@@ -134,6 +149,10 @@ branch, and counted before the epic is called ready for staging.
 
 ## Impact
 
+- **Adoption is per-epic and deliberately not batched.** Each plan is a
+  document somebody should read before its cases reach testers, so there is
+  no "plan tests for every open epic" control; the manual dispatch is the
+  scripted path for an estate that wants one anyway.
 - **Opt-in, no behavioural change without the policy file.** Repos that add
   `.github/factory-testing.json` also re-run `scripts/setup-labels.sh`
   (25 → 28 labels), add `testplanner` to `.github/factory-models.json`

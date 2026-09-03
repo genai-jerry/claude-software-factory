@@ -60,12 +60,16 @@ is waiting on its dependencies. The label count moves 25 → 28.
 ### Requirement: The Dispatcher releases test tasks
 
 The Dispatcher SHALL treat `test(<epic>)` sub-issues as a second kind of
-child. For each one that carries no state label and whose every `Blocked
+child. For each one that carries no state label, whose defining plan is
+merged on the epic's home branch (`test-artifacts`), and whose every `Blocked
 by` target has reached its **assembled state** — `factory:on-epic` when the
-epic has an epic branch, `factory:in-staging` when it does not — it SHALL
-apply `factory:manual-test`, assign the `testers` approvers and post a
-comment naming the case, the plan, the environment and the two comments that
-move it. A test sub-issue with `Depends on: none` is released together with
+epic has an epic branch, `factory:in-staging` when it does not, or **closed**
+in either case, since a task closes when its PR reaches the default branch
+and is assembled by definition — it SHALL apply `factory:manual-test`, assign
+the `testers` approvers and post a comment naming the case, the plan, the
+environment and the two comments that move it. A case whose dependencies are
+assembled but whose plan is not merged SHALL stay pending, and the
+Dispatcher's summary SHALL name the open plan PR. A test sub-issue with `Depends on: none` is released together with
 the first wave once any task of the epic is assembled. A test sub-issue in
 `factory:test-failed` whose fix task has reached its assembled state SHALL be
 returned to `factory:manual-test` with a "re-test" comment. An unreachable
@@ -91,6 +95,20 @@ cross-repo dependency SHALL be treated as not assembled, as today.
   after gate GS, and the Dispatcher runs
 - **THEN** every test sub-issue whose dependencies are `factory:in-staging`
   gets `factory:manual-test`, with the environment named as staging
+
+#### Scenario: A closed dependency counts as assembled
+
+- **WHEN** ST-7 depends on a task whose PR was merged and whose sub-issue is
+  closed, and the Dispatcher runs
+- **THEN** that dependency is satisfied and ST-7 is released if its others
+  are
+
+#### Scenario: An unmerged plan holds its cases back
+
+- **WHEN** an adopted epic's `factory/<epic>-tests` PR is open, every task is
+  `factory:on-epic`, and the Dispatcher runs
+- **THEN** no case is released, and the summary says the plan PR must merge
+  first and links it
 
 ### Requirement: The Release → Dispatcher chain
 
@@ -241,6 +259,36 @@ here, and the policy file's documentation SHALL say so.
   epic branch and one case is still `factory:manual-test`
 - **THEN** each PR body lists every case with its verdict and marks that one
   as unverified, and the merge-list comment repeats the warning
+
+### Requirement: Adopting tests never moves an epic backwards
+
+A plan written for an epic that is already assembled or released
+(`test-planner`) SHALL NOT change that epic's state, re-close a gate it has
+passed, or revoke `factory:epic-ready`. The `mode: gate` accounting applies
+to the flip when it is *made* — an epic that reaches completeness with cases
+outstanding waits — and never retroactively to one already flipped. For an
+epic at `factory:epic-ready` or later when its cases become runnable, the
+verdicts SHALL be carried as evidence exactly as they are for an epic with no
+epic branch: the GS notice and the promotion PR bodies list the matrix and
+mark unverified cases plainly, and the human at the gate decides. The
+`factory:epic-ready` notice SHALL be re-posted once when a case is released
+after the epic reached that state, so the staging approver learns that
+evidence they were not shown is now pending.
+
+#### Scenario: Adopted on an assembled epic
+
+- **WHEN** the plan for an epic at `factory:epic-ready` merges under
+  `mode: gate` and its cases become runnable
+- **THEN** the epic stays `factory:epic-ready`, its GS notice is re-posted
+  with the open cases and the testers named, and no state is reverted
+
+#### Scenario: Adopted before completeness still holds the gate
+
+- **WHEN** an epic at `factory:design-approved` adopts a plan, the plan
+  merges, and its last code task lands afterwards under `mode: gate` with two
+  cases open
+- **THEN** the epic is not flipped to `factory:epic-ready` until those cases
+  pass, exactly as for an epic planned from the start
 
 ### Requirement: Expedite stops at a human's test
 
