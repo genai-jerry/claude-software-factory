@@ -6,17 +6,17 @@ final label, state and comment names.
 
 ## 1. Canon and config
 
-- [ ] 1.1 Add `factory:manual-test`, `factory:test-passed` and
+- [x] 1.1 Add `factory:manual-test`, `factory:test-passed` and
       `factory:test-failed` to `scripts/setup-labels.sh` with colours and
       descriptions; move the count note 25 → 28; verify the script is still
       idempotent against a repo that already has the labels.
-- [ ] 1.2 Add `templates/factory-testing.json` (`system_tests`, `mode`, a
+- [x] 1.2 Add `templates/factory-testing.json` (`system_tests`, `mode`, a
       `_comment` that states the `epics: false` behaviour) and a `testers`
       key with its fallback (`implementation`) to
       `templates/factory-approvers.json`; add `testplanner` to
       `templates/factory-models.json` on the planner's chain; verify all
       three parse.
-- [ ] 1.3 Write FACTORY.md §4b "System tests": the two artifacts, the Test
+- [x] 1.3 Write FACTORY.md §4b "System tests": the two artifacts, the Test
       Planner, test sub-issues and their three states, the two comments,
       the fix task, gate GS accounting in both modes, the `epics: false`
       evidence-only rule, and what expedite does not touch. Update §2
@@ -26,13 +26,13 @@ final label, state and comment names.
       (three state rows; "five labels are not states" unchanged), §4 (GS
       wording), §5 (the `factory` schema), §9 (setup step), §10 (footprint
       row); verify every scenario in the four delta specs has a home.
-- [ ] 1.4 Ship `templates/openspec/schemas/factory/` — `schema.yaml` forked
+- [x] 1.4 Ship `templates/openspec/schemas/factory/` — `schema.yaml` forked
       from `spec-driven` with `test-plan` (requires specs, tasks) and
       `test-data` (requires test-plan) appended, plus
       `templates/test-plan.md` and `templates/test-data.md`; verify
       `openspec schema validate factory` passes when the directory is copied
       into a scratch repo, and `openspec status` lists both artifacts.
-- [ ] 1.5 Update `docs/setup-guide.md` (config table row, optional schema
+- [x] 1.5 Update `docs/setup-guide.md` (config table row, optional schema
       step, `testers` note) and `wiki/Factory-Pipeline-States.md` (the test
       states beside `factory:on-epic`, the Test Planner in the G1 chain);
       verify the wiki diagram renders.

@@ -47,6 +47,11 @@ flowchart TB
     I -- "QA" --> J["factory:ready-to-ship"]
     J -- "Release Manager<br/>merges onto the epic branch" --> E2["factory:on-epic"]
     E2 -- "epic complete<br/>and green" --> ER["factory:epic-ready"]
+    E2 -. "system tests on:<br/>Dispatcher releases<br/>its cases" .-> MT["a case:<br/>factory:manual-test"]
+    MT -- "Test Passed" --> TP["factory:test-passed"]
+    MT -. "Test Failed" .-> TF["factory:test-failed<br/>fix task filed"]
+    TF -. "fix lands" .-> MT
+    TP -. "last case" .-> ER
     ER -- "GS · Approved<br/>release to staging" --> S["factory:in-staging"]
     S -- "G3 · human merges<br/>the promotion PR" --> K["factory:deployed"]
   end
@@ -61,7 +66,8 @@ flowchart TB
   classDef halt fill:#F5E6E3,stroke:#A33526,stroke-width:1.5px,color:#4E1811
   classDef entry fill:#EDF0F1,stroke:#9FADB1,stroke-width:1.5px,color:#3A464B
 
-  class A,C,D,F,G,H,I,J,E2,R0,R1,R3 state
+  class A,C,D,F,G,H,I,J,E2,R0,R1,R3,TP state
+  class MT,TF gate
   class B,E,S,ER,R2 gate
   class K done
   class X halt
@@ -75,6 +81,15 @@ flowchart TB
 
 Rust-filled states wait on a human. Everything else advances on its own the
 moment the previous role finishes.
+
+The three test states hang off `factory:on-epic` and exist only where
+`.github/factory-testing.json` turns system tests on (FACTORY.md §4b). They
+live on `test(<epic>)` sub-issues, never on an epic or a code task: the Test
+Planner writes a plan of human-run cases at stage 2a, the Dispatcher releases
+each one when the code it depends on is assembled, and a tester comments
+`Test Passed` or `Test Failed`. In `gate` mode the epic reaches
+`factory:epic-ready` only once every case has passed — the last pass is what
+flips it.
 
 The `factory:on-epic` hop exists only with the epic-branch policy on
 (`"epics": true` in `.github/factory-branches.json`, FACTORY.md §6b). With it
@@ -90,7 +105,7 @@ pre-epic behaviour.
 | **G0** | `factory:release-ready` | Is this the right batch of work to start? | Owner comments `Approved` on the release tracker — or, in `"approval": "agent"` mode, the Scrum Master's own GO |
 | **G1** | `factory:spec-ready` | Is the spec concrete enough to plan against? | Owner comments `Approved` |
 | **G2** | `factory:design-ready` | Does the architecture actually solve it? | Owner comments `Approved` |
-| **GS** | `factory:epic-ready` | May this assembled epic go to staging? | A `staging` approver comments `Approved` (falls back to the `release` list) |
+| **GS** | `factory:epic-ready` | May this assembled epic go to staging? | A `staging` approver comments `Approved` (falls back to the `release` list). With system tests in `gate` mode the epic only arrives here once every case has passed |
 | **G3** | `factory:in-staging` | May this land on `main`? | A human presses Merge on the promotion PR |
 
 G0 only exists with release gating on, and is the one gate that can be handed to

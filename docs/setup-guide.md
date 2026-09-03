@@ -49,7 +49,7 @@ GITHUB_TOKEN=<token> bash scripts/setup-labels.sh <owner> <repo>
 ```
 
 Run from a checkout of **this** repo (`claude-software-factory`), pointed at
-the *consuming* repo via `<owner> <repo>`. It creates (or updates) the 21
+the *consuming* repo via `<owner> <repo>`. It creates (or updates) the 28
 labels listed in FACTORY.md §3 — the mutually-exclusive states plus the markers
 that sit alongside them: `factory:release` on release tracker issues,
 `factory:profile` on the repo's profile issue, and `factory:in-progress`, which
@@ -131,6 +131,7 @@ in this repo and adjust as noted.
 | `.github/factory-approvers.json` | `templates/factory-approvers.json` | Required — replace `genai-jerry` with real GitHub usernames per gate |
 | `.github/factory-release.json` | `templates/factory-release.json` | Optional — release gating. Omit the file and a filed issue goes straight to intake |
 | `.github/factory-branches.json` | `templates/factory-branches.json` | The org's integration branch (FACTORY.md §6a) and epic-branch policy (§6b). Set `staging` to its name and copy the *same* file into every repo. Omitting it is not opting out of staging — the defaults apply; ship `"required": false` to opt out. `"epics": true` (the template's value) adds the per-epic branch layer; the absent-key default is `false` |
+| `.github/factory-testing.json` | `templates/factory-testing.json` | Optional — system tests (FACTORY.md §4b). Omit the file and no Test Planner runs and no test case exists. With it, add a `testers` list to `factory-approvers.json` and `testplanner` to `factory-models.json` |
 | `.claude/settings.json` | `templates/settings.json` | Merge into an existing file if one is present; keep the `permissions.deny` block — it's half of gate G3 |
 
 ```bash
@@ -141,6 +142,7 @@ cp /path/to/claude-software-factory/templates/factory-models.json .github/
 cp /path/to/claude-software-factory/templates/factory-approvers.json .github/
 cp /path/to/claude-software-factory/templates/factory-release.json .github/   # optional
 cp /path/to/claude-software-factory/templates/factory-branches.json .github/  # integration branch
+cp /path/to/claude-software-factory/templates/factory-testing.json .github/  # optional - system tests
 cp /path/to/claude-software-factory/templates/settings.json .claude/
 ```
 
@@ -155,6 +157,13 @@ Notes:
   issue, or nothing will run. Its `release_scope` approvers come from
   `factory-approvers.json`. Set `"approval": "agent"` to let the Scrum Master's
   own GO verdict open G0 instead of a person.
+- `factory-testing.json` turns on system tests (FACTORY.md §4b): the Test
+  Planner writes a plan of human-run cases into each epic's change folder and
+  opens one `test(<epic>)` sub-issue per case. `"mode": "gate"` holds an epic
+  short of staging until every case passes; `"advisory"` reports instead. To
+  let OpenSpec track the two new artifacts, also copy
+  `templates/openspec/schemas/factory/` to `openspec/schemas/factory/` and set
+  `schema: factory` in `openspec/config.yaml` — optional and independent.
 - `.claude/settings.json`'s `_doc` key documents itself; delete it before
   committing if you'd rather not carry commentary in a settings file.
 - **The caller stubs must declare `permissions:` themselves.** A called
@@ -200,7 +209,7 @@ it's pilot-only.
 
 ## 7. Install the plugin (once per machine)
 
-The eleven role prompts, the handbook and the protected-branch hook are not
+The thirteen role prompts, the handbook and the protected-branch hook are not
 delivered by the files above — they come from the Claude Code plugin, and CI
 doesn't need this step at all (the reusable workflows clone the factory repo
 directly). Each **local machine** that will run `/factory:*` commands needs:
@@ -362,6 +371,6 @@ Everything a consuming repo holds, once setup is done:
 .claude/settings.json                         # step 4
 ```
 
-Seven files, none of them logic. The pipeline body, the eleven role prompts and
+Seven files, none of them logic. The pipeline body, the thirteen role prompts and
 the protected-branch hook all stay in `claude-software-factory` and are
 pulled in at run time.

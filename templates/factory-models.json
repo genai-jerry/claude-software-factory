@@ -3,6 +3,7 @@
   "scrum": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "intake": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "planner": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
+  "testplanner": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "architect": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "reviewer": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5"],
   "implementer": ["claude-opus-5", "claude-sonnet-5"],

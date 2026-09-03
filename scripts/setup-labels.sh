@@ -24,7 +24,10 @@ OWNER="$1"; shift
 # not a state — the pipeline puts it on an issue for the duration of an agent
 # run and takes it off again, alongside whatever state the issue is in.
 # factory:expedite is the same shape: a marker a human puts on an epic, which
-# keeps whatever state it is in while the factory advances it — see §4a.)
+# keeps whatever state it is in while the factory advances it — see §4a.
+# The three factory:test-* / factory:manual-test states are ordinary states,
+# but they only ever sit on a test(<epic>) sub-issue: a system test case a
+# human runs against the assembled epic — see §4b.)
 LABELS=$(cat <<'EOF'
 factory:backlog|8B949E|Filed, waiting for its release milestone to be approved
 factory:release|24597A|Tracker issue for a release milestone (kind, not a state)
@@ -43,6 +46,9 @@ factory:in-test|D4A017|QA verifying WHEN/THEN scenarios
 factory:ready-to-ship|6AA84F|Green + approved; awaiting the merge onto the epic branch (or staging when the epic has none)
 factory:on-epic|4F9E58|Merged onto the epic branch and green there; waiting for the rest of the epic
 factory:epic-ready|41A08A|Epic fully assembled and green; awaiting gate GS (release to staging)
+factory:manual-test|D96C1F|System test case ready for a human to run (test sub-issue)
+factory:test-passed|1F7A4D|System test case passed (test sub-issue; terminal)
+factory:test-failed|C0392B|System test case failed; a fix task is in flight (test sub-issue)
 factory:in-staging|3D9970|Merged to staging and verified there; awaiting gate G3 promotion to the default branch
 factory:deployed|0B8043|In production; soak in progress
 factory:fast-track|8C8C8C|Small change: Fast-Track implements it and opens a PR

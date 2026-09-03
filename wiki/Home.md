@@ -43,7 +43,7 @@ A consuming repo holds seven files and **none of them are logic**:
 .claude/settings.json
 ```
 
-The pipeline body, the eleven role prompts and the protected-branch hook all stay
+The pipeline body, the thirteen role prompts and the protected-branch hook all stay
 in `claude-software-factory` and are pulled in at run time. Upgrading is a
 version bump in the stub.
 
