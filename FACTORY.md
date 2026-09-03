@@ -717,7 +717,10 @@ and the chain that would have written one is long finished. Comment exactly
 **`Plan tests`** on the epic and the Test Planner runs on the spot. It is
 unrestricted — writing a plan only adds documents and work — and
 `workflow_dispatch` with `role: testplanner` does the same, which is what an
-estate adopting many epics at once wants.
+estate adopting many epics at once wants. The Factory Console offers the same
+ask as a **Plan tests** button on the epic's Tests tab, which posts that
+comment as you; it draws the button only where the refusals below do not
+apply, so the click and the run are the same thing.
 
 It is allowed from `factory:planned` through `factory:in-staging` and
 **leaves the epic in whatever state it found**. Earlier than
