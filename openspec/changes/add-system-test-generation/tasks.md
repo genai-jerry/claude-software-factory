@@ -162,7 +162,7 @@ final label, state and comment names.
 
 ## 6. Console
 
-- [ ] 6.1 Implement `add-system-test-tasks-console` in
+- [x] 6.1 Implement `add-system-test-tasks-console` in
       `software-factory-view` (label catalogue, `test(` task kind, tester
       attention items, Pass/Fail actions, plan and data in the artifact
       reader, test matrix on the GS panel, epic status wording); tracked in
@@ -185,3 +185,39 @@ final label, state and comment names.
       assembled, and an epic adopted at `factory:epic-ready` keeps that state
       with its matrix on the gate; record both traces on the same wiki
       page.
+
+
+## What is not done, and why
+
+**7.1 and 7.2 — the two pilots — have not been run.** They are live
+exercises: a real repository with the caller stubs merged, Anthropic
+credentials, GitHub Actions runs, and a human to actually execute a test
+case and comment the verdict. None of that exists in a development
+checkout, and there is no honest way to tick them from here. Everything
+they would exercise is covered mechanically — 15 conformance fixtures over
+both routers, five graph tests over the two new chain hops, and the
+cross-engine hand-off parity tests — but that is not the same as one epic
+walking the whole path, and the pilots stay open until somebody walks it.
+
+Run 7.1 on a pilot repo with `.github/factory-testing.json` in place from
+the start, and 7.2 on an epic that was already past gate G2 when the file
+landed.
+
+## Deviations from this plan, and why
+
+- **4.1 said "extend architect-chain into a two-hop chain"; it is a
+  separate `testplanner-chain` job that architect-chain now waits on.**
+  Extending the one job meant a second copy of the whole run machinery
+  (checkout ladder, model probe, prompt assembly, cleanup) inside it,
+  which is what a separate job already is — and the file's other chain
+  jobs are all shaped that way. A skipped job is not a failure, so a repo
+  without the policy file chains planner → architect exactly as before;
+  `architect-chain`'s `if` says so explicitly.
+
+- **The `dispatch-chain` job is new scope the plan named only in passing.**
+  Section 4.1 asked for it in one clause ("add a dispatch-chain job after a
+  release run"); it turned out to be the change's load-bearing edge, since
+  a merge onto the epic branch closes no issue and so the §2a re-dispatch
+  never fired for one. It releases code-task dependents too, and it runs
+  whether or not system tests are on — a correction to behaviour older than
+  this change.
