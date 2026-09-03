@@ -167,6 +167,12 @@ final label, state and comment names.
       attention items, Pass/Fail actions, plan and data in the artifact
       reader, test matrix on the GS panel, epic status wording); tracked in
       that repo's change folder.
+- [x] 6.2 Give the cases their own Tests tab on the epic and offer the
+      adoption comment as a button: `add-epic-tests-tab` in
+      `software-factory-view` moves the case list off the task board and adds
+      **Plan tests**, which posts the literal `Plan tests` as the acting user
+      in exactly the states this router accepts it (§4b). Nothing here
+      changes — the Console relocates the ask, not the authority.
 
 ## 7. Verification
 
