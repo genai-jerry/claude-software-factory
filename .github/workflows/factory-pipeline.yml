@@ -196,6 +196,12 @@ jobs:
             // The epic is assembled and green, and nothing of it has touched
             // staging. This is gate GS, and it is where expedite stops.
             const EPIC_READY = 'factory:epic-ready';
+            // System test cases (FACTORY.md §4b). These are states, but they only ever
+            // sit on a test(<epic>) sub-issue: a case a human runs against the
+            // assembled epic. No role is ever started on one.
+            const MANUAL_TEST = 'factory:manual-test';
+            const TEST_PASSED = 'factory:test-passed';
+            const TEST_FAILED = 'factory:test-failed';
             // Labels that say nothing about where an issue is in the pipeline.
             const ORTHOGONAL = [IN_PROGRESS, EXPEDITE, 'factory:blocked'];
 
@@ -239,7 +245,7 @@ jobs:
             // member or collaborator". GS is the only fallback: an estate that
             // has not adopted `staging` keeps releasing to staging under
             // whoever already owns the production go (FACTORY.md §2b).
-            const GATE_FALLBACK = { staging: 'release' };
+            const GATE_FALLBACK = { staging: 'release', testers: 'implementation' };
             const approverList = (gate) => {
               const cfg = loadJson('.github/factory-approvers.json');
               for (const key of [gate, GATE_FALLBACK[gate]]) {
@@ -250,6 +256,16 @@ jobs:
               }
               return [];
             };
+            // System tests are opt-in (FACTORY.md §4b): no file, an unparseable one,
+            // or system_tests anything but true means no Test Planner, no test cases,
+            // and every decision below exactly as it was before §4b existed.
+            const testingCfg = loadJson('.github/factory-testing.json');
+            const systemTests = testingCfg.system_tests === true;
+            // "gate" (the default when the file is present) holds an epic short of
+            // factory:epic-ready until every open case has passed; "advisory" reports
+            // instead. It decides nothing for a repo with no epic branch, where the
+            // cases only run after gate GS has already been opened.
+            const testMode = testingCfg.mode === 'advisory' ? 'advisory' : 'gate';
             // Release gating is opt-in: no file (or "gating":"none") keeps the
             // original behaviour where a filed issue goes straight to intake.
             const releaseCfg = loadJson('.github/factory-release.json');
@@ -260,6 +276,11 @@ jobs:
 
             const namesOf = (ls) => (ls || []).map(l => (typeof l === 'string' ? l : l.name));
             const isTaskTitle = (t) => /^task\(\d+\)/.test(t || '');
+            // A system test case sub-issue (§4b): test(<epic>): ST-<n> <title>. Kept
+            // apart from task( on purpose - a case is never dispatched to an
+            // implementer, never counts against the planner's cap, and carries only
+            // the three test states.
+            const isTestTitle = (t) => /^test\(\d+\)/.test(t || '');
             // "Part of owner/repo#250" — the qualified parent marker (FACTORY.md §7).
             // The unqualified forms mean the issue's own repo.
             const epicRefFromBody = (body) => {
@@ -681,6 +702,19 @@ jobs:
               const isApproval = /^\s*approved\s*[.!]?\s*$/i.test(body);
               const isPlanRelease = /^\s*plan\s+release\s*[.!]?\s*$/i.test(body);
               const isReviewDone = /^\s*review\s+done\s*[.!]?\s*$/i.test(body);
+              // System test controls (FACTORY.md §4b). Strict matches, like
+              // every other factory comment control: "Test Passed, mostly" is
+              // a comment.
+              const isPlanTests = /^\s*plan\s+tests\s*[.!]?\s*$/i.test(body);
+              const isTestPassed = /^\s*test\s+passed\s*[.!]?\s*$/i.test(body);
+              const isTestFailed = /^\s*test\s+failed\s*[.!]?\s*$/i.test(body);
+              const isTestCase = isTestTitle(i.title);
+              // test(<epic>): ST-<n> <title> -> the epic number and the case.
+              const caseOf = (t) => {
+                const m = /^test\((\d+)\):\s*(ST-\d+)?\s*(.*)$/.exec(t || '');
+                return m ? { epic: Number(m[1]), id: m[2] || null, title: (m[3] || '').trim() }
+                         : { epic: null, id: null, title: '' };
+              };
               const isTracker = labels.includes(RELEASE_KIND);
               const assocOk = ['OWNER', 'MEMBER', 'COLLABORATOR']
                 .includes(context.payload.comment.author_association);
@@ -756,6 +790,137 @@ jobs:
                     '`factory:in-test`. This shortcut only relabels the task; if the draft PR is still marked ' +
                     'draft, mark it ready for review yourself.');
                   core.info('Review marked done via comment - skipping the Reviewer');
+                }
+              } else if (isPlanTests) {
+                // Adoption (§4b): an epic that passed gate G2 before system
+                // tests were enabled has no plan, and the chain that would
+                // have written one is long finished. This is how a human asks
+                // for one. Unrestricted on purpose - writing a plan only adds
+                // documents and work, and the plan is reviewed before any
+                // case reaches a tester.
+                const st = stateOf(labels);
+                const ADOPTABLE = ['factory:planned', 'factory:design-ready',
+                                   'factory:design-approved', EPIC_READY, 'factory:in-staging'];
+                if (!systemTests) {
+                  await say(i.number,
+                    'System tests are not enabled in this repository, so there is no plan to write.\n\n' +
+                    'Add `.github/factory-testing.json` with `"system_tests": true` ' +
+                    '(template: `templates/factory-testing.json`) and comment `Plan tests` again. ' +
+                    'See FACTORY.md §4b.');
+                } else if (!assocOk) {
+                  await say(i.number,
+                    `@${sender} — asking for a system test plan requires owner, member or collaborator access on this repository.`);
+                } else if (isTracker || labels.includes(PROFILE_KIND) || labels.includes(FAST_TRACK) ||
+                           isTaskTitle(i.title) || isTestCase) {
+                  await say(i.number,
+                    '`Plan tests` only works on an **epic** — a requirement issue with an approved spec and a ' +
+                    'task breakdown. This issue is ' +
+                    (isTracker ? 'a release tracker'
+                      : labels.includes(PROFILE_KIND) ? "this repository's profile issue"
+                      : labels.includes(FAST_TRACK) ? 'in the fast lane, which has no change folder to plan against'
+                      : isTestCase ? 'a system test case' : 'a task sub-issue') +
+                    ', so nothing was started.');
+                } else if (i.state === 'closed' || labels.includes('factory:deployed')) {
+                  await say(i.number,
+                    '`Plan tests` has no effect here — this epic has shipped. System tests prove a change ' +
+                    'before it is promoted, and there is nothing left to hold.\n\n' +
+                    'A defect in released behaviour is a new issue (or `factory:incident` if production is affected).');
+                } else if (!ADOPTABLE.includes(st)) {
+                  await say(i.number,
+                    `\`Plan tests\` has no effect while this epic is at **${st}** — nothing was started.\n\n` +
+                    'A system test plan needs the task breakdown to work out which tasks each case depends on, ' +
+                    'and that arrives with the **Planner** at `factory:planned`. Ask again once it has run.');
+                } else {
+                  role = 'testplanner';
+                  core.info(`System test plan requested on #${i.number} (${st}) - starting the Test Planner`);
+                }
+              } else if (isTestPassed && isTestCase && labels.includes(MANUAL_TEST)) {
+                // The tester's verdict. Authorised against `testers`, which
+                // falls back to the implementation list (someone always owns
+                // it) and then to any owner/member/collaborator.
+                if (!authorized('testers')) {
+                  await refuse('testers', 'recording a system test as passed');
+                } else {
+                  const c = caseOf(i.title);
+                  await dropLabel(i.number, MANUAL_TEST);
+                  await addLabels(i.number, [TEST_PASSED]);
+                  await say(i.number,
+                    `**${c.id || 'This case'} passed** — recorded by @${sender}. Closing it.`);
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: i.number, state: 'closed',
+                  }).catch(() => {});
+                  core.info(`System test #${i.number} passed - closed`);
+                  // The last pass is what completes an epic (§4b), and the
+                  // Dispatcher is the one place that decides completeness.
+                  // Route it at the epic and let it work that out.
+                  const parent = c.epic ? await github.rest.issues.get({
+                    owner, repo, issue_number: c.epic,
+                  }).then(r => r.data).catch(() => null) : null;
+                  if (parent && namesOf(parent.labels).includes('factory:design-approved')) {
+                    role = 'dispatch';
+                    issue = String(c.epic);
+                    core.info(`Re-dispatching epic #${c.epic} - a pass may have completed it`);
+                  }
+                }
+              } else if (isTestFailed && isTestCase && labels.includes(MANUAL_TEST)) {
+                // A failure only adds work, so any collaborator may report one.
+                const c = caseOf(i.title);
+                const already = /(?:^|\n)\s*blocked by\s*#(\d+)/i.exec(i.body || '');
+                if (!assocOk) {
+                  await say(i.number,
+                    `@${sender} — reporting a system test failure requires owner, member or collaborator access on this repository.`);
+                } else if (already) {
+                  await say(i.number,
+                    `This case is already failed — the fix is #${already[1]}, and this case returns to ` +
+                    '`factory:manual-test` when it lands. Add what you saw to that thread rather than ' +
+                    'filing a second fix.');
+                } else {
+                  const epicLabels = c.epic ? await github.rest.issues.get({
+                    owner, repo, issue_number: c.epic,
+                  }).then(r => namesOf(r.data.labels)).catch(() => []) : [];
+                  const expedited = epicLabels.includes(EXPEDITE);
+                  const { data: fix } = await github.rest.issues.create({
+                    owner, repo,
+                    title: `task(${c.epic}): fix ${c.id || 'a system test'} — ${c.title}`,
+                    body: [
+                      `A system test case failed. This task is the fix.`,
+                      '',
+                      `- Case: #${i.number} (${c.id || 'unnumbered'}) — ${c.title}`,
+                      `- Reported by: @${sender}`,
+                      `- Epic: #${c.epic}`,
+                      '',
+                      'What the tester saw:',
+                      '',
+                      (body || '').trim().split('\n').map(l => '> ' + l).join('\n'),
+                      '',
+                      'The case, its steps and its expected result are in the epic\'s system test plan ' +
+                      '(`system-tests/test-plan.md` in the change folder). Fix the behaviour the case ' +
+                      'proves — not the case.',
+                      '',
+                      '<!-- factory-agent -->',
+                    ].join('\n'),
+                    labels: ['factory:ready'],
+                  });
+                  await say(fix.number, expedited
+                    ? 'Filed from a failed system test — this epic is expedited, so its implementer starts ' +
+                      'on its own. Nothing to approve.'
+                    : 'Filed from a failed system test. An implementer can start: comment `Approved` here, ' +
+                      'run the "Factory pipeline" workflow with role=implementer and this issue number, or ' +
+                      'press **Approve** in the Factory Console.' +
+                      (approverList('implementation').length
+                        ? ' cc ' + approverList('implementation').map(u => '@' + u).join(', ')
+                        : ''));
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: i.number,
+                    body: `${(i.body || '').trimEnd()}\n\nBlocked by #${fix.number}\n`,
+                  }).catch(() => {});
+                  await dropLabel(i.number, MANUAL_TEST);
+                  await addLabels(i.number, [TEST_FAILED]);
+                  await say(i.number,
+                    `**${c.id || 'This case'} failed** — reported by @${sender}. Filed #${fix.number} to fix it.\n\n` +
+                    'This case waits at `factory:test-failed` until that task is implemented, reviewed, tested ' +
+                    'and assembled; the Dispatcher then puts it back to `factory:manual-test` for a re-run.');
+                  core.info(`System test #${i.number} failed - filed fix #${fix.number}`);
                 }
               } else if (isApproval && labels.includes('factory:ready')) {
                 // Implementation start is NOT a gate (the gates are G0 release,
@@ -873,6 +1038,31 @@ jobs:
                     `"Review Done" has no effect while this is at **${stateOf(labels)}** — nothing changed.\n\n` +
                     'It only applies to `factory:in-review`: marking a human review complete so the task moves ' +
                     'to `factory:in-test` without waiting on the Reviewer agent.');
+                } else if (isTestPassed || isTestFailed) {
+                  const what = isTestPassed ? '"Test Passed"' : '"Test Failed"';
+                  if (!systemTests) {
+                    await say(i.number,
+                      `${what} has no effect — system tests are not enabled in this repository ` +
+                      '(`.github/factory-testing.json`, FACTORY.md §4b). Nothing changed.');
+                  } else if (!isTestCase) {
+                    await say(i.number,
+                      `${what} only applies to a **system test case** — a \`test(<epic>)\` sub-issue the ` +
+                      'Test Planner opened. This is not one, so nothing changed.');
+                  } else if (labels.includes(TEST_PASSED)) {
+                    await say(i.number, `${what} has no effect — this case has already passed.`);
+                  } else if (labels.includes(TEST_FAILED)) {
+                    const fx = /(?:^|\n)\s*blocked by\s*#(\d+)/i.exec(i.body || '');
+                    await say(i.number,
+                      `${what} has no effect while this case is at \`factory:test-failed\`` +
+                      (fx ? ` — its fix is #${fx[1]}, and the case returns to \`factory:manual-test\` when that lands.`
+                          : ' — a fix is in flight, and the case returns to `factory:manual-test` when it lands.'));
+                  } else {
+                    await say(i.number,
+                      `${what} has no effect yet — this case is not runnable.\n\n` +
+                      'It becomes `factory:manual-test` when its plan is merged and every task it lists under ' +
+                      '`Blocked by` is assembled onto the epic branch (or staging, for an epic without one). ' +
+                      'The Dispatcher says so on the epic when it releases it.');
+                  }
                 }
                 core.info('Issue not factory:blocked - comments only resume blocked stages or approve gates');
               } else {
@@ -1118,6 +1308,26 @@ jobs:
                   core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
                   return;
                 }
+                // A system test case (§4b) moves on two comments and the
+                // Dispatcher, never on a role. A code state applied to one -
+                // by hand, or by a script that mistook it for a task - would
+                // put an implementer, reviewer or QA run on a document.
+                const CODE_STATES = ['factory:ready', 'factory:in-review', 'factory:in-test',
+                                     'factory:ready-to-ship', 'factory:on-epic'];
+                if (isTestTitle(i.title) && CODE_STATES.includes(name) && !senderIsApp) {
+                  await dropLabel(i.number, name);
+                  await say(i.number,
+                    `\`${name}\` was applied by @${sender}, but this is a **system test case**, not a task. ` +
+                    'Reverted.\n\n' +
+                    'Cases are released to `factory:manual-test` by the Dispatcher once the code they ' +
+                    'exercise is assembled, and they move from there on exactly `Test Passed` or exactly ' +
+                    '`Test Failed` (FACTORY.md §4b). No implementer, reviewer or QA run is ever started ' +
+                    'on one.');
+                  core.info(`Reverted ${name} on system test case #${i.number}`);
+                  core.setOutput('role', 'none'); core.setOutput('issue', issue);
+                  core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
+                  return;
+                }
                 const gateOf = {
                   'factory:release-approved': 'release_scope',
                   'factory:spec-approved': 'spec',
@@ -1149,7 +1359,8 @@ jobs:
                                    'factory:design-ready': ['design', 'Gate G2 (design approval)'],
                                    [EPIC_READY]: ['staging', 'Gate GS (releasing this epic to staging)'],
                                    'factory:in-staging': ['release', 'Gate G3 (promotion to the default branch)'],
-                                   'factory:ready': ['implementation', 'Implementation start'] };
+                                   'factory:ready': ['implementation', 'Implementation start'],
+                                   [MANUAL_TEST]: ['testers', 'A system test case'] };
                 // An expedited task's implementer starts here rather than
                 // waiting for a click that expedite has already given (§4a),
                 // so the implementation approvers are not asked for one. Every
@@ -1197,7 +1408,9 @@ jobs:
                     await github.rest.issues.addAssignees({
                       owner, repo, issue_number: i.number, assignees: list,
                     }).catch(() => {});
-                    const how = gate === 'implementation'
+                    const how = gate === 'testers'
+                      ? 'The code this case exercises is assembled, so it can be run now. The steps, the data and the expected result are in the epic\'s system test plan, linked above. When you have run it, comment exactly "Test Passed" or exactly "Test Failed" here, with what you saw.'
+                      : gate === 'implementation'
                       ? 'Comment exactly "Approved" here to start it, or use Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'
                       : gate === 'staging'
                       ? 'Every task in this epic is implemented, reviewed, tested and assembled, and none of it has touched staging yet. Comment exactly "Approved" here and the Release Manager carries the whole epic to the integration branch and verifies it there. That is a staging release — production is still gate G3.'

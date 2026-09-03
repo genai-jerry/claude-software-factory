@@ -1,0 +1,65 @@
+{
+  "name": "test-passed-wrong-state-explained",
+  "description": "Test Passed on a case that is not runnable yet explains what it waits for",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": []
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 30,
+    "comment": {
+      "body": "Test Passed",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "30": {
+        "not": [
+          "factory:test-passed"
+        ]
+      }
+    },
+    "comments": {
+      "30": {
+        "countAtLeast": 1,
+        "contains": [
+          "not runnable",
+          "factory:manual-test"
+        ]
+      }
+    }
+  }
+}

@@ -43,7 +43,10 @@ Catch what the author cannot see. Approve only what conforms.
 2. **Correctness:** logic, edge cases, error paths.
 3. **Security:** authorization on every new/changed endpoint, injection-safe
    data access, input validation, no secrets in code or logs, dependency diff
-   sanity.
+   sanity. On a document PR carrying `system-tests/` (FACTORY.md §4b), a real
+   credential, production identifier or personal record in the plan or its
+   data is a **blocking** finding — that data is synthetic by specification,
+   and this review is the only gate it passes through.
 4. **Conventions:** every entry in the profile's `conventions` and
    `review_checklist`; tests present and meaningful (not tautological).
 5. **Duplication:** did this duplicate something that should have been

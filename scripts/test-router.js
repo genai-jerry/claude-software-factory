@@ -72,6 +72,13 @@ function makeWorld(opts) {
         },
         listComments: async (p) => ({ data: state.comments[p.issue_number] || [] }),
         addAssignees: async (p) => { state.log.push(`assign #${p.issue_number} ${p.assignees.join(',')}`); },
+        update: async (p) => {
+          const i = state.issues[p.issue_number];
+          if (!i) { const e = new Error('not found'); e.status = 404; throw e; }
+          if (p.state !== undefined) i.state = p.state;
+          if (p.body !== undefined) i.body = p.body;
+          state.log.push(`update #${p.issue_number} ${Object.keys(p).filter(k => k !== 'owner' && k !== 'repo' && k !== 'issue_number').join(',')}`);
+        },
       },
       pulls: {
         // PRs: opts.pulls = [{number, head:{ref}, base:{ref}, state}]
@@ -933,6 +940,7 @@ function fixtureWorld(fx) {
     approvers: '.github/factory-approvers.json',
     orchestrator: '.github/factory-orchestrator.json',
     branches: '.github/factory-branches.json',
+    testing: '.github/factory-testing.json',
   };
   const files = {};
   for (const [key, p] of Object.entries(CONFIG_PATHS)) {

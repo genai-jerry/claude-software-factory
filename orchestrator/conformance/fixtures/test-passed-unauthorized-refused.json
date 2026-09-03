@@ -1,0 +1,69 @@
+{
+  "name": "test-passed-unauthorized-refused",
+  "description": "Test Passed from outside the testers list changes nothing",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": [
+          "factory:manual-test"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 30,
+    "comment": {
+      "body": "Test Passed",
+      "login": "rando",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "30": {
+        "has": [
+          "factory:manual-test"
+        ],
+        "not": [
+          "factory:test-passed"
+        ]
+      }
+    },
+    "comments": {
+      "30": {
+        "countAtLeast": 1,
+        "contains": [
+          "@tess"
+        ]
+      }
+    }
+  }
+}

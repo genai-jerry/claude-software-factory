@@ -126,6 +126,7 @@ class Engine:
             release=parse_json_or_empty(port.get_file(".github/factory-release.json")),
             approvers=parse_json_or_empty(port.get_file(".github/factory-approvers.json")),
             branches=parse_json_or_empty(port.get_file(".github/factory-branches.json")),
+            testing=parse_json_or_empty(port.get_file(".github/factory-testing.json")),
             # Only for the integration branch's name, when this repo calls it
             # something other than the org policy's value (FACTORY.md §6a).
             profile=parse_json_or_empty(port.get_file(".factory/profile.json")),

@@ -39,7 +39,7 @@ final label, state and comment names.
 
 ## 2. The Test Planner role
 
-- [ ] 2.1 Write `commands/testplanner.md`: input (`factory:planned` epic),
+- [x] 2.1 Write `commands/testplanner.md`: input (`factory:planned` epic),
       the home-branch and change-folder resolution copied from
       `planner.md`, reads (`proposal.md`, `specs/`, `tasks.md`, profile
       `qa_notes` / `deploy`), the two artifacts in the `test-artifacts`
@@ -52,7 +52,7 @@ final label, state and comment names.
       renumber; withdraw), and guardrails (black-box, synthetic data only,
       never a `factory:*` label on a test sub-issue, never a state change
       to the epic); verify against every `test-planner` scenario.
-- [ ] 2.1a Extend `commands/testplanner.md` with the adoption path: allowed
+- [x] 2.1a Extend `commands/testplanner.md` with the adoption path: allowed
       from `factory:planned` through `factory:in-staging`; commit onto the
       open `factory/<epic>-design` branch when there is one, else cut
       `factory/<epic>-tests` from the epic's home branch and open a
@@ -62,7 +62,7 @@ final label, state and comment names.
       on shipped or closed epics, on sub-issues, trackers, the profile issue
       and fast-track issues; verify against every adoption scenario in
       `test-planner` and `test-artifacts`.
-- [ ] 2.2 Update `commands/planner.md` (state that test sub-issues are not
+- [x] 2.2 Update `commands/planner.md` (state that test sub-issues are not
       in the ~10 cap and that the task → scenario mapping is what the Test
       Planner reads), `commands/architect.md` (read `system-tests/` when
       present; the G2 hand-off names the plan's case and data-set counts;
@@ -70,7 +70,7 @@ final label, state and comment names.
       `commands/reviewer.md` (a real value under `system-tests/` is a
       blocking finding on a design PR); verify no prompt applies a test
       state.
-- [ ] 2.3 Update `commands/dispatch.md`: `test(<epic>)` children as a second
+- [x] 2.3 Update `commands/dispatch.md`: `test(<epic>)` children as a second
       kind; dependency "done" = the assembled state (`factory:on-epic`, or
       `factory:in-staging` without an epic branch); release to
       `factory:manual-test` with the testers assigned and the environment
@@ -79,7 +79,7 @@ final label, state and comment names.
       clause and posts the test matrix in the GS notice; ignore `test(`
       children when the policy is off; verify against every
       `manual-test-tasks` Dispatcher scenario.
-- [ ] 2.3a Add the two adoption preconditions to `commands/dispatch.md`: a
+- [x] 2.3a Add the two adoption preconditions to `commands/dispatch.md`: a
       case is released only when its plan is merged on the home branch (name
       the open plan PR in the summary otherwise), and a **closed** dependency
       counts as assembled alongside `factory:on-epic` /
@@ -87,7 +87,7 @@ final label, state and comment names.
       a case becomes runnable on an epic already at that state, and never
       revert a state to accommodate a late plan; verify with an epic adopted
       at `factory:epic-ready` and one adopted at `factory:design-approved`.
-- [ ] 2.4 Update `commands/release.md`: phase 1 step 5 gains the same
+- [x] 2.4 Update `commands/release.md`: phase 1 step 5 gains the same
       completeness clause and the "assembled, waiting on N tests" report;
       phase 1b/2 list the test matrix in promotion PR bodies and the
       merge-list comment, flagging unverified cases; `commands/ops.md` cites
@@ -98,11 +98,11 @@ final label, state and comment names.
 
 ## 3. The decision table (both routers + fixtures)
 
-- [ ] 3.1 Add `isTestTitle` (`^test\(\d+\)`) beside `isTaskTitle` in both
+- [x] 3.1 Add `isTestTitle` (`^test\(\d+\)`) beside `isTaskTitle` in both
       routers and a `testing` config loader (`.github/factory-testing.json`,
       absent/invalid ⇒ off) with a `testing` key in the fixture schema and
       `SCHEMA.md`; verify existing fixtures pass unchanged.
-- [ ] 3.2 Implement the `issue_comment` branch for `Plan tests` (strict
+- [x] 3.2 Implement the `issue_comment` branch for `Plan tests` (strict
       match, unrestricted, route `testplanner` at the epic, with the refusal
       replies for too-early, shipped, wrong-kind and policy-off) and for
       `Test Passed` (authorise
@@ -113,13 +113,13 @@ final label, state and comment names.
       the start notice, append `Blocked by`, flip to `factory:test-failed`;
       refuse a second failure); the wrong-state and not-enabled replies;
       in both engines.
-- [ ] 3.3 Implement the `labeled` handling: `factory:manual-test` assigns
+- [x] 3.3 Implement the `labeled` handling: `factory:manual-test` assigns
       and @-mentions the testers (like `factory:ready` does the
       implementation approvers); a code state hand-applied to a `test(`
       sub-issue is reverted with a comment; `factory:expedite` applied to an
       epic whose open children are all test sub-issues says what it waits
       on and starts nothing; in both engines.
-- [ ] 3.4 Add conformance fixtures for every routing scenario in the
+- [x] 3.4 Add conformance fixtures for every routing scenario in the
       `manual-test-tasks` and `test-planner` specs (pass authorised /
       unauthorised / wrong state / not enabled, fail files the fix, second
       fail refused, last pass routes dispatch, pass with tasks still open

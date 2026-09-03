@@ -38,6 +38,7 @@ exactly like today's defaults.
 | `release` | `.github/factory-release.json` |
 | `approvers` | `.github/factory-approvers.json` |
 | `orchestrator` | `.github/factory-orchestrator.json` |
+| `testing` | `.github/factory-testing.json` (system tests, §4b) |
 
 Values are the parsed JSON contents, verbatim. The string value
 `"invalid-json"` means the file exists but does not parse (engines must

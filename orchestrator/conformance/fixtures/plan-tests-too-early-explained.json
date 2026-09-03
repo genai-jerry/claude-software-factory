@@ -1,0 +1,60 @@
+{
+  "name": "plan-tests-too-early-explained",
+  "description": "Plan tests before the task breakdown exists is refused and names the Planner",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:spec-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Plan tests",
+      "login": "dev",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "Planner",
+          "factory:planned"
+        ]
+      }
+    }
+  }
+}

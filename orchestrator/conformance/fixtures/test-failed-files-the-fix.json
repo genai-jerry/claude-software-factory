@@ -1,0 +1,90 @@
+{
+  "name": "test-failed-files-the-fix",
+  "description": "Test Failed files a fix task at factory:ready, links it, and parks the case",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": [
+          "factory:manual-test"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 30,
+    "comment": {
+      "body": "Test Failed",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "30": {
+        "has": [
+          "factory:test-failed"
+        ],
+        "not": [
+          "factory:manual-test"
+        ]
+      }
+    },
+    "createdIssues": [
+      {
+        "titlePattern": "^task\\(9\\): fix ST-4",
+        "labels": [
+          "factory:ready"
+        ],
+        "bodyContains": [
+          "#30",
+          "@tess"
+        ]
+      }
+    ],
+    "createdCount": 1,
+    "comments": {
+      "30": {
+        "countAtLeast": 1,
+        "contains": [
+          "ST-4 failed",
+          "factory:test-failed"
+        ]
+      }
+    }
+  }
+}
