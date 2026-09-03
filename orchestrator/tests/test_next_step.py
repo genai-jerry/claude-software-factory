@@ -41,6 +41,7 @@ STATES = [
     "factory:spec-approved", "factory:planned", "factory:design-ready",
     "factory:design-approved", "factory:ready", "factory:in-review",
     "factory:in-test", "factory:ready-to-ship", "factory:on-epic",
+    "factory:manual-test", "factory:test-passed", "factory:test-failed",
     "factory:epic-ready", "factory:in-staging", "factory:deployed",
     "factory:fast-track", "factory:blocked", "factory:incident",
     "factory:profile",
@@ -54,6 +55,12 @@ EXPEDITED_STATES = [
     "factory:spec-ready", "factory:design-ready", "factory:ready",
     "factory:in-review", "factory:in-test", "factory:ready-to-ship",
 ]
+
+
+#: The states whose story changes where a repo runs system tests (§4b) — and
+#: exactly the ones that carry a `tested` variant. An epic's build is not over
+#: when its tasks are, and a landed task waits on cases as well as siblings.
+TESTED_STATES = ["factory:design-approved", "factory:on-epic"]
 
 
 def test_the_table_answers_every_state():
@@ -221,3 +228,44 @@ def test_without_cross_repo_access_the_notice_asks_a_human():
         {}, owner="o", repo="ui")
     report_next_step(repo, 5, "dispatch", ROOT)
     assert "Comment exactly `Approved`" in repo.comments[5][0]["body"]
+
+
+def test_tested_variants_cover_the_states_system_tests_change():
+    for state in TESTED_STATES:
+        variant = TABLE["states"][state].get("tested")
+        assert isinstance(variant, dict), state
+        assert variant["who"].strip() and variant["how"].strip(), state
+    # And nowhere else: a `tested` variant on a state system tests do not
+    # change would describe cases that have nothing to do with it.
+    for state, entry in TABLE["states"].items():
+        if state not in TESTED_STATES:
+            assert "tested" not in entry, state
+
+
+def test_the_three_test_states_name_the_testers_and_the_two_comments():
+    """A tester arriving at a case must find the whole control in one place."""
+    manual = TABLE["states"]["factory:manual-test"]
+    assert "{approvers}" in manual["who"]
+    assert "Test Passed" in manual["how"] and "Test Failed" in manual["how"]
+    assert "test-plan.md" in manual["how"]
+    # A failed case says what is happening for it, not what the reader must do.
+    assert "fix" in TABLE["states"]["factory:test-failed"]["how"]
+
+
+@pytest.mark.parametrize("state", TESTED_STATES)
+def test_both_engines_render_the_same_tested_notice(state):
+    mine = ns.render(TABLE, "dispatch", 198, state, ["boss"], False, True)
+    theirs = ACTIONS.render(TABLE, "dispatch", 198, state, ["boss"], False, True)
+    assert theirs.replace(f"\n{ACTIONS.AGENT_MARK}", "") == mine
+    # The variant is what got rendered. Both wordings can open on the same
+    # sentence (a landed task is still a landed task), so compare on what
+    # only the variant says: the cases.
+    assert "case" in mine
+
+
+@pytest.mark.parametrize("state", TESTED_STATES)
+def test_without_the_policy_the_plain_wording_stands(state):
+    """A repo that has not enabled system tests never sees the variant."""
+    plain = ns.render(TABLE, "dispatch", 198, state, ["boss"], False, False)
+    assert plain != ns.render(TABLE, "dispatch", 198, state, ["boss"], False, True)
+    assert TABLE["states"][state]["how"] in plain

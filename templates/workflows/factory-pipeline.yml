@@ -47,7 +47,7 @@ on:
         description: "Factory role to run"
         required: true
         type: choice
-        options: [scrum, intake, fasttrack, planner, architect, dispatch, implementer, reviewer, qa, release, ops, profiler]
+        options: [scrum, intake, fasttrack, planner, testplanner, architect, dispatch, implementer, reviewer, qa, release, ops, profiler]
 
 concurrency:
   # Milestone events carry no issue number; they get their own lane so a

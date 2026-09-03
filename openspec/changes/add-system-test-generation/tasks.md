@@ -134,25 +134,25 @@ final label, state and comment names.
 
 ## 4. Chaining
 
-- [ ] 4.1 Actions: extend `architect-chain` into a two-hop chain — after
+- [x] 4.1 Actions: extend `architect-chain` into a two-hop chain — after
       the Planner reaches `factory:planned`, run `testplanner` when the
       policy enables it, then `architect` when the epic is still
       `factory:planned` — sharing the checkout ladder; add a
       `dispatch-chain` job after a `release` run that lands anything
       (epic still `factory:design-approved`); verify with a repo without
       the policy file that the G1 chain is byte-for-byte today's.
-- [ ] 4.2 Orchestrator: add the `testplanner` hop and the `release →
+- [x] 4.2 Orchestrator: add the `testplanner` hop and the `release →
       dispatch` hop to `chain_node`, with the policy read from the repo
       config; verify a full epic (spec-ready → tests released → last pass →
       epic-ready) completes in the devapp under `mode: gate`.
-- [ ] 4.3 Add `testplanner` to every place the role set is enumerated
+- [x] 4.3 Add `testplanner` to every place the role set is enumerated
       (workflow `role` validation and model resolution, `role_runner`, the
       plugin's description and the harness); verify a manual
       `workflow_dispatch` of `testplanner` on a `factory:planned` epic runs.
 
 ## 5. Trace contract
 
-- [ ] 5.1 Add `factory:manual-test`, `factory:test-failed` and
+- [x] 5.1 Add `factory:manual-test`, `factory:test-failed` and
       `factory:test-passed` entries to `handbook/next-step.json`
       (`{approvers}` from `testers` → `implementation`), and a `tested`
       wording variant for `factory:design-approved` and `factory:on-epic`

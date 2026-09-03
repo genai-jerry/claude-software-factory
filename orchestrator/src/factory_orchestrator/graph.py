@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import operator
+import re
 import tempfile
 from itertools import zip_longest
 from pathlib import Path
@@ -214,25 +215,55 @@ def build_graph(engine: Engine, checkpointer=None):
             owner, name = full.split("/", 1)
             return engine.port(owner, name), full
 
-        # planner → architect, gated on the planner actually reaching
-        # factory:planned (mirrors the architect-chain job's check).
+        # planner → [test planner →] architect, each gated on the epic still
+        # being at factory:planned (mirrors the two chain jobs' checks). The
+        # Test Planner runs only where the repo turns system tests on
+        # (FACTORY.md §4b); without the policy the chain is planner →
+        # architect exactly as it was.
         for c in this_round:
-            if c["role"] == "planner" and c["status"] == "success":
-                epic = port.get_issue(c["issue"]) or {}
+            if c["role"] in ("planner", "testplanner") and c["status"] == "success":
+                c_port, c_repo = port_of(c)
+                epic = c_port.get_issue(c["issue"]) or {}
                 labels = [(l if isinstance(l, str) else l.get("name"))
                           for l in epic.get("labels", [])]
-                if "factory:planned" in labels:
-                    pending.append({"role": "architect", "issue": c["issue"]})
+                if "factory:planned" not in labels:
+                    log.info("Epic #%s is not factory:planned - not chaining %s.", c["issue"],
+                             "the architect" if c["role"] == "testplanner" else "further")
+                    continue
+                if c["role"] == "planner" and engine.repo_config(c_port).system_tests:
+                    pending.append({"role": "testplanner", "issue": c["issue"], "repo": c_repo})
                 else:
-                    log.info("Planner did not reach factory:planned - not chaining architect.")
+                    pending.append({"role": "architect", "issue": c["issue"], "repo": c_repo})
+
+        # release → dispatch. A Release phase-1 run lands a task on the epic
+        # branch, and that merge closes no issue, so the task-closed
+        # re-dispatch (FACTORY.md §2a) never sees it: dependents of a landed
+        # task — and, with system tests on, the cases whose code is now
+        # assembled (§4b) — were released only by hand. Runs whether or not
+        # system tests are on.
+        for c in this_round:
+            if c["role"] != "release" or c["status"] != "success":
+                continue
+            c_port, c_repo = port_of(c)
+            ran_on = c_port.get_issue(c["issue"]) or {}
+            m = re.match(r"^task\((\d+)\)", ran_on.get("title") or "")
+            epic_no = int(m.group(1)) if m else c["issue"]
+            epic = c_port.get_issue(epic_no) or {}
+            labels = [(l if isinstance(l, str) else l.get("name"))
+                      for l in epic.get("labels", [])]
+            if "factory:design-approved" in labels:
+                pending.append({"role": "dispatch", "issue": epic_no, "repo": c_repo})
+                log.info("Release run touched epic #%s - re-dispatching what it unblocked", epic_no)
+            else:
+                log.info("Epic #%s is not factory:design-approved - nothing to re-dispatch", epic_no)
 
         # Expedite (FACTORY.md §4a): the states that would have waited for a
         # human advance themselves. Read from the issue's state *after* the
         # run, never from what the role claimed — the engine contract, and the
         # reason a crashed run costs at most one hop.
         for c in this_round:
-            if c["status"] != "success" or c["role"] == "planner":
-                continue  # planner's follow-up is the architect chain above
+            if c["status"] != "success" or c["role"] in ("planner", "testplanner"):
+                continue  # their follow-up is the document chain above
             c_port, c_repo = port_of(c)
             issue = c_port.get_issue(c["issue"]) or {}
             if not issue or not is_expedited(c_port, issue, engine.port):

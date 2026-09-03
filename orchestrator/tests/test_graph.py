@@ -358,3 +358,100 @@ def test_expediting_a_cross_repo_epic_starts_every_repos_parked_tasks(tmp_path):
         ("o/backend", 8), ("o/ui", 8)]
     assert {c["role"] for c in runner.calls} == {"implementer"}
     assert "o/ui#8 → implementer" in backend.comments[5][0]["body"]
+
+
+# --- System tests (FACTORY.md §4b) --------------------------------------
+
+
+class SystemTestsRepo(ConfiguredRepo):
+    """A repo that has turned system tests on."""
+
+    files = {**ConfiguredRepo.files,
+             ".github/factory-testing.json": json.dumps({"system_tests": True, "mode": "gate"})}
+
+
+def test_planner_chains_the_test_planner_then_the_architect(tmp_path):
+    """With system tests on, stage 2a runs between the two document roles."""
+    world = SystemTestsRepo({5: issue(5, "Epic", ["factory:spec-ready"])})
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {
+        "planner": lambda w, n: flip(w, n, "factory:spec-approved", "factory:planned"),
+        # The Test Planner writes documents and leaves the state alone.
+        "testplanner": lambda w, n: w.create_comment(n, "plan written\n\n<!-- factory-agent -->"),
+        "architect": lambda w, n: flip(w, n, "factory:planned", "factory:design-ready"),
+    })
+    payload = {"action": "created", "issue": world.issues[5],
+               "comment": {"body": "Approved", "user": {"login": "boss", "type": "User"},
+                           "author_association": "OWNER"},
+               "repository": {"full_name": "o/r"}}
+    Processor(engine, graph)("issue_comment", payload)
+    assert [c["role"] for c in runner.calls] == ["planner", "testplanner", "architect"]
+    assert "factory:design-ready" in world.labels_of(5)
+
+
+def test_no_policy_keeps_planner_architect(tmp_path):
+    """Without the policy file the chain is exactly what it was."""
+    world = ConfiguredRepo({5: issue(5, "Epic", ["factory:spec-ready"])})
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {
+        "planner": lambda w, n: flip(w, n, "factory:spec-approved", "factory:planned"),
+        "architect": lambda w, n: flip(w, n, "factory:planned", "factory:design-ready"),
+    })
+    payload = {"action": "created", "issue": world.issues[5],
+               "comment": {"body": "Approved", "user": {"login": "boss", "type": "User"},
+                           "author_association": "OWNER"},
+               "repository": {"full_name": "o/r"}}
+    Processor(engine, graph)("issue_comment", payload)
+    assert [c["role"] for c in runner.calls] == ["planner", "architect"]
+
+
+def test_test_planner_leaving_the_state_blocks_the_architect(tmp_path):
+    """The architect hop is gated on the epic still being factory:planned."""
+    world = SystemTestsRepo({5: issue(5, "Epic", ["factory:spec-ready"])})
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {
+        "planner": lambda w, n: flip(w, n, "factory:spec-approved", "factory:planned"),
+        "testplanner": lambda w, n: flip(w, n, "factory:planned", "factory:blocked"),
+        "architect": lambda w, n: None,
+    })
+    payload = {"action": "created", "issue": world.issues[5],
+               "comment": {"body": "Approved", "user": {"login": "boss", "type": "User"},
+                           "author_association": "OWNER"},
+               "repository": {"full_name": "o/r"}}
+    Processor(engine, graph)("issue_comment", payload)
+    assert [c["role"] for c in runner.calls] == ["planner", "testplanner"]
+
+
+def test_release_chains_the_dispatcher(tmp_path):
+    """Landing a task on the epic branch releases whatever it unblocked.
+
+    A merge onto the epic branch closes no issue, so the task-closed
+    re-dispatch never fires for it (FACTORY.md §2a/§4b).
+    """
+    world = SystemTestsRepo({
+        9: issue(9, "Epic", ["factory:design-approved"]),
+        12: issue(12, "task(9) Renewals", ["factory:ready-to-ship"]),
+    })
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {
+        "release": lambda w, n: flip(w, n, "factory:ready-to-ship", "factory:on-epic"),
+        "dispatch": lambda w, n: w.create_comment(n, "released\n\n<!-- factory-agent -->"),
+    })
+    Processor(engine, graph)("workflow_dispatch", {
+        "inputs": {"role": "release", "issue_number": "12"},
+        "repository": {"full_name": "o/r"}})
+    assert [c["role"] for c in runner.calls] == ["release", "dispatch"]
+    # The dispatch runs on the EPIC, not on the task the release was given.
+    assert [c["issue"] for c in runner.calls] == [12, 9]
+
+
+def test_release_does_not_chain_a_dispatch_past_the_build(tmp_path):
+    """An epic past its build phase has nothing left for a dispatcher."""
+    world = SystemTestsRepo({
+        9: issue(9, "Epic", ["factory:epic-ready"]),
+        12: issue(12, "task(9) Renewals", ["factory:ready-to-ship"]),
+    })
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {
+        "release": lambda w, n: flip(w, n, "factory:ready-to-ship", "factory:on-epic"),
+        "dispatch": lambda w, n: None,
+    })
+    Processor(engine, graph)("workflow_dispatch", {
+        "inputs": {"role": "release", "issue_number": "12"},
+        "repository": {"full_name": "o/r"}})
+    assert [c["role"] for c in runner.calls] == ["release"]

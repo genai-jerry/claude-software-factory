@@ -1621,7 +1621,7 @@ jobs:
           # epic in-session per their step 0a. Missing policy or epics:false
           # leaves the default checkout.
           case "$ROLE" in
-            planner|architect|dispatch|release|ops) ;;
+            planner|testplanner|architect|dispatch|release|ops) ;;
             *) echo "Role $ROLE resolves its own branches - default checkout kept"; exit 0 ;;
           esac
           # The change folder lives where the stages read (FACTORY.md §6a):
@@ -1674,7 +1674,7 @@ jobs:
             # tasks may already have merged onto the integration branch, so
             # cutting one here would strand them.
             case "$ROLE" in
-              planner|architect) ;;
+              planner|testplanner|architect) ;;
               *) echo "No $BR on the remote (pre-flip epic) - default checkout kept"; exit 0 ;;
             esac
             DEF="$DEFAULT_BRANCH"
@@ -2333,9 +2333,474 @@ jobs:
             >/dev/null 2>&1 || true
           echo "Cleared factory:in-progress from #$ISSUE."
 
-  architect-chain:
+  # Stage 2a (FACTORY.md §4b). The Test Planner sits between the Planner and
+  # the Architect: it needs tasks.md for each case's `Depends on:`, and the
+  # Architect benefits from reading the plan before designing for it. Gated on
+  # the same fact as the architect hop (the Planner reached factory:planned)
+  # plus the repo's system-test policy, so a repo without the policy file runs
+  # planner -> architect exactly as it always has.
+  testplanner-chain:
     needs: [route, agent]
     if: needs.agent.result == 'success' && needs.route.outputs.role == 'planner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the planner advanced the epic, and that system tests are on
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+        run: |
+          ON=$(python3 -c "
+          import json
+          try: print(json.load(open('.github/factory-testing.json')).get('system_tests') is True)
+          except Exception: print(False)" 2>/dev/null || echo False)
+          if [ "$ON" != "True" ]; then
+            echo "System tests are off in this repo (.github/factory-testing.json) - no test plan to write."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          elif gh api "repos/${{ github.repository }}/issues/${{ needs.route.outputs.issue }}" --jq '.labels[].name' | grep -qx 'factory:planned'; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Planner did not reach factory:planned (blocked or split) - not chaining the Test Planner."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Mark the epic in progress
+        # See the same step in the `agent` job. The planner's run cleared the
+        # marker on its way out; the Test Planner is a second role on the
+        # same epic, so it re-marks it for the duration of its own run.
+        if: steps.gate.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/labels" \
+            -f name='factory:in-progress' -f color='1F6FEB' \
+            -f description='A factory agent run is live on this issue right now' \
+            >/dev/null 2>&1 || true
+          echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
+          echo "Marked #$ISSUE factory:in-progress for the Test Planner run."
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.proceed == 'true'
+        with:
+          fetch-depth: 0
+      - name: Start the Test Planner on the epic's home branch (§6/§6a)
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          # Same ladder as the agent job: the change folder lives on the epic
+          # branch, else the integration branch, else the default branch —
+          # and the rule is "the first that CARRIES it" (FACTORY.md §6a).
+          has_folder() {
+            git ls-tree -d --name-only "origin/$1" openspec/changes/ 2>/dev/null \
+              | grep -q "^openspec/changes/$ISSUE-"
+          }
+          EPICS=$(python3 -c "
+          import json
+          try: print(json.load(open('.github/factory-branches.json')).get('epics') is True)
+          except Exception: print(False)" 2>/dev/null || echo False)
+          STAGING=$(python3 -c "
+          import json
+          def load(p):
+              try: return json.load(open(p))
+              except Exception: return {}
+          prof = (load('.factory/profile.json').get('branches') or {}).get('staging')
+          pol = load('.github/factory-branches.json')
+          if isinstance(prof, str) and prof: print(prof)
+          elif pol.get('required') is False: print('')
+          else:
+              s = pol.get('staging')
+              print(s if isinstance(s, str) and s else 'staging')" 2>/dev/null || echo staging)
+          if [ "$EPICS" = "True" ]; then
+            BR="factory/epic-$ISSUE"
+            if git fetch origin "$BR" 2>/dev/null; then
+              git checkout -B "$BR" FETCH_HEAD
+              echo "Checked out epic branch $BR"; exit 0
+            fi
+            echo "No $BR on the remote (pre-flip epic?) - trying the integration branch"
+          fi
+          if [ -n "$STAGING" ] && git fetch origin "$STAGING" 2>/dev/null && has_folder "$STAGING"; then
+            git checkout -B "$STAGING" FETCH_HEAD
+            echo "Checked out integration branch $STAGING (§6a)"
+          else
+            echo "No change folder on ${STAGING:-<none>} - default checkout kept"
+          fi
+      - name: Load factory role definition
+        if: steps.gate.outputs.proceed == 'true'
+        id: roledef
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FACTORY_REPO_INPUT: ${{ inputs.factory_repo }}
+          FACTORY_REF: ${{ inputs.factory_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # Factory resolution mirrors the agent job: referenced workflows name
+          # the repo the uses: line resolved to; workflow_ref names the caller.
+          FACTORY_REPO="${FACTORY_REPO_INPUT:-}"
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --jq '[.referenced_workflows[]?.path | select(contains(".github/workflows/factory-pipeline.yml"))][0] // ""' \
+              2>/dev/null | cut -d/ -f1-2)
+          fi
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(printf '%s' "$WORKFLOW_REF" | cut -d/ -f1-2)
+          fi
+          echo "Cloning factory $FACTORY_REPO@$FACTORY_REF"
+          if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$FACTORY_REF" \
+              "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"; then
+            echo "::error::Could not clone https://github.com/$FACTORY_REPO (ref $FACTORY_REF). Pass factory_repo on the caller stub — the same owner/repo as the uses: line. A missing repository looks like: fatal: could not read Username for 'https://github.com'."
+            exit 1
+          fi
+          {
+            echo 'text<<FACTORY_DEF_EOF'
+            cat "$RUNNER_TEMP/factory/FACTORY.md"
+            printf '\n\n===== ROLE INSTRUCTIONS (testplanner) =====\n\n'
+            cat "$RUNNER_TEMP/factory/commands/testplanner.md"
+            echo 'FACTORY_DEF_EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Install Claude Code CLI (model probe)
+        if: steps.gate.outputs.proceed == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Resolve testplanner model (first accessible in preference chain)
+        if: steps.gate.outputs.proceed == 'true'
+        id: model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ROLE: testplanner
+        run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
+          echo "Preference chain for $ROLE: $CHAIN"
+          MODEL=""
+          for m in $CHAIN; do
+            echo "Probing model access: $m"
+            if timeout 120 claude -p "Reply with exactly: OK" --model "$m" --max-turns 1 >/dev/null 2>&1; then
+              MODEL="$m"; echo "Selected model: $m"; break
+            fi
+            echo "::warning::Model $m is not accessible with this credential - trying next in chain"
+          done
+          if [ -z "$MODEL" ]; then
+            echo "::error::No model in the preference chain is accessible - check credentials/plan or edit .github/factory-models.json"
+            exit 1
+          fi
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+      - name: Run testplanner role
+        if: steps.gate.outputs.proceed == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          OPENSPEC_TELEMETRY: "0"
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Events the factory itself raised reach a role - see the agent job.
+          allowed_bots: ${{ inputs.allowed_bots }}
+          prompt: |
+            You are running the "testplanner" role of the Software Factory inside
+            GitHub Actions (chained after the planner), on repository
+            ${{ github.repository }}.
+
+            The factory handbook and your role instructions follow verbatim
+            below. Execute them, treating number
+            ${{ needs.route.outputs.issue }} as the epic issue argument
+            ($ARGUMENTS).
+
+            Operating rules:
+            - Use the gh CLI for GitHub operations; GH_TOKEN is set.
+            - HARD RULES: never push to main or master; never merge a pull request.
+              End EVERY comment you post with a line containing exactly:
+              <!-- factory-agent -->
+            - `factory:in-progress` is the pipeline's own "a run is live" marker
+              on the epic. Ignore it, and never add or remove it yourself.
+            - Cross-repo epics: clone other affected repos with
+              `gh repo clone ${{ github.repository_owner }}/<repo> /tmp/<repo>` (GH_TOKEN
+              grants access when the FACTORY_CROSS_REPO_TOKEN secret is set) and commit
+              each repo's design.md to its own change folder via a factory branch + PR.
+              If cross-repo access is missing, comment on the epic and apply
+              factory:blocked.
+
+            ===== FACTORY HANDBOOK =====
+
+            ${{ steps.roledef.outputs.text }}
+          # Headless runs have no one to answer a permission prompt, so anything
+          # not explicitly allowed here is DENIED. Without this block the role
+          # reads the repo, then silently fails to run `gh`, write files or
+          # commit — the run goes green and the epic sits at its current label.
+          # Keep in sync with the same list in factory-test.yml.
+          claude_args: |
+            --max-turns 100
+            --model ${{ steps.model.outputs.model }}
+            --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Clear the in-progress marker
+        if: always() && needs.route.outputs.issue != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ needs.route.outputs.issue }}
+        run: |
+          gh api -X DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/factory%3Ain-progress" \
+            >/dev/null 2>&1 || true
+          echo "Cleared factory:in-progress from #$ISSUE."
+
+  # A Release Manager run that lands a task on the epic branch unblocks its
+  # dependents — and, where system tests are on (FACTORY.md §4b), releases the
+  # cases whose code is now assembled. Nothing else observes that: the §2a
+  # re-dispatch fires on a task *closing*, which GitHub only does for a merge
+  # into the default branch, so under epics:true a merge onto the epic branch
+  # released nothing at all. This is that missing edge, and it runs whether or
+  # not system tests are on.
+  dispatch-chain:
+    needs: [route, agent]
+    if: needs.agent.result == 'success' && needs.route.outputs.role == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Resolve the epic and check it is still dispatching
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          RAN_ON: ${{ needs.route.outputs.issue }}
+        run: |
+          # The Release Manager is started on a task (the factory:ready-to-ship
+          # hand-off) or on the epic itself (gate GS). Either way the dispatch
+          # belongs to the epic: a task title names it, and anything else IS
+          # the epic.
+          TITLE=$(gh api "repos/$GITHUB_REPOSITORY/issues/$RAN_ON" --jq '.title' 2>/dev/null || echo "")
+          EPIC=$(printf '%s' "$TITLE" | sed -n 's/^task(\([0-9]\{1,\}\)).*/\1/p')
+          [ -n "$EPIC" ] || EPIC="$RAN_ON"
+          echo "epic=$EPIC" >> "$GITHUB_OUTPUT"
+          # Only while the epic is in its implementation phase, exactly like
+          # the task-closed re-dispatch: past it (or short of it) a dispatch
+          # has nothing to release.
+          if gh api "repos/$GITHUB_REPOSITORY/issues/$EPIC" --jq '.labels[].name' 2>/dev/null | grep -qx 'factory:design-approved'; then
+            echo "Release run touched epic #$EPIC - re-dispatching to release what it unblocked."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Epic #$EPIC is not factory:design-approved - nothing to re-dispatch."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Mark the epic in progress
+        # See the same step in the `agent` job. The planner's run cleared the
+        # marker on its way out; the Dispatcher is a second role on the same
+        # epic, so it re-marks it for the duration of its own run.
+        if: steps.gate.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.gate.outputs.epic }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/labels" \
+            -f name='factory:in-progress' -f color='1F6FEB' \
+            -f description='A factory agent run is live on this issue right now' \
+            >/dev/null 2>&1 || true
+          echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
+          echo "Marked #$ISSUE factory:in-progress for the dispatch run."
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.proceed == 'true'
+        with:
+          fetch-depth: 0
+      - name: Start the Dispatcher on the epic's home branch (§6/§6a)
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          ISSUE: ${{ steps.gate.outputs.epic }}
+        run: |
+          # Same ladder as the agent job: the change folder lives on the epic
+          # branch, else the integration branch, else the default branch —
+          # and the rule is "the first that CARRIES it" (FACTORY.md §6a).
+          has_folder() {
+            git ls-tree -d --name-only "origin/$1" openspec/changes/ 2>/dev/null \
+              | grep -q "^openspec/changes/$ISSUE-"
+          }
+          EPICS=$(python3 -c "
+          import json
+          try: print(json.load(open('.github/factory-branches.json')).get('epics') is True)
+          except Exception: print(False)" 2>/dev/null || echo False)
+          STAGING=$(python3 -c "
+          import json
+          def load(p):
+              try: return json.load(open(p))
+              except Exception: return {}
+          prof = (load('.factory/profile.json').get('branches') or {}).get('staging')
+          pol = load('.github/factory-branches.json')
+          if isinstance(prof, str) and prof: print(prof)
+          elif pol.get('required') is False: print('')
+          else:
+              s = pol.get('staging')
+              print(s if isinstance(s, str) and s else 'staging')" 2>/dev/null || echo staging)
+          if [ "$EPICS" = "True" ]; then
+            BR="factory/epic-$ISSUE"
+            if git fetch origin "$BR" 2>/dev/null; then
+              git checkout -B "$BR" FETCH_HEAD
+              echo "Checked out epic branch $BR"; exit 0
+            fi
+            echo "No $BR on the remote (pre-flip epic?) - trying the integration branch"
+          fi
+          if [ -n "$STAGING" ] && git fetch origin "$STAGING" 2>/dev/null && has_folder "$STAGING"; then
+            git checkout -B "$STAGING" FETCH_HEAD
+            echo "Checked out integration branch $STAGING (§6a)"
+          else
+            echo "No change folder on ${STAGING:-<none>} - default checkout kept"
+          fi
+      - name: Load factory role definition
+        if: steps.gate.outputs.proceed == 'true'
+        id: roledef
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FACTORY_REPO_INPUT: ${{ inputs.factory_repo }}
+          FACTORY_REF: ${{ inputs.factory_ref }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          # Factory resolution mirrors the agent job: referenced workflows name
+          # the repo the uses: line resolved to; workflow_ref names the caller.
+          FACTORY_REPO="${FACTORY_REPO_INPUT:-}"
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --jq '[.referenced_workflows[]?.path | select(contains(".github/workflows/factory-pipeline.yml"))][0] // ""' \
+              2>/dev/null | cut -d/ -f1-2)
+          fi
+          if [ -z "$FACTORY_REPO" ]; then
+            FACTORY_REPO=$(printf '%s' "$WORKFLOW_REF" | cut -d/ -f1-2)
+          fi
+          echo "Cloning factory $FACTORY_REPO@$FACTORY_REF"
+          if ! GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$FACTORY_REF" \
+              "https://github.com/$FACTORY_REPO" "$RUNNER_TEMP/factory"; then
+            echo "::error::Could not clone https://github.com/$FACTORY_REPO (ref $FACTORY_REF). Pass factory_repo on the caller stub — the same owner/repo as the uses: line. A missing repository looks like: fatal: could not read Username for 'https://github.com'."
+            exit 1
+          fi
+          {
+            echo 'text<<FACTORY_DEF_EOF'
+            cat "$RUNNER_TEMP/factory/FACTORY.md"
+            printf '\n\n===== ROLE INSTRUCTIONS (dispatch) =====\n\n'
+            cat "$RUNNER_TEMP/factory/commands/dispatch.md"
+            echo 'FACTORY_DEF_EOF'
+          } >> "$GITHUB_OUTPUT"
+      - name: Install Claude Code CLI (model probe)
+        if: steps.gate.outputs.proceed == 'true'
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Resolve dispatch model (first accessible in preference chain)
+        if: steps.gate.outputs.proceed == 'true'
+        id: model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ROLE: dispatch
+        run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          CHAIN=$(python3 -c "import json;m=json.load(open('.github/factory-models.json'));v=m.get('$ROLE',['claude-sonnet-5']);print(' '.join(v if isinstance(v,list) else [v]))" 2>/dev/null || echo claude-sonnet-5)
+          echo "Preference chain for $ROLE: $CHAIN"
+          MODEL=""
+          for m in $CHAIN; do
+            echo "Probing model access: $m"
+            if timeout 120 claude -p "Reply with exactly: OK" --model "$m" --max-turns 1 >/dev/null 2>&1; then
+              MODEL="$m"; echo "Selected model: $m"; break
+            fi
+            echo "::warning::Model $m is not accessible with this credential - trying next in chain"
+          done
+          if [ -z "$MODEL" ]; then
+            echo "::error::No model in the preference chain is accessible - check credentials/plan or edit .github/factory-models.json"
+            exit 1
+          fi
+          echo "model=$MODEL" >> "$GITHUB_OUTPUT"
+      - name: Run dispatch role
+        if: steps.gate.outputs.proceed == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_CROSS_REPO_TOKEN || github.token }}
+          OPENSPEC_TELEMETRY: "0"
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Events the factory itself raised reach a role - see the agent job.
+          allowed_bots: ${{ inputs.allowed_bots }}
+          prompt: |
+            You are running the "dispatch" role of the Software Factory inside
+            GitHub Actions (chained after the planner), on repository
+            ${{ github.repository }}.
+
+            The factory handbook and your role instructions follow verbatim
+            below. Execute them, treating number
+            ${{ steps.gate.outputs.epic }} as the epic issue argument
+            ($ARGUMENTS).
+
+            Operating rules:
+            - Use the gh CLI for GitHub operations; GH_TOKEN is set.
+            - HARD RULES: never push to main or master; never merge a pull request.
+              End EVERY comment you post with a line containing exactly:
+              <!-- factory-agent -->
+            - `factory:in-progress` is the pipeline's own "a run is live" marker
+              on the epic. Ignore it, and never add or remove it yourself.
+            - Cross-repo epics: clone other affected repos with
+              `gh repo clone ${{ github.repository_owner }}/<repo> /tmp/<repo>` (GH_TOKEN
+              grants access when the FACTORY_CROSS_REPO_TOKEN secret is set) and commit
+              each repo's design.md to its own change folder via a factory branch + PR.
+              If cross-repo access is missing, comment on the epic and apply
+              factory:blocked.
+
+            ===== FACTORY HANDBOOK =====
+
+            ${{ steps.roledef.outputs.text }}
+          # Headless runs have no one to answer a permission prompt, so anything
+          # not explicitly allowed here is DENIED. Without this block the role
+          # reads the repo, then silently fails to run `gh`, write files or
+          # commit — the run goes green and the epic sits at its current label.
+          # Keep in sync with the same list in factory-test.yml.
+          claude_args: |
+            --max-turns 100
+            --model ${{ steps.model.outputs.model }}
+            --permission-mode acceptEdits
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Task,Skill"
+      - name: Say what happens next
+        # Every run leaves the issue saying what is expected of the next
+        # actor. A role that finished cleanly used to say nothing at all: the
+        # label moved and the thread went quiet, and the states with no
+        # trigger of their own (in-review, in-test, ready-to-ship) were the
+        # pipeline waiting on a human with nothing on the issue to say so.
+        #
+        # After the no-op guard on purpose — this comment must never be the
+        # "visible trace" that lets a role which did nothing pass for one that
+        # worked. github.token, like every other notice here: a comment from
+        # the workflow token emits no events and can never trigger a run.
+        # The gate is part of the condition: an epic this dispatch did not
+        # touch says nothing, and the release run already said its piece.
+        if: success() && steps.gate.outputs.proceed == 'true' && steps.gate.outputs.epic != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.gate.outputs.epic }}
+          ROLE: dispatch
+        run: python3 "$RUNNER_TEMP/factory/scripts/say_next_step.py"
+      - name: Clear the in-progress marker
+        if: always() && steps.gate.outputs.epic != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ steps.gate.outputs.epic }}
+        run: |
+          gh api -X DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels/factory%3Ain-progress" \
+            >/dev/null 2>&1 || true
+          echo "Cleared factory:in-progress from #$ISSUE."
+
+  architect-chain:
+    # Waits on the test-plan hop so the design PR carries tasks.md,
+    # system-tests/ and design.md as one gate-G2 review. testplanner-chain
+    # skips itself where system tests are off, and a skipped job is not a
+    # failure — so a repo without the policy file chains exactly as before.
+    needs: [route, agent, testplanner-chain]
+    if: >-
+      always()
+      && needs.agent.result == 'success'
+      && needs.route.outputs.role == 'planner'
+      && needs.testplanner-chain.result != 'failure'
+      && needs.testplanner-chain.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

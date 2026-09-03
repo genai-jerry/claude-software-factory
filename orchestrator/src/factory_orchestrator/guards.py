@@ -148,9 +148,14 @@ def report_next_step(port: RepoPort, issue: int, role: str, factory_checkout,
             cfg = parse_json_or_empty(port.get_file(".github/factory-approvers.json"))
             approvers = approvers_for(state, cfg)
         expedited = is_expedited(port, iss, port_for)
+        # The repo's system-test policy (FACTORY.md §4b) selects the `tested`
+        # wording for the two states whose story it changes. Read here rather
+        # than passed in, so every caller of this guard gets it right.
+        tested = parse_json_or_empty(
+            port.get_file(".github/factory-testing.json")).get("system_tests") is True
         port.create_comment(
             issue,
-            f"{render(table, role, issue, state, approvers, expedited)}\n{AGENT_MARK}")
+            f"{render(table, role, issue, state, approvers, expedited, tested)}\n{AGENT_MARK}")
         log.info("said what happens next on #%s (%s)", issue, state or "no state")
     except Exception:  # noqa: BLE001 - a missing notice must not fail a good run
         log.warning("could not post the hand-off notice on #%s", issue, exc_info=True)
