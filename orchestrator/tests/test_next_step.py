@@ -42,6 +42,7 @@ STATES = [
     "factory:design-approved", "factory:ready", "factory:in-review",
     "factory:in-test", "factory:ready-to-ship", "factory:on-epic",
     "factory:manual-test", "factory:test-passed", "factory:test-failed",
+    "factory:bug-open", "factory:bug-retest", "factory:bug-verified",
     "factory:epic-ready", "factory:in-staging", "factory:deployed",
     "factory:fast-track", "factory:blocked", "factory:incident",
     "factory:profile",

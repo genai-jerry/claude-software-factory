@@ -1,0 +1,58 @@
+{
+  "name": "bug-reports-can-run-without-a-test-plan",
+  "description": "bug_reports true with system_tests false is exploratory testing with no plan",
+  "config": {
+    "testing": {
+      "system_tests": false,
+      "bug_reports": true
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Bug: the discount is ignored on the checkout total\nSteps: add SAVE10 to a cart of 100.00\nSaw: total 100.00 — expected 90.00",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 2
+  }
+}

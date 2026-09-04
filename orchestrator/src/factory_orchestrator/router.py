@@ -181,6 +181,18 @@ class RepoConfig:
         return self.testing.get("system_tests") is True
 
     @property
+    def bug_reports(self) -> bool:
+        """Bug reports (§4c), which ride on the system tests policy.
+
+        Absent, the key follows `system_tests`: a repo that turned the cases
+        on gets the bugs with them. An explicit value wins either way, so a
+        repo can keep the cases without the bugs, or run exploratory testing
+        with bugs and no written plan.
+        """
+        v = self.testing.get("bug_reports")
+        return self.system_tests if not isinstance(v, bool) else v
+
+    @property
     def test_mode(self) -> str:
         """`"gate"` (the default when the file is present) or `"advisory"`.
 
@@ -270,6 +282,98 @@ CODE_STATES = ("factory:ready", "factory:in-review", "factory:in-test",
 ADOPTABLE_STATES = ("factory:planned", "factory:design-ready",
                     "factory:design-approved", EPIC_READY, "factory:in-staging")
 
+#: Bug reports (FACTORY.md §4c). `factory:bug` is a KIND marker: it stays on
+#: the report for life and never reads as a state. The three states below only
+#: ever sit on a `bug(<epic>)` sub-issue — a defect a tester found in an epic
+#: the factory has built and not yet shipped. No role is ever started on one,
+#: which is why none of them appears in EXPEDITE_MAP; the *fix* is an ordinary
+#: task and carries the ordinary code states.
+BUG_KIND = "factory:bug"
+BUG_OPEN = "factory:bug-open"
+BUG_RETEST = "factory:bug-retest"
+BUG_VERIFIED = "factory:bug-verified"
+BUG_STATES = (BUG_OPEN, BUG_RETEST, BUG_VERIFIED)
+
+#: The epic states a bug may be raised against (§4c): from the first task
+#: landing through the staging window. Earlier nothing has been built to be
+#: wrong — that is a requirement, and intake is upstream; later the change has
+#: left the factory, and that is a new issue or an incident.
+BUG_ACCEPT_STATES = ("factory:design-approved", EPIC_READY, "factory:in-staging")
+
+#: The longest a report's first line may run before it stops being a title.
+BUG_TITLE_MAX = 80
+
+_BUG_TITLE_RE = re.compile(r"^bug\((\d+)\):\s*(.*)$", re.IGNORECASE)
+
+#: The `Bug` control. Only the FIRST line of the comment is matched, and
+#: everything after it is the report — this is the one factory control that
+#: reads past its own line (§4c), because a bug without what the tester saw is
+#: a round trip. The strictness moves to that first line instead: exactly
+#: `Bug`, or `Bug: <title>` / `Bug — <title>`. "Bug fix pushed" is a comment.
+_BUG_CONTROL_RE = re.compile(r"^\s*bug\s*(?:[:\u2013\u2014-]\s*(.*?))?\s*$", re.IGNORECASE)
+
+#: Where a filed `factory:bug` issue names its epic. The issue form writes a
+#: `### Epic` heading with the number underneath; a human writing it by hand
+#: writes `Epic: #123`. Both, and the `Part of` marker every factory sub-issue
+#: carries, resolve here. Anchored on the keyword so a version number or a
+#: case reference elsewhere in the body is never mistaken for the epic.
+_BUG_EPIC_RE = re.compile(
+    r"(?:^|\n)[ \t]*#{0,6}[ \t]*(?:epic|found in|part of|parent|against)\b[ \t]*:?[ \t]*\n{0,2}[ \t]*"
+    r"(?:https?://[^/\s]+/([\w.-]+)/([\w.-]+)/issues/(\d+)"
+    r"|([\w.-]+)/([\w.-]+)#(\d+)"
+    r"|#?(\d+))",
+    re.IGNORECASE)
+
+
+def _is_bug_title(title: str | None) -> bool:
+    """A bug report sub-issue: `bug(<epic>): <title>` (§4c)."""
+    return bool(_BUG_TITLE_RE.match(title or ""))
+
+
+def _bug_of(title: str | None) -> tuple[int | None, str]:
+    """(epic number, report title) from a bug sub-issue's title."""
+    m = _BUG_TITLE_RE.match(title or "")
+    if not m:
+        return None, ""
+    return int(m.group(1)), (m.group(2) or "").strip()
+
+
+def _bug_control(body: str | None) -> tuple[str, str] | None:
+    """(title, report) from a `Bug` comment, or None when it is not one.
+
+    Without an explicit title the report's first line becomes one, which is
+    what a tester who typed `Bug` and then wrote what they saw meant.
+    """
+    lines = (body or "").replace("\r\n", "\n").split("\n")
+    m = _BUG_CONTROL_RE.match(lines[0] if lines else "")
+    if not m:
+        return None
+    report = "\n".join(lines[1:]).strip()
+    title = (m.group(1) or "").strip()
+    if not title and report:
+        title = report.split("\n")[0].strip().lstrip("-*# ").strip()
+    if len(title) > BUG_TITLE_MAX:
+        title = title[:BUG_TITLE_MAX].rstrip() + "…"
+    return title, report
+
+
+def bug_epic_from_body(body: str | None) -> tuple[str | None, int | None]:
+    """The epic a filed bug report names, as (owner/repo or None, number)."""
+    m = _BUG_EPIC_RE.search(body or "")
+    if not m:
+        return None, None
+    if m.group(3):
+        return f"{m.group(1)}/{m.group(2)}", int(m.group(3))
+    if m.group(6):
+        return f"{m.group(4)}/{m.group(5)}", int(m.group(6))
+    return None, int(m.group(7))
+
+
+def quoted(text: str | None) -> str:
+    """A report as a blockquote, so the tester's words stay theirs."""
+    return "\n".join("> " + line for line in (text or "").strip().split("\n"))
+
+
 _CASE_RE = re.compile(r"^test\((\d+)\):\s*(ST-\d+)?\s*(.*)$")
 _BLOCKED_BY_RE = re.compile(r"(?:^|\n)\s*blocked by\s*#(\d+)", re.IGNORECASE)
 
@@ -285,6 +389,35 @@ def _case_of(title: str | None) -> tuple[int | None, str | None, str]:
     if not m:
         return None, None, ""
     return int(m.group(1)), m.group(2), (m.group(3) or "").strip()
+
+
+def _is_epic_issue(issue: dict[str, Any], labels: list[str]) -> bool:
+    """True when this issue is an epic — a requirement the factory builds.
+
+    Everything else that carries a `factory:*` label is one of the kinds the
+    pipeline treats specially, and none of them owns an epic branch.
+    """
+    title = issue.get("title") or ""
+    return not (RELEASE_KIND in labels or PROFILE_KIND in labels or FAST_TRACK in labels
+                or _is_task_title(title) or _is_test_title(title) or _is_bug_title(title))
+
+
+def _kind_of(issue: dict[str, Any], labels: list[str]) -> str:
+    """What an issue is, for a refusal that has to name it."""
+    title = issue.get("title") or ""
+    if RELEASE_KIND in labels:
+        return "a release tracker"
+    if PROFILE_KIND in labels:
+        return "this repository's profile issue"
+    if FAST_TRACK in labels:
+        return "a fast-track issue, which has no epic branch"
+    if _is_task_title(title):
+        return "a task sub-issue"
+    if _is_test_title(title):
+        return "a system test case"
+    if _is_bug_title(title):
+        return "another bug report"
+    return "not an epic"
 
 
 def _is_task_title(title: str | None) -> bool:
@@ -341,7 +474,7 @@ class Router:
     def _states(self, names: list[str]) -> list[str]:
         return [x for x in names
                 if x.startswith("factory:") and x not in ORTHOGONAL
-                and x not in (RELEASE_KIND, FAST_TRACK, PROFILE_KIND)]
+                and x not in (RELEASE_KIND, FAST_TRACK, PROFILE_KIND, BUG_KIND)]
 
     def state_of(self, names: list[str]) -> str:
         return ", ".join(self._states(names)) or "no factory:* state label"
@@ -583,6 +716,252 @@ class Router:
             return self.approve_gate(issue["number"], nxt == "gate:spec") or "none"
         return nxt
 
+    # -- bug reports (FACTORY.md §4c) ---------------------------------------
+    def open_bugs(self, epic: int) -> list[dict[str, Any]]:
+        """This epic's open bug reports, oldest first.
+
+        Bugs live in the epic's own repo by design — the report is raised
+        against the epic and the fix task is filed beside it — so this is one
+        listing rather than the estate-wide fan-out a cross-repo epic's tasks
+        need. A repo that cannot be listed reports no bugs rather than failing
+        the route: a gate held by a listing error is worse than one held by
+        nothing.
+        """
+        try:
+            found = self.port.list_issues(labels=BUG_KIND, state="open")
+        except Exception:  # noqa: BLE001
+            log.warning("Could not list the bugs of epic #%s", epic)
+            return []
+        out = []
+        for it in found:
+            if it.get("pull_request") is not None:
+                continue
+            n, _title = _bug_of(it.get("title"))
+            if n == epic and BUG_VERIFIED not in _names(it.get("labels")):
+                out.append(it)
+        return sorted(out, key=lambda x: x["number"])
+
+    def bugs_hold_gs(self) -> bool:
+        """Whether an open bug holds gate GS in this repo (§4c).
+
+        The same three conditions §4b puts on a case: the policy is on, the
+        mode is `gate`, and there is an epic branch to hold the epic on.
+        Without one the code first reaches a shared branch at GS itself, so
+        the bugs are evidence in the promotion PR, never a hold.
+        """
+        return self.cfg.bug_reports and self.cfg.test_mode == "gate" and self.cfg.epics
+
+    def bug_blocker(self, bugs: list[dict[str, Any]]) -> str:
+        """The refusal body listing the open bugs that hold gate GS."""
+        lines = []
+        for b in bugs:
+            _epic, title = _bug_of(b.get("title"))
+            fix = _BLOCKED_BY_RE.search(b.get("body") or "")
+            lines.append(f"- #{b['number']} — {title}" +
+                         (f" (fix #{fix.group(1)})" if fix else " (no fix filed yet)"))
+        return "\n".join([
+            "`Approved` has no effect while this epic has an open bug — gate GS is held "
+            "(FACTORY.md §4c).",
+            "",
+            *lines,
+            "",
+            "Each one is fixed by an ordinary task onto the epic branch, and a tester confirms "
+            "the repair; the last confirmation re-runs the Dispatcher and this gate opens on its "
+            "own. To release with a bug open, close the report (it is not a defect) or set "
+            '`"mode": "advisory"` in `.github/factory-testing.json`, which makes bugs evidence '
+            "rather than a hold.",
+        ])
+
+    def file_bug_fix(self, bug: dict[str, Any], bug_body: str, epic: int, title: str,
+                     report: str, reporter: str, again: bool = False) -> dict[str, Any]:
+        """File the task that fixes a bug, and mark the bug as waiting on it.
+
+        The fix is an ordinary `task(<epic>)` sub-issue at `factory:ready`:
+        same start, same implementer, reviewer and QA, same assembly onto the
+        epic branch (§6b). Nothing about it is special, which is the point — a
+        defect testing found is repaired by the machinery that built the thing.
+        """
+        fix = self.port.create_issue(
+            title=f"task({epic}): fix bug #{bug['number']} — {title}",
+            body="\n".join([
+                "A bug raised on this epic is still open. This task is the fix."
+                if again else
+                "A bug was raised on this epic. This task is the fix.",
+                "",
+                f"Part of #{epic}",
+                "",
+                f"- Bug: #{bug['number']} — {title}",
+                f"- Reported by: @{reporter}",
+                "",
+                "What the tester saw:",
+                "",
+                quoted(report),
+                "",
+                "Fix the behaviour the report describes, not the report. When this task is "
+                "assembled onto the epic branch, the Dispatcher moves the bug to "
+                "`factory:bug-retest` and asks the testers to confirm the repair.",
+                "",
+                AGENT_MARK,
+            ]),
+            labels=["factory:ready"],
+        )
+        expedited = is_expedited(self.port, self.port.get_issue(epic) or {"number": epic},
+                                 self.port_for)
+        impl = self.cfg.approver_list("implementation")
+        self.say(fix["number"],
+                 "Filed from a bug report — this epic is expedited, so its implementer starts "
+                 "on its own. Nothing to approve."
+                 if expedited else
+                 "Filed from a bug report. An implementer can start: comment `Approved` here, "
+                 "run the \"Factory pipeline\" workflow with role=implementer and this issue "
+                 "number, or press **Approve** in the Factory Console."
+                 + (" cc " + ", ".join("@" + u for u in impl) if impl else ""))
+        try:
+            self.port.update_issue_body(  # type: ignore[attr-defined]
+                bug["number"], f"{bug_body.rstrip()}\n\nBlocked by #{fix['number']}\n")
+        except Exception:  # noqa: BLE001 - the label still records the wait
+            log.warning("Could not append the fix marker to bug #%s", bug["number"])
+        return fix
+
+    def adopt_bug(self, issue: dict[str, Any], privileged: bool) -> None:
+        """Turn a filed `factory:bug` issue into a bug report on its epic (§4c).
+
+        The label is what the factory acts on, at filing or afterwards, so an
+        issue somebody has already written becomes a report by labelling it.
+        `privileged` says whether the actor has already proved write access —
+        true for the label path, where applying a label requires it, and the
+        issue author's own association for a filed one.
+        """
+        n = issue["number"]
+        title = re.sub(r"^\s*\[?bug\]?\s*[:\u2013\u2014-]?\s*", "", issue.get("title") or "",
+                       flags=re.IGNORECASE).strip() or "an unnamed defect"
+        if len(title) > BUG_TITLE_MAX:
+            title = title[:BUG_TITLE_MAX].rstrip() + "…"
+        reporter = (issue.get("user") or {}).get("login") or "a tester"
+        repo_ref, epic_no = bug_epic_from_body(issue.get("body"))
+        parent = None
+        if epic_no is not None and (repo_ref is None
+                                    or repo_ref == f"{self.port.owner}/{self.port.repo}"):
+            parent = self.port.get_issue(epic_no)
+        parent_labels = _names(parent.get("labels")) if parent else []
+        parent_state = self.sole_state(parent_labels) if parent else None
+        if not self.cfg.bug_reports:
+            self.say(n, "`factory:bug` has no effect — bug reports are not enabled in this "
+                        "repository (`.github/factory-testing.json`, FACTORY.md §4c). This issue "
+                        "was left exactly as it is.\n\n"
+                        'Add `"bug_reports": true` to that file and re-apply the label.')
+        elif not privileged:
+            self.say(n, f"@{reporter} — raising a bug against an epic requires owner, member or "
+                        "collaborator access on this repository, so this issue was left as an "
+                        "ordinary one.\n\nA maintainer can raise it by removing `factory:bug` "
+                        "and applying it again, or by commenting `Bug` on the epic with what you "
+                        "saw here.")
+        elif repo_ref and repo_ref != f"{self.port.owner}/{self.port.repo}":
+            self.say(n, f"This report names an epic in **{repo_ref}**, and a bug lives beside the "
+                        "epic it is raised against (FACTORY.md §4c). File it there — or comment "
+                        "`Bug` on that epic with what you saw here — and the fix is filed in the "
+                        "repo that owns it. This issue was left as it is.")
+        elif parent is None:
+            self.say(n, "This is labelled `factory:bug`, but it does not name an epic this "
+                        "repository has, so there is nothing to raise it against and nothing was "
+                        "filed.\n\nAdd a line `Epic: #<n>` naming the epic under test — the "
+                        "requirement issue, not a task or a case — and apply the label again. A "
+                        "defect with no epic to repair inside is an ordinary issue: remove the "
+                        "label and it enters intake like any other.")
+        elif not _is_epic_issue(parent, parent_labels):
+            self.say(n, f"#{parent['number']} is not an epic — it is "
+                        f"{_kind_of(parent, parent_labels)}. A bug is raised against the "
+                        "requirement issue the factory built, so that its fix can be assembled "
+                        "onto the epic branch. Name that issue in an `Epic: #<n>` line and apply "
+                        "the label again.")
+        elif parent.get("state") == "closed" or "factory:deployed" in parent_labels:
+            self.say(n, f"Epic #{parent['number']} has shipped, so a defect in it is not a bug "
+                        "report against that change any more. Remove `factory:bug` and this "
+                        "enters intake as an ordinary issue — or label it `factory:incident` if "
+                        "production is affected (FACTORY.md §8).")
+        elif parent_state not in BUG_ACCEPT_STATES:
+            self.say(n, f"Epic #{parent['number']} is at **{self.state_of(parent_labels)}**, and "
+                        "a bug is a defect in code the factory has **built** — there is none yet. "
+                        "Nothing was filed. Bugs are accepted from `factory:design-approved` "
+                        "onward, when the first task has landed (FACTORY.md §4c); until then what "
+                        "you have is a requirement, and removing the label puts it into intake.")
+        else:
+            report = (issue.get("body") or "").strip() or "(no detail was given in the report)"
+            self.raise_bug(parent["number"], title, report, reporter, existing=issue)
+
+    def raise_bug(self, epic: int, title: str, report: str, reporter: str,
+                  source: dict[str, Any] | None = None,
+                  existing: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Open (or adopt) a bug report and file the task that fixes it.
+
+        One path for both ways in (§4c) — a `Bug` comment opens the report, a
+        filed `factory:bug` issue is adopted where it stands — so the two
+        entry points cannot drift into two different kinds of bug. An adopted
+        issue keeps its own body: the tester wrote it, the form's fields are
+        in it, and rewriting it would throw that away. It gains the `Part of`
+        marker every factory sub-issue carries, and nothing else.
+        """
+        bug_title = f"bug({epic}): {title}"
+        if existing is not None:
+            bug = existing
+            n = bug["number"]
+            bug_body = bug.get("body") or ""
+            if not _is_bug_title(bug.get("title")):
+                try:
+                    self.port.update_issue_title(n, bug_title)  # type: ignore[attr-defined]
+                    bug["title"] = bug_title
+                except Exception:  # noqa: BLE001 - the labels still route it
+                    log.warning("Could not retitle bug #%s", n)
+            if epic_ref_from_body(bug_body)[1] != epic:
+                bug_body = f"{bug_body.rstrip()}\n\nPart of #{epic}\n"
+                try:
+                    self.port.update_issue_body(n, bug_body)  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001
+                    log.warning("Could not add the parent marker to bug #%s", n)
+            self.port.add_labels(n, [BUG_KIND, BUG_OPEN])
+        else:
+            seen = ""
+            if source and source.get("number") != epic:
+                seen = f"\n- Seen on: #{source['number']} — {source.get('title') or ''}".rstrip(" —")
+            bug_body = "\n".join([
+                "A bug raised against this epic while testing it (FACTORY.md §4c).",
+                "",
+                f"Part of #{epic}",
+                "",
+                f"- Reported by: @{reporter}" + seen,
+                "",
+                "What the tester saw:",
+                "",
+                quoted(report),
+                "",
+                AGENT_MARK,
+            ])
+            bug = self.port.create_issue(title=bug_title, body=bug_body,
+                                         labels=[BUG_KIND, BUG_OPEN])
+        fix = self.file_bug_fix(bug, bug_body, epic, title, report, reporter)
+        self.say(bug["number"], "\n".join([
+            f"**Bug raised** against epic #{epic} by @{reporter}. Filed #{fix['number']} to fix it.",
+            "",
+            "This report waits at `factory:bug-open` until that task is implemented, reviewed, "
+            "tested and assembled onto the epic branch; the Dispatcher then moves it to "
+            "`factory:bug-retest` and asks the testers to confirm the repair. Add anything else "
+            "you saw to this thread — it is the record of the defect, and it stays open until "
+            "somebody has re-run it.",
+        ]))
+        held = (" This epic is not complete while it is open — gate GS is held until a tester "
+                "confirms the repair (FACTORY.md §4c)."
+                if self.bugs_hold_gs() else
+                " It is listed as evidence on this epic's gates rather than holding them "
+                "(FACTORY.md §4c).")
+        self.say(epic, f"**Bug #{bug['number']}** raised by @{reporter} — {title}. Filed "
+                       f"#{fix['number']} to fix it onto this epic." + held)
+        if source and source.get("number") not in (epic, bug["number"]):
+            self.say(source["number"],
+                     f"Raised as bug #{bug['number']} against epic #{epic}, with #{fix['number']} "
+                     "filed to fix it. Nothing on this issue changed — a bug is its own report.")
+        log.info("Bug #%s raised on epic #%s - fix #%s", bug["number"], epic, fix["number"])
+        return bug
+
     # -- the decision table ------------------------------------------------
     def route(self, event_name: str, payload: dict[str, Any]) -> RouteResult:
         r = RouteResult()
@@ -650,7 +1029,11 @@ class Router:
         is_plan_tests = bool(re.match(r"^\s*plan\s+tests\s*[.!]?\s*$", body, re.IGNORECASE))
         is_test_passed = bool(re.match(r"^\s*test\s+passed\s*[.!]?\s*$", body, re.IGNORECASE))
         is_test_failed = bool(re.match(r"^\s*test\s+failed\s*[.!]?\s*$", body, re.IGNORECASE))
+        # The bug control (§4c) is the one that reads past its first line: the
+        # match is on that line, the report is everything under it.
+        bug_ctl = _bug_control(body)
         is_test_case = _is_test_title(i.get("title"))
+        is_bug = _is_bug_title(i.get("title"))
         is_tracker = RELEASE_KIND in labels
         assoc_ok = (payload.get("comment") or {}).get("author_association") in (
             "OWNER", "MEMBER", "COLLABORATOR")
@@ -763,6 +1146,85 @@ class Router:
                 r.role = "testplanner"
                 log.info("System test plan requested on #%s (%s) - starting the Test Planner",
                          i["number"], st)
+        elif bug_ctl is not None:
+            # Raising a bug (§4c). Accepted on the epic itself or on any of its
+            # children, because a tester who finds one is usually reading a
+            # task or a case, not the epic.
+            title, report = bug_ctl
+            epic_no: int | None = None
+            elsewhere: str | None = None
+            kind = ""
+            if is_tracker:
+                kind = "a release tracker"
+            elif PROFILE_KIND in labels:
+                kind = "this repository's profile issue"
+            elif FAST_TRACK in labels:
+                kind = "in the fast lane, which has no epic and no epic branch to fix anything into"
+            elif _is_task_title(i.get("title")) or is_test_case or is_bug:
+                m = re.match(r"^(?:task|test|bug)\((\d+)\)", i.get("title") or "")
+                epic_no = int(m.group(1)) if m else None
+                repo_ref, body_number = epic_ref_from_body(i.get("body"))
+                if (repo_ref and body_number == epic_no
+                        and repo_ref != f"{self.port.owner}/{self.port.repo}"):
+                    elsewhere = repo_ref
+            else:
+                epic_no = i["number"]
+            parent = (i if epic_no == i["number"]
+                      else self.port.get_issue(epic_no) if epic_no else None)
+            parent_labels = _names(parent.get("labels")) if parent else []
+            parent_state = self.sole_state(parent_labels) if parent else None
+            if not cfg.bug_reports:
+                self.say(i["number"],
+                         "`Bug` has no effect — bug reports are not enabled in this repository "
+                         "(`.github/factory-testing.json`, FACTORY.md §4c). Nothing was raised.\n\n"
+                         'Add `"bug_reports": true` to that file (turning system tests on turns '
+                         "bug reports on with them) and comment again.")
+            elif not assoc_ok:
+                self.say(i["number"],
+                         f"@{sender} — raising a bug requires owner, member or collaborator "
+                         "access on this repository.")
+            elif kind:
+                self.say(i["number"],
+                         "`Bug` only works against an **epic** the factory has built — the "
+                         f"requirement issue, or one of its tasks or cases. This issue is {kind}, "
+                         "so nothing was raised.")
+            elif elsewhere:
+                self.say(i["number"],
+                         f"This issue's epic is in **{elsewhere}**, and a bug report lives beside "
+                         "the epic it is raised against (FACTORY.md §4c). Comment `Bug` on the "
+                         "epic over there, with the same report, and the fix is filed in the repo "
+                         "that owns it.")
+            elif parent is None:
+                self.say(i["number"],
+                         "`Bug` needs an epic to raise the defect against, and this thread names "
+                         f"none{'' if epic_no is None else f' that this repository has (#{epic_no})'}."
+                         "\n\nComment `Bug` on the epic itself, or on one of its tasks or cases, "
+                         "or file an issue labelled `factory:bug` with an `Epic: #<n>` line.")
+            elif parent.get("state") == "closed" or "factory:deployed" in parent_labels:
+                self.say(i["number"],
+                         f"Epic #{parent['number']} has shipped, so a defect in it is not a bug "
+                         "report against the change any more — that change has left the factory. "
+                         "File it as an ordinary issue, or `factory:incident` if production is "
+                         "affected (FACTORY.md §8). Nothing was raised.")
+            elif parent_state not in BUG_ACCEPT_STATES:
+                self.say(i["number"],
+                         f"`Bug` has no effect while epic #{parent['number']} is at "
+                         f"**{self.state_of(parent_labels)}** — nothing was raised.\n\nA bug is a "
+                         "defect in code the factory has **built**, and this epic has not built "
+                         "any yet. What you have is a requirement: file it as an issue and it "
+                         "enters intake. Bugs are accepted from `factory:design-approved` "
+                         "onward, when the first task has landed (FACTORY.md §4c).")
+            elif not report or not title:
+                self.say(i["number"],
+                         "`Bug` needs the report underneath it — what you saw, what you did and "
+                         "what you expected. Nothing was raised.\n\nUnlike every other factory "
+                         "control this one reads past its first line, so put the detail in the "
+                         "same comment:\n\n"
+                         "```\nBug: the discount is ignored on the checkout total\n"
+                         "Steps: add SAVE10 to a cart of 100.00, go to checkout\n"
+                         "Saw: total 100.00 — expected 90.00\n```")
+            else:
+                self.raise_bug(parent["number"], title, report, sender, source=i)
         elif is_test_passed and is_test_case and MANUAL_TEST in labels:
             # The tester's verdict. `testers` falls back to the implementation
             # list (someone always owns it), then to any collaborator.
@@ -847,6 +1309,54 @@ class Router:
                          "until that task is implemented, reviewed, tested and assembled; the "
                          "Dispatcher then puts it back to `factory:manual-test` for a re-run.")
                 log.info("System test #%s failed - filed fix #%s", i["number"], fix["number"])
+        elif is_test_passed and is_bug and BUG_RETEST in labels:
+            # The re-test verdict (§4c). Same two words a case takes, because a
+            # re-test is a test, and the same list owns them.
+            if not authorized("testers"):
+                refuse("testers", "confirming a bug repair")
+            else:
+                epic, btitle = _bug_of(i.get("title"))
+                self.drop_label(i["number"], BUG_RETEST)
+                self.port.add_labels(i["number"], [BUG_VERIFIED])
+                self.say(i["number"],
+                         f"**Repair confirmed** — recorded by @{sender}. Closing this bug.")
+                try:
+                    self.port.update_issue_state(i["number"], "closed")  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001 - a stuck-open bug is not a failed route
+                    log.warning("Could not close bug #%s", i["number"])
+                log.info("Bug #%s confirmed repaired - closed", i["number"])
+                # The last confirmation is what completes an epic (§4c), and
+                # the Dispatcher is the one place that decides completeness.
+                parent = self.port.get_issue(epic) if epic else None
+                if parent and "factory:design-approved" in _names(parent.get("labels")):
+                    r.role = "dispatch"
+                    r.issue = str(epic)
+                    log.info("Re-dispatching epic #%s - a confirmed repair may have completed it",
+                             epic)
+        elif is_test_failed and is_bug and BUG_RETEST in labels:
+            # Still there after a fix. That is the same bug, not a new one: one
+            # report, one thread, however many rounds it takes.
+            epic, btitle = _bug_of(i.get("title"))
+            if not assoc_ok:
+                self.say(i["number"],
+                         f"@{sender} — reporting a bug as still open requires owner, member or "
+                         "collaborator access on this repository.")
+            elif epic is None:
+                self.say(i["number"],
+                         "This bug's title does not name its epic, so there is nothing to file a "
+                         "fix against. Retitle it `bug(<epic>): <title>` and comment again.")
+            else:
+                fix = self.file_bug_fix(i, i.get("body") or "", epic, btitle,
+                                        f"Still failing after the previous fix.\n\n{body}", sender,
+                                        again=True)
+                self.drop_label(i["number"], BUG_RETEST)
+                self.port.add_labels(i["number"], [BUG_OPEN])
+                self.say(i["number"],
+                         f"**Still open** — reported by @{sender}. Filed #{fix['number']} to fix "
+                         "it.\n\nThis is the same bug, not a new one: it waits at "
+                         "`factory:bug-open` until that task is assembled, and comes back to you "
+                         "for another re-test when it lands.")
+                log.info("Bug #%s still open - filed fix #%s", i["number"], fix["number"])
         elif is_approval and "factory:ready" in labels:
             if not authorized("implementation"):
                 refuse("implementation", "starting implementation")
@@ -884,8 +1394,17 @@ class Router:
             # staging verification have actually happened, so a release that
             # fails leaves the epic at factory:epic-ready with the gate still
             # open for a retry.
+            open_bugs = self.open_bugs(i["number"]) if self.bugs_hold_gs() else []
             if not authorized("staging"):
                 refuse("staging", "gate GS (releasing this epic to staging)")
+            elif open_bugs:
+                # A bug raised after the epic reached this state does not
+                # revoke it — the factory never moves an epic backwards (§4b)
+                # — so the hold lands here, at the moment somebody asks to
+                # release it. Under advisory, or with no epic branch, there is
+                # nothing to hold and this list is evidence instead.
+                self.say(i["number"], self.bug_blocker(open_bugs))
+                log.info("Gate GS held on #%s - %s open bug(s)", i["number"], len(open_bugs))
             elif IN_PROGRESS in labels:
                 self.say(i["number"],
                          "`Approved` has no effect right now — a factory run is already live on this "
@@ -938,7 +1457,19 @@ class Router:
                          "moves to `factory:in-test` without waiting on the Reviewer agent.")
             elif is_test_passed or is_test_failed:
                 what = '"Test Passed"' if is_test_passed else '"Test Failed"'
-                if not cfg.system_tests:
+                if is_bug:
+                    # The same two words answer a bug's re-test (§4c), so a
+                    # verdict on one that is not waiting for a re-test gets the
+                    # bug's story, not the test plan's.
+                    self.say(i["number"],
+                             f"{what} has no effect while this bug is at "
+                             f"**{self.state_of(labels)}**" + (
+                                 " — it is closed, and a confirmed repair stays confirmed."
+                                 if BUG_VERIFIED in labels else
+                                 ". It becomes `factory:bug-retest` when the task fixing it is "
+                                 "assembled onto the epic branch, and that is when a re-test "
+                                 "verdict means something (FACTORY.md §4c)."))
+                elif not cfg.system_tests:
                     self.say(i["number"],
                              f"{what} has no effect — system tests are not enabled in this repository "
                              "(`.github/factory-testing.json`, FACTORY.md §4b). Nothing changed.")
@@ -1013,6 +1544,12 @@ class Router:
             elif PROFILE_KIND in labels:
                 r.role = "profiler"
                 log.info("Filed as factory:profile - drafting the repo profile")
+            elif BUG_KIND in labels:
+                # A bug report filed from the issue form (§4c). The author's
+                # own access decides: the label path below is privileged by
+                # the act of labelling, this one is not.
+                self.adopt_bug(i, i.get("author_association") in (
+                    "OWNER", "MEMBER", "COLLABORATOR"))
             elif any(x != "factory:intake" for x in states):
                 log.info("Issue already carries a factory state - skipping")
             else:
@@ -1087,9 +1624,12 @@ class Router:
                          "`factory:backlog` until it is part of an approved release.")
 
         elif action == "closed":
-            m = re.match(r"^task\((\d+)\)", i.get("title") or "")
+            # A bug closed by hand — "not a defect", or a duplicate — is the
+            # other way an epic's last hold comes off (§4c), so it re-dispatches
+            # exactly as a merged task does.
+            m = re.match(r"^(?:task|bug)\((\d+)\)", i.get("title") or "")
             if not m:
-                log.info("Not a factory task sub-issue - nothing to re-dispatch")
+                log.info("Not a factory task or bug sub-issue - nothing to re-dispatch")
             else:
                 # The epic is not necessarily in this repo. A cross-repo epic
                 # (FACTORY.md §7) keeps its tasks in the repos that implement
@@ -1167,6 +1707,35 @@ class Router:
                          "implementer, reviewer or QA run is ever started on one.")
                 log.info("Reverted %s on system test case #%s", name, i["number"])
                 return
+            # Same for a bug report (§4c): the report is the record of a
+            # defect, and the work is the task the factory filed to fix it.
+            # A code state here would put an implementer on the record.
+            if (_is_bug_title(i.get("title")) and name in CODE_STATES
+                    and not _sender_is_app(payload)):
+                self.drop_label(i["number"], name)
+                fix = _BLOCKED_BY_RE.search(i.get("body") or "")
+                self.say(i["number"],
+                         f"`{name}` was applied by @{sender}, but this is a **bug report**, not a "
+                         "task. Reverted.\n\nThe work is "
+                         + (f"#{fix.group(1)}, the task filed to fix it"
+                            if fix else "the task the factory files to fix it")
+                         + " — that is where an implementer, a reviewer and QA run. This report "
+                         "moves to `factory:bug-retest` when the fix is assembled, and closes on "
+                         "exactly `Test Passed` (FACTORY.md §4c).")
+                log.info("Reverted %s on bug report #%s", name, i["number"])
+                return
+            if name == BUG_KIND:
+                # Applying a label needs write access, so this path is
+                # privileged by definition. The factory's own write is skipped:
+                # `raise_bug` labels the report it just adopted.
+                if _sender_is_app(payload):
+                    log.info("%s applied by this App - the run that applied it raised the bug",
+                             BUG_KIND)
+                elif _is_bug_title(i.get("title")):
+                    log.info("#%s is already a bug report - nothing to adopt", i["number"])
+                else:
+                    self.adopt_bug(i, True)
+                return
             gate_of = {
                 "factory:release-approved": "release_scope",
                 "factory:spec-approved": "spec",
@@ -1205,6 +1774,7 @@ class Router:
                 "factory:in-staging": ("release", "Gate G3 (promotion to the default branch)"),
                 "factory:ready": ("implementation", "Implementation start"),
                 MANUAL_TEST: ("testers", "A system test case"),
+                BUG_RETEST: ("testers", "A bug re-test"),
             }
             # An expedited task's implementer starts here rather than waiting
             # for a click that expedite has already given (§4a), so the
@@ -1248,7 +1818,13 @@ class Router:
                 lst = cfg.approver_list(gate)
                 if lst:
                     self.port.add_assignees(i["number"], lst)
-                    if gate == "testers":
+                    if gate == "testers" and name == BUG_RETEST:
+                        how = ("The task fixing this bug is assembled and green. Re-run what you "
+                               "did when you found it, on the environment named above, then "
+                               'comment exactly "Test Passed" here to close the report, or exactly '
+                               '"Test Failed" if it is still there — which files another fix and '
+                               "brings this bug back to you when it lands.")
+                    elif gate == "testers":
                         how = ("The code this case exercises is assembled, so it can be run now. The "
                                "steps, the data and the expected result are in the epic's system test "
                                "plan, linked above. When you have run it, comment exactly "

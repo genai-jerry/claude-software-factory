@@ -1,0 +1,94 @@
+{
+  "name": "bug-label-adopts-a-filed-issue",
+  "description": "factory:bug applied to a filed issue retitles it bug(<epic>) and files the fix",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 41,
+        "title": "[Bug] Discount ignored at checkout",
+        "labels": [
+          "factory:bug"
+        ],
+        "body": "### Epic\n\n#9\n\n### What happened\n\nThe total stayed at 100.00."
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 41,
+    "label": "factory:bug",
+    "sender": "tess"
+  },
+  "expect": {
+    "role": "none",
+    "titles": {
+      "41": "bug(9): Discount ignored at checkout"
+    },
+    "labels": {
+      "41": {
+        "has": [
+          "factory:bug",
+          "factory:bug-open"
+        ]
+      }
+    },
+    "createdIssues": [
+      {
+        "titlePattern": "^task\\(9\\): fix bug #41 — Discount ignored at checkout$",
+        "labels": [
+          "factory:ready"
+        ],
+        "bodyContains": [
+          "Part of #9",
+          "> The total stayed at 100.00."
+        ]
+      }
+    ],
+    "createdCount": 1,
+    "comments": {
+      "41": {
+        "countAtLeast": 1,
+        "contains": [
+          "Bug raised** against epic #9"
+        ]
+      }
+    }
+  }
+}

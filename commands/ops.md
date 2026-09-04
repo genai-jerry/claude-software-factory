@@ -48,7 +48,10 @@ Prove the release is healthy, then close the loop.
      cite the test matrix — case, verdict, tester — alongside the automated
      evidence; those verdicts are part of what proves the release, and
      `system-tests/` archives with the change folder like every other
-     artifact.
+     artifact. Cite the epic's **bug reports** the same way (§4c): each one,
+     the task that fixed it and who confirmed the repair. A bug still open on
+     a shipped epic is a defect that reached production — say so plainly and
+     leave it open; it is not something closing the epic makes go away.
    - Remove `factory:deployed`.
 4. **On regression:**
    - File a `factory:incident` issue with diagnostics (log excerpts, failing

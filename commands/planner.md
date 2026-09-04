@@ -68,6 +68,8 @@ Decompose the approved spec into an ordered, releasable task breakdown.
 - Do not plan the human test pass. Where system tests are on (§4b) the Test
   Planner runs after you and writes it; its `test(<epic>)` sub-issues are not
   tasks, are not mirrored into `tasks.md`, and do not count against your
-  ~10-task cap.
+  ~10-task cap. The same goes for the `bug(<epic>)` reports testers raise
+  later (§4c) and the `task(<epic>): fix bug ...` the factory files for each:
+  they arrive after your run, and they never go into `tasks.md`.
 - Every spec scenario must be covered by at least one task; state the mapping.
 - tasks.md is the single authoritative checklist; sub-issues mirror it.

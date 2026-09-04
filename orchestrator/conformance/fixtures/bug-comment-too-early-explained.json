@@ -1,0 +1,67 @@
+{
+  "name": "bug-comment-too-early-explained",
+  "description": "A bug on an epic that has built nothing yet is a requirement, and says so",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:planned"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Bug: the discount is ignored on the checkout total\nSteps: add SAVE10 to a cart of 100.00\nSaw: total 100.00 — expected 90.00",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 0,
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "factory:planned",
+          "What you have is a requirement"
+        ]
+      }
+    }
+  }
+}

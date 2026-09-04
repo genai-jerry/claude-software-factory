@@ -131,7 +131,7 @@ in this repo and adjust as noted.
 | `.github/factory-approvers.json` | `templates/factory-approvers.json` | Required — replace `genai-jerry` with real GitHub usernames per gate |
 | `.github/factory-release.json` | `templates/factory-release.json` | Optional — release gating. Omit the file and a filed issue goes straight to intake |
 | `.github/factory-branches.json` | `templates/factory-branches.json` | The org's integration branch (FACTORY.md §6a) and epic-branch policy (§6b). Set `staging` to its name and copy the *same* file into every repo. Omitting it is not opting out of staging — the defaults apply; ship `"required": false` to opt out. `"epics": true` (the template's value) adds the per-epic branch layer; the absent-key default is `false` |
-| `.github/factory-testing.json` | `templates/factory-testing.json` | Optional — system tests (FACTORY.md §4b). Omit the file and no Test Planner runs and no test case exists. With it, add a `testers` list to `factory-approvers.json` and `testplanner` to `factory-models.json` |
+| `.github/factory-testing.json` | `templates/factory-testing.json` | Optional — system tests (FACTORY.md §4b) and bug reports (§4c). Omit the file and no Test Planner runs, no test case exists and `Bug` does nothing. With it, add a `testers` list to `factory-approvers.json` and `testplanner` to `factory-models.json` |
 | `.claude/settings.json` | `templates/settings.json` | Merge into an existing file if one is present; keep the `permissions.deny` block — it's half of gate G3 |
 
 ```bash
@@ -142,7 +142,8 @@ cp /path/to/claude-software-factory/templates/factory-models.json .github/
 cp /path/to/claude-software-factory/templates/factory-approvers.json .github/
 cp /path/to/claude-software-factory/templates/factory-release.json .github/   # optional
 cp /path/to/claude-software-factory/templates/factory-branches.json .github/  # integration branch
-cp /path/to/claude-software-factory/templates/factory-testing.json .github/  # optional - system tests
+cp /path/to/claude-software-factory/templates/factory-testing.json .github/  # optional - system tests + bugs
+cp /path/to/claude-software-factory/templates/ISSUE_TEMPLATE/factory-bug.yml .github/ISSUE_TEMPLATE/  # optional - bug reports
 cp /path/to/claude-software-factory/templates/settings.json .claude/
 ```
 
@@ -164,6 +165,13 @@ Notes:
   let OpenSpec track the two new artifacts, also copy
   `templates/openspec/schemas/factory/` to `openspec/schemas/factory/` and set
   `schema: factory` in `openspec/config.yaml` — optional and independent.
+- The same file turns on **bug reports** (FACTORY.md §4c): `bug_reports`
+  follows `system_tests` unless you set it. With them on, a tester comments
+  `Bug` on an epic under test — or files an issue labelled `factory:bug` from
+  `templates/ISSUE_TEMPLATE/factory-bug.yml` — and the factory raises a
+  `bug(<epic>)` report and files an ordinary task to fix it onto the epic
+  branch. Under `"mode": "gate"` an open bug holds gate GS the way an
+  unpassed case does.
 - `.claude/settings.json`'s `_doc` key documents itself; delete it before
   committing if you'd rather not carry commentary in a settings file.
 - **The caller stubs must declare `permissions:` themselves.** A called

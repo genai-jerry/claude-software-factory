@@ -1,0 +1,77 @@
+{
+  "name": "code-state-on-a-bug-reverted",
+  "description": "factory:ready applied to a bug( report is reverted, naming the fix task instead",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 41,
+        "title": "bug(9): Discount ignored at checkout",
+        "labels": [
+          "factory:bug",
+          "factory:bug-open",
+          "factory:ready"
+        ],
+        "body": "Part of #9\n\nBlocked by #42"
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 41,
+    "label": "factory:ready",
+    "sender": "dev"
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "41": {
+        "not": [
+          "factory:ready"
+        ],
+        "has": [
+          "factory:bug-open"
+        ]
+      }
+    },
+    "comments": {
+      "41": {
+        "countAtLeast": 1,
+        "contains": [
+          "bug report",
+          "Reverted",
+          "#42, the task filed to fix it"
+        ]
+      }
+    }
+  }
+}

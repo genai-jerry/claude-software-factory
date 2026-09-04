@@ -38,7 +38,7 @@ exactly like today's defaults.
 | `release` | `.github/factory-release.json` |
 | `approvers` | `.github/factory-approvers.json` |
 | `orchestrator` | `.github/factory-orchestrator.json` |
-| `testing` | `.github/factory-testing.json` (system tests, §4b) |
+| `testing` | `.github/factory-testing.json` (system tests §4b, bug reports §4c) |
 
 Values are the parsed JSON contents, verbatim. The string value
 `"invalid-json"` means the file exists but does not parse (engines must
@@ -52,6 +52,8 @@ treat it as absent — the router's `loadJson` swallows parse errors).
   "title": "Add renewals",
   "labels": ["factory:intake"],
   "authorType": "User",            // "User" | "Bot" (default "User")
+  "authorAssociation": "COLLABORATOR", // the AUTHOR's association (default "NONE");
+                                   // only the bug-report path reads it (§4c)
   "state": "open",                 // "open" | "closed" (default "open")
   "isPullRequest": false,          // true = this "issue" is a PR (comment routing skips it)
   "milestone": 7,                  // milestone number, or null/absent
@@ -93,6 +95,7 @@ are not constrained (harnesses check what is written, nothing more).
   "comments": {
     "5": { "countAtLeast": 1, "contains": ["Plan release"], "notContains": ["..."] , "count": 1 }
   },
+  "titles": { "41": "bug(9): Discount ignored at checkout" },
   "createdIssues": [
     { "titlePattern": "^release\\(7\\):", "labels": ["factory:release", "factory:release-planning"], "bodyContains": ["Nothing is running yet", "@boss"] }
   ],
@@ -106,8 +109,11 @@ Semantics:
 - `comments.<n>` — comments on issue `n` **posted by this routing pass**
   (harnesses count relative to the fixture's pre-existing `comments`).
   `contains` matches substrings anywhere in any new comment.
+- `titles.<n>` — the issue's title after routing. One route renames an
+  issue: adopting a filed `factory:bug` report as `bug(<epic>): ...` (§4c).
 - `createdIssues` — issues the router itself filed (trackers, the profile
-  issue), matched in order of creation.
+  issue, a bug report and the task that fixes it), matched in order of
+  creation.
 - `role`/`issues`/`releaseIssue` — the routing outputs. For the Actions
   engine these are the `route` job outputs; for the orchestrator they are
   the router's decision object. Their meaning is identical.

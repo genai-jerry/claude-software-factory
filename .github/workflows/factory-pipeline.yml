@@ -202,6 +202,22 @@ jobs:
             const MANUAL_TEST = 'factory:manual-test';
             const TEST_PASSED = 'factory:test-passed';
             const TEST_FAILED = 'factory:test-failed';
+            // Bug reports (FACTORY.md §4c). factory:bug is a KIND marker: it
+            // stays on the report for life and never reads as a state. The
+            // three states below only ever sit on a bug(<epic>) sub-issue - a
+            // defect a tester found in an epic the factory has built and not
+            // yet shipped. No role is ever started on one; the FIX is an
+            // ordinary task and carries the ordinary code states.
+            const BUG_KIND = 'factory:bug';
+            const BUG_OPEN = 'factory:bug-open';
+            const BUG_RETEST = 'factory:bug-retest';
+            const BUG_VERIFIED = 'factory:bug-verified';
+            // The epic states a bug may be raised against: from the first task
+            // landing through the staging window. Earlier nothing has been
+            // built to be wrong; later the change has left the factory.
+            const BUG_ACCEPT_STATES = ['factory:design-approved', EPIC_READY, 'factory:in-staging'];
+            // The longest a report's first line may run before it stops being a title.
+            const BUG_TITLE_MAX = 80;
             // Labels that say nothing about where an issue is in the pipeline.
             const ORTHOGONAL = [IN_PROGRESS, EXPEDITE, 'factory:blocked'];
 
@@ -266,6 +282,13 @@ jobs:
             // instead. It decides nothing for a repo with no epic branch, where the
             // cases only run after gate GS has already been opened.
             const testMode = testingCfg.mode === 'advisory' ? 'advisory' : 'gate';
+            // Bug reports ride on the same file (FACTORY.md §4c). Absent, the
+            // key follows system_tests: a repo that turned the cases on gets
+            // the bugs with them. An explicit value wins either way, so a repo
+            // can keep the cases without the bugs, or run exploratory testing
+            // with bugs and no written plan.
+            const bugReports = typeof testingCfg.bug_reports === 'boolean'
+              ? testingCfg.bug_reports : systemTests;
             // Release gating is opt-in: no file (or "gating":"none") keeps the
             // original behaviour where a filed issue goes straight to intake.
             const releaseCfg = loadJson('.github/factory-release.json');
@@ -281,6 +304,46 @@ jobs:
             // implementer, never counts against the planner's cap, and carries only
             // the three test states.
             const isTestTitle = (t) => /^test\(\d+\)/.test(t || '');
+            // A bug report sub-issue (§4c): bug(<epic>): <title>. Like a case,
+            // kept apart from task( - no role runs on it, and the work is the
+            // task the factory filed to fix it.
+            const isBugTitle = (t) => /^bug\(\d+\)/i.test(t || '');
+            const bugOf = (t) => {
+              const m = /^bug\((\d+)\):\s*(.*)$/i.exec(t || '');
+              return m ? { epic: Number(m[1]), title: (m[2] || '').trim() }
+                       : { epic: null, title: '' };
+            };
+            // The `Bug` control. Only the FIRST line is matched, and everything
+            // after it is the report - this is the one factory control that
+            // reads past its own line (§4c), because a bug without what the
+            // tester saw is a round trip. The strictness moves to that first
+            // line: exactly `Bug`, or `Bug: <title>` / `Bug — <title>`.
+            // "Bug fix pushed" is a comment.
+            const bugControl = (body) => {
+              const lines = (body || '').replace(/\r\n/g, '\n').split('\n');
+              const m = /^\s*bug\s*(?:[:\u2013\u2014-]\s*(.*?))?\s*$/i.exec(lines[0] || '');
+              if (!m) return null;
+              const report = lines.slice(1).join('\n').trim();
+              let title = (m[1] || '').trim();
+              if (!title && report) title = report.split('\n')[0].trim().replace(/^[-*#\s]+/, '').trim();
+              if (title.length > BUG_TITLE_MAX) title = title.slice(0, BUG_TITLE_MAX).trimEnd() + '…';
+              return { title, report };
+            };
+            // Where a filed factory:bug issue names its epic. The issue form
+            // writes a `### Epic` heading with the number underneath; a human
+            // writing it by hand writes `Epic: #123`. Both, and the `Part of`
+            // marker every factory sub-issue carries, resolve here. Anchored on
+            // the keyword, so a version number elsewhere in the body is never
+            // mistaken for the epic.
+            const bugEpicFromBody = (body) => {
+              const m = /(?:^|\n)[ \t]*#{0,6}[ \t]*(?:epic|found in|part of|parent|against)\b[ \t]*:?[ \t]*\n{0,2}[ \t]*(?:https?:\/\/[^/\s]+\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)|([\w.-]+)\/([\w.-]+)#(\d+)|#?(\d+))/i.exec(body || '');
+              if (!m) return { repo: null, number: null };
+              if (m[3]) return { repo: `${m[1]}/${m[2]}`, number: Number(m[3]) };
+              if (m[6]) return { repo: `${m[4]}/${m[5]}`, number: Number(m[6]) };
+              return { repo: null, number: Number(m[7]) };
+            };
+            // A report as a blockquote, so the tester's words stay theirs.
+            const quoted = (t) => (t || '').trim().split('\n').map(l => '> ' + l).join('\n');
             // "Part of owner/repo#250" — the qualified parent marker (FACTORY.md §7).
             // The unqualified forms mean the issue's own repo.
             const epicRefFromBody = (body) => {
@@ -310,7 +373,7 @@ jobs:
             // orthogonal to the state.
             const statesOf = (ls) => ls.filter(n => n.startsWith('factory:') &&
                                               !ORTHOGONAL.includes(n) && n !== RELEASE_KIND && n !== FAST_TRACK &&
-                                              n !== PROFILE_KIND);
+                                              n !== PROFILE_KIND && n !== BUG_KIND);
             const stateOf = (ls) => statesOf(ls).join(', ') || 'no factory:* state label';
             // The one state label, or null when there are none or (drift)
             // several. Auto-advance reads this rather than stateOf: deciding
@@ -544,6 +607,252 @@ jobs:
               return out;
             };
 
+            // -- bug reports (FACTORY.md §4c) ---------------------------
+            // This epic's open bug reports, oldest first. Bugs live in the
+            // epic's own repo by design - the report is raised against the
+            // epic and the fix is filed beside it - so this is one listing
+            // rather than the estate-wide fan-out a cross-repo epic's tasks
+            // need. A repo that cannot be listed reports no bugs rather than
+            // failing the route: a gate held by a listing error is worse than
+            // one held by nothing.
+            const openBugs = async (epic) => {
+              let found;
+              try {
+                found = await github.paginate(github.rest.issues.listForRepo, {
+                  owner, repo, labels: BUG_KIND, state: 'open', per_page: 100,
+                });
+              } catch (e) {
+                core.warning(`Could not list the bugs of epic #${epic} (${e.message})`);
+                return [];
+              }
+              return found
+                .filter(b => !b.pull_request && bugOf(b.title).epic === epic &&
+                             !namesOf(b.labels).includes(BUG_VERIFIED))
+                .sort((a, b) => a.number - b.number);
+            };
+            // Whether an open bug holds gate GS here (§4c): the same three
+            // conditions §4b puts on a case - the policy is on, the mode is
+            // gate, and there is an epic branch to hold the epic on. Without
+            // one the code first reaches a shared branch at GS itself, so the
+            // bugs are evidence in the promotion PR, never a hold.
+            const bugsHoldGS = () => bugReports && testMode === 'gate' && epicsPolicy();
+            const bugBlocker = (bugs) => [
+              '`Approved` has no effect while this epic has an open bug — gate GS is held (FACTORY.md §4c).',
+              '',
+              ...bugs.map(b => {
+                const fx = /(?:^|\n)\s*blocked by\s*#(\d+)/i.exec(b.body || '');
+                return `- #${b.number} — ${bugOf(b.title).title}` +
+                       (fx ? ` (fix #${fx[1]})` : ' (no fix filed yet)');
+              }),
+              '',
+              'Each one is fixed by an ordinary task onto the epic branch, and a tester confirms the ' +
+              'repair; the last confirmation re-runs the Dispatcher and this gate opens on its own. To ' +
+              'release with a bug open, close the report (it is not a defect) or set `"mode": "advisory"` ' +
+              'in `.github/factory-testing.json`, which makes bugs evidence rather than a hold.',
+            ].join('\n');
+            // File the task that fixes a bug, and mark the bug as waiting on
+            // it. The fix is an ordinary task(<epic>) sub-issue at
+            // factory:ready: same start, same implementer, reviewer and QA,
+            // same assembly onto the epic branch (§6b). Nothing about it is
+            // special, which is the point.
+            const fileBugFix = async (bug, bugBody, epic, title, report, reporter, again) => {
+              const { data: fix } = await github.rest.issues.create({
+                owner, repo,
+                title: `task(${epic}): fix bug #${bug.number} — ${title}`,
+                body: [
+                  again ? 'A bug raised on this epic is still open. This task is the fix.'
+                        : 'A bug was raised on this epic. This task is the fix.',
+                  '',
+                  `Part of #${epic}`,
+                  '',
+                  `- Bug: #${bug.number} — ${title}`,
+                  `- Reported by: @${reporter}`,
+                  '',
+                  'What the tester saw:',
+                  '',
+                  quoted(report),
+                  '',
+                  'Fix the behaviour the report describes, not the report. When this task is assembled ' +
+                  'onto the epic branch, the Dispatcher moves the bug to `factory:bug-retest` and asks ' +
+                  'the testers to confirm the repair.',
+                  '',
+                  '<!-- factory-agent -->',
+                ].join('\n'),
+                labels: ['factory:ready'],
+              });
+              const { data: parent } = await github.rest.issues.get({
+                owner, repo, issue_number: epic,
+              }).catch(() => ({ data: null })) || {};
+              const expedited = parent ? await isExpedited(parent) : false;
+              const impl = approverList('implementation');
+              await say(fix.number, expedited
+                ? 'Filed from a bug report — this epic is expedited, so its implementer starts on its ' +
+                  'own. Nothing to approve.'
+                : 'Filed from a bug report. An implementer can start: comment `Approved` here, run the ' +
+                  '"Factory pipeline" workflow with role=implementer and this issue number, or press ' +
+                  '**Approve** in the Factory Console.' +
+                  (impl.length ? ' cc ' + impl.map(u => '@' + u).join(', ') : ''));
+              await github.rest.issues.update({
+                owner, repo, issue_number: bug.number,
+                body: `${bugBody.trimEnd()}\n\nBlocked by #${fix.number}\n`,
+              }).catch(() => {});
+              return fix;
+            };
+            // Open (or adopt) a bug report and file the task that fixes it.
+            // One path for both ways in (§4c) - a `Bug` comment opens the
+            // report, a filed factory:bug issue is adopted where it stands -
+            // so the two entry points cannot drift into two different kinds of
+            // bug. An adopted issue keeps its own body: the tester wrote it,
+            // the form's fields are in it, and rewriting it would throw that
+            // away. It gains the `Part of` marker every factory sub-issue
+            // carries, and nothing else.
+            const raiseBug = async (epic, title, report, reporter, source, existing) => {
+              const bugTitle = `bug(${epic}): ${title}`;
+              let bug, bugBody;
+              if (existing) {
+                bug = existing;
+                bugBody = existing.body || '';
+                if (!isBugTitle(existing.title)) {
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: existing.number, title: bugTitle,
+                  }).then(() => { existing.title = bugTitle; }).catch(() => {});
+                }
+                if (epicRefFromBody(bugBody).number !== epic) {
+                  bugBody = `${bugBody.trimEnd()}\n\nPart of #${epic}\n`;
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: existing.number, body: bugBody,
+                  }).catch(() => {});
+                }
+                await addLabels(existing.number, [BUG_KIND, BUG_OPEN]);
+              } else {
+                const seen = source && source.number !== epic
+                  ? `\n- Seen on: #${source.number} — ${source.title || ''}`.replace(/ —\s*$/, '')
+                  : '';
+                bugBody = [
+                  'A bug raised against this epic while testing it (FACTORY.md §4c).',
+                  '',
+                  `Part of #${epic}`,
+                  '',
+                  `- Reported by: @${reporter}` + seen,
+                  '',
+                  'What the tester saw:',
+                  '',
+                  quoted(report),
+                  '',
+                  '<!-- factory-agent -->',
+                ].join('\n');
+                bug = (await github.rest.issues.create({
+                  owner, repo, title: bugTitle, body: bugBody, labels: [BUG_KIND, BUG_OPEN],
+                })).data;
+              }
+              const fix = await fileBugFix(bug, bugBody, epic, title, report, reporter, false);
+              await say(bug.number, [
+                `**Bug raised** against epic #${epic} by @${reporter}. Filed #${fix.number} to fix it.`,
+                '',
+                'This report waits at `factory:bug-open` until that task is implemented, reviewed, ' +
+                'tested and assembled onto the epic branch; the Dispatcher then moves it to ' +
+                '`factory:bug-retest` and asks the testers to confirm the repair. Add anything else you ' +
+                'saw to this thread — it is the record of the defect, and it stays open until somebody ' +
+                'has re-run it.',
+              ].join('\n'));
+              const held = bugsHoldGS()
+                ? ' This epic is not complete while it is open — gate GS is held until a tester confirms ' +
+                  'the repair (FACTORY.md §4c).'
+                : ' It is listed as evidence on this epic\'s gates rather than holding them (FACTORY.md §4c).';
+              await say(epic, `**Bug #${bug.number}** raised by @${reporter} — ${title}. Filed ` +
+                              `#${fix.number} to fix it onto this epic.` + held);
+              if (source && source.number !== epic && source.number !== bug.number) {
+                await say(source.number,
+                  `Raised as bug #${bug.number} against epic #${epic}, with #${fix.number} filed to fix ` +
+                  'it. Nothing on this issue changed — a bug is its own report.');
+              }
+              core.info(`Bug #${bug.number} raised on epic #${epic} - fix #${fix.number}`);
+              return bug;
+            };
+            // Is this issue an epic - a requirement the factory builds?
+            // Everything else that carries a factory:* label is one of the
+            // kinds the pipeline treats specially, and none of them owns an
+            // epic branch.
+            const isEpicIssue = (iss, ls) => !(ls.includes(RELEASE_KIND) || ls.includes(PROFILE_KIND) ||
+              ls.includes(FAST_TRACK) || isTaskTitle(iss.title) || isTestTitle(iss.title) ||
+              isBugTitle(iss.title));
+            const kindOf = (iss, ls) =>
+              ls.includes(RELEASE_KIND) ? 'a release tracker'
+              : ls.includes(PROFILE_KIND) ? "this repository's profile issue"
+              : ls.includes(FAST_TRACK) ? 'a fast-track issue, which has no epic branch'
+              : isTaskTitle(iss.title) ? 'a task sub-issue'
+              : isTestTitle(iss.title) ? 'a system test case'
+              : isBugTitle(iss.title) ? 'another bug report'
+              : 'not an epic';
+            // Turn a filed factory:bug issue into a bug report on its epic
+            // (§4c). The label is what the factory acts on, at filing or
+            // afterwards, so an issue somebody has already written becomes a
+            // report by labelling it. `privileged` says whether the actor has
+            // already proved write access - true for the label path, where
+            // applying a label requires it, and the issue author's own
+            // association for a filed one.
+            const adoptBug = async (iss, privileged) => {
+              const n = iss.number;
+              let title = (iss.title || '').replace(/^\s*\[?bug\]?\s*[:\u2013\u2014-]?\s*/i, '').trim() ||
+                          'an unnamed defect';
+              if (title.length > BUG_TITLE_MAX) title = title.slice(0, BUG_TITLE_MAX).trimEnd() + '…';
+              const reporter = (iss.user || {}).login || 'a tester';
+              const ref = bugEpicFromBody(iss.body);
+              const here = `${owner}/${repo}`;
+              const parent = (ref.number !== null && (!ref.repo || ref.repo === here))
+                ? await github.rest.issues.get({ owner, repo, issue_number: ref.number })
+                    .then(r => r.data).catch(() => null)
+                : null;
+              const parentLabels = parent ? namesOf(parent.labels) : [];
+              const parentState = parent ? soleState(parentLabels) : null;
+              if (!bugReports) {
+                await say(n,
+                  '`factory:bug` has no effect — bug reports are not enabled in this repository ' +
+                  '(`.github/factory-testing.json`, FACTORY.md §4c). This issue was left exactly as it ' +
+                  'is.\n\nAdd `"bug_reports": true` to that file and re-apply the label.');
+              } else if (!privileged) {
+                await say(n,
+                  `@${reporter} — raising a bug against an epic requires owner, member or collaborator ` +
+                  'access on this repository, so this issue was left as an ordinary one.\n\nA maintainer ' +
+                  'can raise it by removing `factory:bug` and applying it again, or by commenting `Bug` ' +
+                  'on the epic with what you saw here.');
+              } else if (ref.repo && ref.repo !== here) {
+                await say(n,
+                  `This report names an epic in **${ref.repo}**, and a bug lives beside the epic it is ` +
+                  'raised against (FACTORY.md §4c). File it there — or comment `Bug` on that epic with ' +
+                  'what you saw here — and the fix is filed in the repo that owns it. This issue was ' +
+                  'left as it is.');
+              } else if (!parent) {
+                await say(n,
+                  'This is labelled `factory:bug`, but it does not name an epic this repository has, so ' +
+                  'there is nothing to raise it against and nothing was filed.\n\nAdd a line `Epic: #<n>` ' +
+                  'naming the epic under test — the requirement issue, not a task or a case — and apply ' +
+                  'the label again. A defect with no epic to repair inside is an ordinary issue: remove ' +
+                  'the label and it enters intake like any other.');
+              } else if (!isEpicIssue(parent, parentLabels)) {
+                await say(n,
+                  `#${parent.number} is not an epic — it is ${kindOf(parent, parentLabels)}. A bug is ` +
+                  'raised against the requirement issue the factory built, so that its fix can be ' +
+                  'assembled onto the epic branch. Name that issue in an `Epic: #<n>` line and apply the ' +
+                  'label again.');
+              } else if (parent.state === 'closed' || parentLabels.includes('factory:deployed')) {
+                await say(n,
+                  `Epic #${parent.number} has shipped, so a defect in it is not a bug report against ` +
+                  'that change any more. Remove `factory:bug` and this enters intake as an ordinary ' +
+                  'issue — or label it `factory:incident` if production is affected (FACTORY.md §8).');
+              } else if (!BUG_ACCEPT_STATES.includes(parentState)) {
+                await say(n,
+                  `Epic #${parent.number} is at **${stateOf(parentLabels)}**, and a bug is a defect in ` +
+                  'code the factory has **built** — there is none yet. Nothing was filed. Bugs are ' +
+                  'accepted from `factory:design-approved` onward, when the first task has landed ' +
+                  '(FACTORY.md §4c); until then what you have is a requirement, and removing the label ' +
+                  'puts it into intake.');
+              } else {
+                const report = (iss.body || '').trim() || '(no detail was given in the report)';
+                await raiseBug(parent.number, title, report, reporter, null, iss);
+              }
+            };
+
             // Release trackers are found by label + title, never by search:
             // the search index lags behind issue creation by seconds to minutes.
             const trackerFor = async (ms) => {
@@ -708,7 +1017,11 @@ jobs:
               const isPlanTests = /^\s*plan\s+tests\s*[.!]?\s*$/i.test(body);
               const isTestPassed = /^\s*test\s+passed\s*[.!]?\s*$/i.test(body);
               const isTestFailed = /^\s*test\s+failed\s*[.!]?\s*$/i.test(body);
+              // The bug control (§4c) is the one that reads past its first
+              // line: the match is on that line, the report is everything under it.
+              const bugCtl = bugControl(body);
               const isTestCase = isTestTitle(i.title);
+              const isBug = isBugTitle(i.title);
               // test(<epic>): ST-<n> <title> -> the epic number and the case.
               const caseOf = (t) => {
                 const m = /^test\((\d+)\):\s*(ST-\d+)?\s*(.*)$/.exec(t || '');
@@ -834,6 +1147,80 @@ jobs:
                   role = 'testplanner';
                   core.info(`System test plan requested on #${i.number} (${st}) - starting the Test Planner`);
                 }
+              } else if (bugCtl) {
+                // Raising a bug (§4c). Accepted on the epic itself or on any
+                // of its children, because a tester who finds one is usually
+                // reading a task or a case, not the epic.
+                const { title, report } = bugCtl;
+                let epicNo = null, elsewhere = null, kind = '';
+                if (isTracker) {
+                  kind = 'a release tracker';
+                } else if (labels.includes(PROFILE_KIND)) {
+                  kind = "this repository's profile issue";
+                } else if (labels.includes(FAST_TRACK)) {
+                  kind = 'in the fast lane, which has no epic and no epic branch to fix anything into';
+                } else if (isTaskTitle(i.title) || isTestCase || isBug) {
+                  const m = /^(?:task|test|bug)\((\d+)\)/i.exec(i.title || '');
+                  epicNo = m ? Number(m[1]) : null;
+                  const ref = epicRefFromBody(i.body);
+                  if (ref.repo && ref.number === epicNo && ref.repo !== `${owner}/${repo}`) elsewhere = ref.repo;
+                } else {
+                  epicNo = i.number;
+                }
+                const parent = epicNo === i.number ? i
+                  : epicNo ? await github.rest.issues.get({ owner, repo, issue_number: epicNo })
+                      .then(r => r.data).catch(() => null)
+                  : null;
+                const parentLabels = parent ? namesOf(parent.labels) : [];
+                const parentState = parent ? soleState(parentLabels) : null;
+                if (!bugReports) {
+                  await say(i.number,
+                    '`Bug` has no effect — bug reports are not enabled in this repository ' +
+                    '(`.github/factory-testing.json`, FACTORY.md §4c). Nothing was raised.\n\n' +
+                    'Add `"bug_reports": true` to that file (turning system tests on turns bug reports ' +
+                    'on with them) and comment again.');
+                } else if (!assocOk) {
+                  await say(i.number,
+                    `@${sender} — raising a bug requires owner, member or collaborator access on this repository.`);
+                } else if (kind) {
+                  await say(i.number,
+                    '`Bug` only works against an **epic** the factory has built — the requirement issue, ' +
+                    `or one of its tasks or cases. This issue is ${kind}, so nothing was raised.`);
+                } else if (elsewhere) {
+                  await say(i.number,
+                    `This issue's epic is in **${elsewhere}**, and a bug report lives beside the epic it ` +
+                    'is raised against (FACTORY.md §4c). Comment `Bug` on the epic over there, with the ' +
+                    'same report, and the fix is filed in the repo that owns it.');
+                } else if (!parent) {
+                  await say(i.number,
+                    '`Bug` needs an epic to raise the defect against, and this thread names none' +
+                    (epicNo === null ? '' : ` that this repository has (#${epicNo})`) +
+                    '.\n\nComment `Bug` on the epic itself, or on one of its tasks or cases, or file an ' +
+                    'issue labelled `factory:bug` with an `Epic: #<n>` line.');
+                } else if (parent.state === 'closed' || parentLabels.includes('factory:deployed')) {
+                  await say(i.number,
+                    `Epic #${parent.number} has shipped, so a defect in it is not a bug report against ` +
+                    'the change any more — that change has left the factory. File it as an ordinary ' +
+                    'issue, or `factory:incident` if production is affected (FACTORY.md §8). Nothing was ' +
+                    'raised.');
+                } else if (!BUG_ACCEPT_STATES.includes(parentState)) {
+                  await say(i.number,
+                    `\`Bug\` has no effect while epic #${parent.number} is at ` +
+                    `**${stateOf(parentLabels)}** — nothing was raised.\n\nA bug is a defect in code the ` +
+                    'factory has **built**, and this epic has not built any yet. What you have is a ' +
+                    'requirement: file it as an issue and it enters intake. Bugs are accepted from ' +
+                    '`factory:design-approved` onward, when the first task has landed (FACTORY.md §4c).');
+                } else if (!report || !title) {
+                  await say(i.number,
+                    '`Bug` needs the report underneath it — what you saw, what you did and what you ' +
+                    'expected. Nothing was raised.\n\nUnlike every other factory control this one reads ' +
+                    'past its first line, so put the detail in the same comment:\n\n' +
+                    '```\nBug: the discount is ignored on the checkout total\n' +
+                    'Steps: add SAVE10 to a cart of 100.00, go to checkout\n' +
+                    'Saw: total 100.00 — expected 90.00\n```');
+                } else {
+                  await raiseBug(parent.number, title, report, sender, i, null);
+                }
               } else if (isTestPassed && isTestCase && labels.includes(MANUAL_TEST)) {
                 // The tester's verdict. Authorised against `testers`, which
                 // falls back to the implementation list (someone always owns
@@ -922,6 +1309,53 @@ jobs:
                     'and assembled; the Dispatcher then puts it back to `factory:manual-test` for a re-run.');
                   core.info(`System test #${i.number} failed - filed fix #${fix.number}`);
                 }
+              } else if (isTestPassed && isBug && labels.includes(BUG_RETEST)) {
+                // The re-test verdict (§4c). The same two words a case takes,
+                // because a re-test is a test, and the same list owns them.
+                if (!authorized('testers')) {
+                  await refuse('testers', 'confirming a bug repair');
+                } else {
+                  const b = bugOf(i.title);
+                  await dropLabel(i.number, BUG_RETEST);
+                  await addLabels(i.number, [BUG_VERIFIED]);
+                  await say(i.number, `**Repair confirmed** — recorded by @${sender}. Closing this bug.`);
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: i.number, state: 'closed',
+                  }).catch(() => {});
+                  core.info(`Bug #${i.number} confirmed repaired - closed`);
+                  // The last confirmation is what completes an epic (§4c), and
+                  // the Dispatcher is the one place that decides completeness.
+                  const parent = b.epic ? await github.rest.issues.get({
+                    owner, repo, issue_number: b.epic,
+                  }).then(r => r.data).catch(() => null) : null;
+                  if (parent && namesOf(parent.labels).includes('factory:design-approved')) {
+                    role = 'dispatch';
+                    issue = String(b.epic);
+                    core.info(`Re-dispatching epic #${b.epic} - a confirmed repair may have completed it`);
+                  }
+                }
+              } else if (isTestFailed && isBug && labels.includes(BUG_RETEST)) {
+                // Still there after a fix. That is the same bug, not a new one:
+                // one report, one thread, however many rounds it takes.
+                const b = bugOf(i.title);
+                if (!assocOk) {
+                  await say(i.number,
+                    `@${sender} — reporting a bug as still open requires owner, member or collaborator access on this repository.`);
+                } else if (b.epic === null) {
+                  await say(i.number,
+                    "This bug's title does not name its epic, so there is nothing to file a fix " +
+                    'against. Retitle it `bug(<epic>): <title>` and comment again.');
+                } else {
+                  const fix = await fileBugFix(i, i.body || '', b.epic, b.title,
+                    `Still failing after the previous fix.\n\n${body}`, sender, true);
+                  await dropLabel(i.number, BUG_RETEST);
+                  await addLabels(i.number, [BUG_OPEN]);
+                  await say(i.number,
+                    `**Still open** — reported by @${sender}. Filed #${fix.number} to fix it.\n\n` +
+                    'This is the same bug, not a new one: it waits at `factory:bug-open` until that ' +
+                    'task is assembled, and comes back to you for another re-test when it lands.');
+                  core.info(`Bug #${i.number} still open - filed fix #${fix.number}`);
+                }
               } else if (isApproval && labels.includes('factory:ready')) {
                 // Implementation start is NOT a gate (the gates are G0 release,
                 // G1 spec, G2 design, G3 production). It needed Run workflow only
@@ -975,8 +1409,18 @@ jobs:
                 // merge and the staging verification have actually happened,
                 // so a release that fails leaves the epic at
                 // factory:epic-ready with the gate still open for a retry.
+                const heldBy = bugsHoldGS() ? await openBugs(i.number) : [];
                 if (!authorized('staging')) {
                   await refuse('staging', 'gate GS (releasing this epic to staging)');
+                } else if (heldBy.length) {
+                  // A bug raised after the epic reached this state does not
+                  // revoke it - the factory never moves an epic backwards
+                  // (§4b) - so the hold lands here, at the moment somebody
+                  // asks to release it. Under advisory, or with no epic
+                  // branch, there is nothing to hold and this list is
+                  // evidence instead.
+                  await say(i.number, bugBlocker(heldBy));
+                  core.info(`Gate GS held on #${i.number} - ${heldBy.length} open bug(s)`);
                 } else if (labels.includes(IN_PROGRESS)) {
                   await say(i.number,
                     '`Approved` has no effect right now — a factory run is already live on this epic ' +
@@ -1040,7 +1484,18 @@ jobs:
                     'to `factory:in-test` without waiting on the Reviewer agent.');
                 } else if (isTestPassed || isTestFailed) {
                   const what = isTestPassed ? '"Test Passed"' : '"Test Failed"';
-                  if (!systemTests) {
+                  if (isBug) {
+                    // The same two words answer a bug's re-test (§4c), so a
+                    // verdict on one that is not waiting for a re-test gets
+                    // the bug's story, not the test plan's.
+                    await say(i.number,
+                      `${what} has no effect while this bug is at **${stateOf(labels)}**` +
+                      (labels.includes(BUG_VERIFIED)
+                        ? ' — it is closed, and a confirmed repair stays confirmed.'
+                        : '. It becomes `factory:bug-retest` when the task fixing it is assembled onto ' +
+                          'the epic branch, and that is when a re-test verdict means something ' +
+                          '(FACTORY.md §4c).'));
+                  } else if (!systemTests) {
                     await say(i.number,
                       `${what} has no effect — system tests are not enabled in this repository ` +
                       '(`.github/factory-testing.json`, FACTORY.md §4b). Nothing changed.');
@@ -1119,6 +1574,11 @@ jobs:
                   // labels set at creation emit no `labeled` event of their own.
                   role = 'profiler';
                   core.info('Filed as factory:profile - drafting the repo profile');
+                } else if (labels.includes(BUG_KIND)) {
+                  // A bug report filed from the issue form (§4c). The author's
+                  // own access decides: the label path below is privileged by
+                  // the act of labelling, this one is not.
+                  await adoptBug(i, ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(i.author_association));
                 } else if (states.some(n => n !== 'factory:intake')) {
                   core.info('Issue already carries a factory state - skipping');
                 } else {
@@ -1206,9 +1666,12 @@ jobs:
                 // Re-dispatch the parent epic; the dispatcher is a no-op for tasks
                 // whose dependencies are still open, and skips any task that
                 // already carries a state label.
-                const m = /^task\((\d+)\)/.exec(i.title || '');
+                // A bug closed by hand — "not a defect", or a duplicate — is
+                // the other way an epic's last hold comes off (§4c), so it
+                // re-dispatches exactly as a merged task does.
+                const m = /^(?:task|bug)\((\d+)\)/i.exec(i.title || '');
                 if (!m) {
-                  core.info('Not a factory task sub-issue - nothing to re-dispatch');
+                  core.info('Not a factory task or bug sub-issue - nothing to re-dispatch');
                 } else {
                   const epic = m[1];
                   // The epic is not necessarily in this repo. A cross-repo epic
@@ -1328,6 +1791,40 @@ jobs:
                   core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
                   return;
                 }
+                // Same for a bug report (§4c): the report is the record of a
+                // defect, and the work is the task the factory filed to fix
+                // it. A code state here would put an implementer on the record.
+                if (isBugTitle(i.title) && CODE_STATES.includes(name) && !senderIsApp) {
+                  await dropLabel(i.number, name);
+                  const fx = /(?:^|\n)\s*blocked by\s*#(\d+)/i.exec(i.body || '');
+                  await say(i.number,
+                    `\`${name}\` was applied by @${sender}, but this is a **bug report**, not a task. ` +
+                    'Reverted.\n\nThe work is ' +
+                    (fx ? `#${fx[1]}, the task filed to fix it` : 'the task the factory files to fix it') +
+                    ' — that is where an implementer, a reviewer and QA run. This report moves to ' +
+                    '`factory:bug-retest` when the fix is assembled, and closes on exactly ' +
+                    '`Test Passed` (FACTORY.md §4c).');
+                  core.info(`Reverted ${name} on bug report #${i.number}`);
+                  core.setOutput('role', 'none'); core.setOutput('issue', issue);
+                  core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
+                  return;
+                }
+                // factory:bug applied afterwards (§4c). Applying a label needs
+                // write access, so this path is privileged by definition. The
+                // factory's own write is skipped: raiseBug labels the report it
+                // just adopted.
+                if (name === BUG_KIND) {
+                  if (senderIsApp) {
+                    core.info(`${BUG_KIND} applied by this engine - the run that applied it raised the bug`);
+                  } else if (isBugTitle(i.title)) {
+                    core.info(`#${i.number} is already a bug report - nothing to adopt`);
+                  } else {
+                    await adoptBug(i, true);
+                  }
+                  core.setOutput('role', 'none'); core.setOutput('issue', issue);
+                  core.setOutput('issues', '[]'); core.setOutput('release_issue', '');
+                  return;
+                }
                 const gateOf = {
                   'factory:release-approved': 'release_scope',
                   'factory:spec-approved': 'spec',
@@ -1360,7 +1857,8 @@ jobs:
                                    [EPIC_READY]: ['staging', 'Gate GS (releasing this epic to staging)'],
                                    'factory:in-staging': ['release', 'Gate G3 (promotion to the default branch)'],
                                    'factory:ready': ['implementation', 'Implementation start'],
-                                   [MANUAL_TEST]: ['testers', 'A system test case'] };
+                                   [MANUAL_TEST]: ['testers', 'A system test case'],
+                                   [BUG_RETEST]: ['testers', 'A bug re-test'] };
                 // An expedited task's implementer starts here rather than
                 // waiting for a click that expedite has already given (§4a),
                 // so the implementation approvers are not asked for one. Every
@@ -1408,7 +1906,9 @@ jobs:
                     await github.rest.issues.addAssignees({
                       owner, repo, issue_number: i.number, assignees: list,
                     }).catch(() => {});
-                    const how = gate === 'testers'
+                    const how = gate === 'testers' && name === BUG_RETEST
+                      ? 'The task fixing this bug is assembled and green. Re-run what you did when you found it, on the environment named above, then comment exactly "Test Passed" here to close the report, or exactly "Test Failed" if it is still there — which files another fix and brings this bug back to you when it lands.'
+                      : gate === 'testers'
                       ? 'The code this case exercises is assembled, so it can be run now. The steps, the data and the expected result are in the epic\'s system test plan, linked above. When you have run it, comment exactly "Test Passed" or exactly "Test Failed" here, with what you saw.'
                       : gate === 'implementation'
                       ? 'Comment exactly "Approved" here to start it, or use Actions → "Factory pipeline" → Run workflow (role: implementer, this issue number).'

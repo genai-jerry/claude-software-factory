@@ -1,0 +1,74 @@
+{
+  "name": "bug-filed-by-an-outsider-refused",
+  "description": "A factory:bug issue filed without write access is left as an ordinary issue",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 41,
+        "title": "[Bug] Discount ignored",
+        "labels": [
+          "factory:bug"
+        ],
+        "authorAssociation": "NONE",
+        "body": "Epic: #9\n\nThe total stayed at 100.00."
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 41
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 0,
+    "titles": {
+      "41": "[Bug] Discount ignored"
+    },
+    "comments": {
+      "41": {
+        "countAtLeast": 1,
+        "contains": [
+          "collaborator access",
+          "removing `factory:bug`"
+        ]
+      }
+    }
+  }
+}

@@ -74,6 +74,7 @@ class RepoPort(Protocol):
     def create_issue(self, *, title: str, body: str, labels: list[str],
                      milestone: int | None = None) -> dict[str, Any]: ...
     def add_labels(self, number: int, labels: list[str]) -> None: ...
+    def update_issue_title(self, number: int, title: str) -> None: ...
     def remove_label(self, number: int, label: str) -> None: ...
     def create_comment(self, number: int, body: str) -> None: ...
     def list_comments(self, number: int) -> list[dict[str, Any]]: ...
@@ -356,6 +357,11 @@ class RepoClient:
 
     def update_issue_state(self, number: int, state: str) -> None:
         self._req("PATCH", f"/issues/{number}", json={"state": state})
+
+    def update_issue_title(self, number: int, title: str) -> None:
+        """Rewrite an issue title — used to adopt a filed `factory:bug` issue
+        as a `bug(<epic>)` report on its epic (FACTORY.md §4c)."""
+        self._req("PATCH", f"/issues/{number}", json={"title": title})
 
     def update_issue_body(self, number: int, body: str) -> None:
         """Rewrite an issue body — used to append a `Blocked by` marker to a

@@ -18,7 +18,7 @@ document.
 
 **How it reaches your repos:** this file, the thirteen role prompts, and the
 protected-branch hook ship as the `factory` Claude Code plugin; the pipeline
-ships as reusable GitHub Actions workflows. A consuming repo holds nine files,
+ships as reusable GitHub Actions workflows. A consuming repo holds ten files,
 none of them logic. See §10.
 
 ---
@@ -112,6 +112,11 @@ events, so **filing a plain issue is all a requester does**:
 | Owner/collaborator comments exactly `Plan tests` on an epic (§4b) | **Test Planner** — writes the system test plan for an epic that has none, whatever stage it has reached. This is how an epic already in flight adopts system tests |
 | A `testers` approver comments exactly `Test Passed` on a `factory:manual-test` case | The case closes at `factory:test-passed`, and the **Dispatcher** re-runs on the epic — the last pass is what completes it (§4b) |
 | Any collaborator comments exactly `Test Failed` on a `factory:manual-test` case | A `task(<epic>): fix ST-<n>` sub-issue is filed at `factory:ready` with the failure quoted, and the case moves to `factory:test-failed` until that fix lands (§4b) |
+| A collaborator comments `Bug` on an epic (or one of its tasks or cases), with the report underneath (§4c) | A `bug(<epic>)` sub-issue is opened at `factory:bug-open` and a `task(<epic>): fix bug #<n>` filed at `factory:ready`. The one control that reads past its first line |
+| An issue filed with `factory:bug`, or that label applied (§4c) | The same, on the issue itself: it is retitled `bug(<epic>): ...` against the epic its body names, and the fix task is filed |
+| A Release Manager run lands a bug's fix task on the epic branch | **Dispatcher** — the bug moves to `factory:bug-retest` and its testers are asked to confirm the repair (§4c) |
+| A `testers` approver comments exactly `Test Passed` on a `factory:bug-retest` bug | The bug closes at `factory:bug-verified`, and the **Dispatcher** re-runs on the epic — the last verification is what completes it (§4c) |
+| Any collaborator comments exactly `Test Failed` on a `factory:bug-retest` bug | Another fix task is filed and the bug returns to `factory:bug-open` (§4c) |
 | Human replies on a `factory:blocked` issue | `factory:blocked` is cleared and the blocked stage re-runs, re-reading the whole thread (agent comments carry an `<!-- factory-agent -->` marker so they never self-trigger) |
 | Actions → "Factory pipeline" → *Run workflow* | Any role on any issue/PR number (the manual/retry path; used for reviewer/qa/release/ops until those are event-wired) |
 
@@ -271,7 +276,7 @@ the GitHub usernames responsible for it:
 | `implementation` | Start implementers on ready tasks | A task reaches `factory:ready` | Comment `Approved` on the task, or Run workflow (role: implementer) |
 | `expedite` | Who may put an epic on the fast path (§4a) | — (it is applied, not awaited) | Apply `factory:expedite` to the epic. This pre-approves G1, G2 and every implementation start, which is why applying it is itself authorised |
 | `staging` | Gate GS — release the assembled epic to staging | Epic reaches `factory:epic-ready` | Comment `Approved` on the epic. Falls back to the `release` list when the key is absent |
-| `testers` | Run the system test cases and record the verdict (§4b) | A case reaches `factory:manual-test` | Comment `Test Passed` (or `Test Failed`, which any collaborator may do) on the case. Falls back to the `implementation` list when the key is absent |
+| `testers` | Run the system test cases and record the verdict (§4b); confirm bug repairs (§4c) | A case reaches `factory:manual-test`, or a bug reaches `factory:bug-retest` | Comment `Test Passed` (or `Test Failed`, which any collaborator may do) on the case or the bug. Falls back to the `implementation` list when the key is absent |
 | `release` | Gate G3 — production go | Issue reaches `factory:in-staging` and the Release Manager posts the merge list | Merge the promotion PRs (integration → default branch) in the posted order |
 
 Mechanics:
@@ -380,12 +385,14 @@ role prompts and every trace convention are identical whichever engine runs
 ## 3. Label state machine
 
 State labels are mutually exclusive; exactly one `factory:*` state label per
-issue at a time. Five labels are not states and sit alongside one:
+issue at a time. Six labels are not states and sit alongside one:
 `factory:release` (a *kind* marker identifying a release tracker, which also
 carries one `factory:release-*` state), `factory:profile` (a *kind* marker
 identifying the repo's profile issue, §2c), `factory:in-progress` (a run is live
 on this issue right now), `factory:expedite` (this epic advances itself, §4a)
-and `factory:blocked` (halted, whatever the state).
+`factory:blocked` (halted, whatever the state) and `factory:bug` (a *kind*
+marker identifying a bug report, which also carries one `factory:bug-*`
+state, §4c).
 Create them with `scripts/setup-labels.sh`.
 
 | Label | Meaning | Set by | Advanced by |
@@ -410,6 +417,10 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:manual-test` | *On a `test(<epic>)` case:* the code it exercises is assembled; a human runs it (§4b) | Dispatcher | `Test Passed` → `factory:test-passed`; `Test Failed` → `factory:test-failed` |
 | `factory:test-passed` | *On a case:* it passed. The sub-issue closes | The `Test Passed` router branch | — (terminal) |
 | `factory:test-failed` | *On a case:* it failed, and a fix task is in flight | The `Test Failed` router branch | The fix lands → Dispatcher → back to `factory:manual-test` |
+| `factory:bug` | *Kind:* this issue is a bug report against an epic (§4c) | Human triage, or the router when it adopts one | — (never removed) |
+| `factory:bug-open` | *On a `bug(<epic>)` report:* raised, and its fix task is in flight | The `Bug` router branch | The fix lands → Dispatcher → `factory:bug-retest` |
+| `factory:bug-retest` | *On a bug:* the fix is assembled; a human confirms the repair | Dispatcher | `Test Passed` → `factory:bug-verified`; `Test Failed` → back to `factory:bug-open` |
+| `factory:bug-verified` | *On a bug:* the repair was confirmed. The sub-issue closes | The `Test Passed` router branch | — (terminal) |
 | `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
 | `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
@@ -687,6 +698,11 @@ A tester runs it and comments exactly one of two things:
 Both are strict matches, like `Approved`. Evidence — screenshots, observed
 values — goes in the same thread and is not parsed.
 
+A verdict answers *this case*. A defect the case did not predict — found on
+the way to it, or on a path no case covers at all — is a **bug** (§4c):
+comment `Bug` with what you saw, and the factory raises it against the epic
+and files its fix. `Test Failed` needs a case; a bug does not.
+
 ### What it does to gate GS
 
 Under `mode: gate` with an epic branch, "the epic is complete" gains a
@@ -742,6 +758,131 @@ Adoption never moves an epic backwards. On one already at
 the same posture as an epic with no epic branch — not a reason to revoke a
 state the factory has already granted; the `factory:epic-ready` notice is
 re-posted once so the staging approver knows the evidence has changed.
+
+## 4c. Bugs: what testing finds that no case predicted
+
+§4b hands a tester a script and asks for a verdict on it. Testing does not
+stop there. Somebody exercising an assembled epic finds behaviour no case
+covers — an error on a path the plan never named, a number wrong in a way no
+expected result mentions — and the factory had nowhere to put it. `Test
+Failed` needs a case to fail. Filing a plain issue starts a new requirement in
+intake, weeks downstream of the epic being tested. So the find became a
+spreadsheet row, or an epic of its own that shipped long after the change that
+caused it.
+
+A **bug report** is the third kind of child an epic has, beside its tasks and
+its cases: `bug(<epic>): <title>`, in the epic's own repo, holding what a
+tester saw. The factory files the fix as an ordinary task of that epic, so it
+is implemented, reviewed, QA'd and assembled onto the **epic branch** (§6b)
+with everything else — the defect is repaired inside the change that caused
+it, before that change reaches staging, rather than chased down afterwards.
+
+**It rides on the system tests policy.** `.github/factory-testing.json`:
+
+| Key | Values | Meaning |
+|---|---|---|
+| `bug_reports` | `true` / `false` | Absent ⇒ follows `system_tests`: turning system tests on turns bug reporting on with it. `false` keeps the cases and refuses bugs; `true` with `"system_tests": false` is exploratory testing with no plan — no Test Planner, no cases, and testers who can still raise what they find |
+| `mode` | `"gate"` / `"advisory"` | The same key §4b reads. Under `"gate"` an open bug holds an epic short of `factory:epic-ready` and refuses gate GS, exactly as an unpassed case does |
+
+### Raising one
+
+Two ways in, both ending in the same sub-issue.
+
+**Comment `Bug` on the epic** — or on one of its tasks or cases, which is
+where a tester usually is when they find one:
+
+```
+Bug: the discount is ignored on the checkout total
+Steps: add SAVE10 to a cart of 100.00, go to checkout
+Saw: total 100.00 — expected 90.00
+```
+
+The first line is the control; **everything after it is the report**. This is
+the one factory control that reads past its own line, and deliberately: a bug
+without what the tester saw is a round trip, and a strict one-line match here
+would push the observation into a second comment nothing routes. `Bug` with
+nothing after it is refused, asking for the detail. A title after the colon is
+optional — without one the first line of the report becomes the title.
+
+**Or file an issue labelled `factory:bug`.**
+`.github/ISSUE_TEMPLATE/factory-bug.yml` (§9) asks for the epic, what
+happened, the steps and what was expected. The label is what the factory acts
+on, at filing or afterwards, so an issue somebody has already written becomes
+a bug report by labelling it. The epic comes from an `Epic: #<n>` line in the
+body (the template writes one); with no epic resolvable the factory says so
+and leaves the issue alone — a defect with no epic to repair inside is an
+ordinary requirement, and intake is where those start.
+
+Either way the factory retitles the issue `bug(<epic>): <title>`, adds
+`Part of #<epic>`, and puts it at `factory:bug-open`.
+
+### What it accepts
+
+A bug is a defect in code the factory has **built and not yet shipped**, so it
+is accepted on an epic at `factory:design-approved`, `factory:epic-ready` or
+`factory:in-staging` — from the first task landing through the staging window
+— and refused everywhere else, saying which of these it is:
+
+- Earlier than `factory:design-approved`, nothing has been built to be wrong.
+  What the tester has is a requirement, and intake is upstream of here.
+- On a shipped or closed epic the change has left the factory: that is a new
+  issue, or `factory:incident` when production is affected (§8).
+- On a release tracker, the profile issue or a fast-track issue there is no
+  epic and no epic branch to fix anything into.
+
+### The fix
+
+The factory opens `task(<epic>): fix bug #<n> — <title>` at `factory:ready`
+in the epic's repo, quoting the report, and appends `Blocked by #<fix>` to the
+bug — the same marker a failed case carries, read by the same Dispatcher. From
+there it is an ordinary task: the same `Approved` start, the same implementer,
+reviewer and QA, the same assembly onto the epic branch, under whatever
+approvals and expedite (§4a) the epic already has. Nothing about the fix path
+is special, which is the whole point — what testing finds is repaired by the
+machinery that built the thing.
+
+When that task reaches its assembled state — `factory:on-epic` with an epic
+branch, `factory:in-staging` without one, or closed either way — the
+Dispatcher moves the bug to `factory:bug-retest` and asks the `testers` (§2b)
+to check it. They answer with the two verdicts a case takes, because a re-test
+is a test:
+
+- **`Test Passed`** — from a `testers` approver. The bug closes at
+  `factory:bug-verified`.
+- **`Test Failed`** — from any collaborator, because a failure only adds work.
+  Another fix task is filed and the bug returns to `factory:bug-open`. A
+  defect still present after a fix is not a new bug; it is the same one, and
+  its whole history stays in one thread.
+
+A report that turns out not to be a defect is **closed** — by the tester, the
+triager, anyone. A closed bug holds nothing and asks for nothing.
+
+### What it does to gate GS
+
+Under `mode: gate` with an epic branch, "the epic is complete" (§4b) gains its
+second clause: no bug of the epic is open. An epic assembled with one
+outstanding stays at `factory:design-approved`, its assembly report naming the
+bug and the fix it waits on, and the verification that closes the last bug
+re-runs the Dispatcher, which makes the `factory:epic-ready` flip.
+
+A bug raised on an epic **already** at `factory:epic-ready` does not revoke
+that state — the factory never moves an epic backwards (§4b). It holds the
+gate instead: `Approved` at GS is refused while a bug is open, naming the open
+bugs and their fixes, and works the moment the last one is verified. Either
+way the GS notice carries the bugs beside the test matrix, because that is the
+evidence the `staging` approver is being asked to weigh.
+
+Under `advisory`, and for a repo with no epic branch, bugs hold nothing and
+are listed as evidence instead — the same posture §4b takes with cases, for
+the same reason: without an epic branch the code first reaches a shared branch
+at gate GS itself, and G3 is a human's merge click the factory does not
+withhold. A bug raised in the staging window is fixed onto the integration
+branch and listed in the promotion PR.
+
+**Expedite (§4a) does not touch any of it.** None of the three bug states is
+in the auto-advance map. An expedited epic files the fix, starts it, and
+assembles it on its own, and then waits for its testers to confirm exactly as
+it waits for gate GS.
 
 ## 5. OpenSpec conventions
 
@@ -1098,11 +1239,13 @@ on and this section becomes defence-in-depth rather than the primary control.
    to `.github/ISSUE_TEMPLATE/factory-requirement.yml`, editing the "Affected
    repositories" checkboxes to match your estate. This is the intake entry
    point (§10); the `factory:intake` label it applies only starts the pipeline
-   once the labels step below has run.
+   once the labels step below has run. Copy
+   `templates/ISSUE_TEMPLATE/factory-bug.yml` beside it to let testers file
+   bug reports against an epic from the same menu (§4c).
 2. **Labels** — `GITHUB_TOKEN=... bash scripts/setup-labels.sh <owner> <repo...>`
-   creates the 28 `factory:*` labels (§3). Run it once per repo, and again
-   after a factory upgrade that adds labels — `factory:expedite` and
-   `factory:epic-ready` are the newest (§4a).
+   creates the 32 `factory:*` labels (§3). Run it once per repo, and again
+   after a factory upgrade that adds labels — the four `factory:bug*` labels
+   are the newest (§4c).
 3. **Secrets** — add `ANTHROPIC_API_KEY` *or* `CLAUDE_CODE_OAUTH_TOKEN` as a
    **repository** secret (Settings → Secrets and variables → Actions).
    Environment secrets do *not* reach jobs that don't declare `environment:`,
@@ -1144,7 +1287,10 @@ on and this section becomes defence-in-depth rather than the primary control.
    to `openspec/schemas/factory/` and set `schema: factory` in
    `openspec/config.yaml` — optional, and independent of the pipeline.
    Epics already past gate G2 adopt system tests one at a time, with a
-   `Plan tests` comment (§4b).
+   `Plan tests` comment (§4b). The same file turns on **bug reports** (§4c):
+   `bug_reports` follows `system_tests` unless you set it, so testers can
+   raise what no case predicted as soon as the cases exist — and a repo that
+   wants only that sets `"system_tests": false, "bug_reports": true`.
 7. **Install the factory** — §10.
 8. Protected-branch enforcement is factory-side (§8a) — nothing to configure on
    GitHub. If you later move to a plan with branch protection or rulesets, turn
@@ -1181,8 +1327,9 @@ injects the handbook plus the role prompt into the agent's prompt directly.
 | `.github/factory-release.json` | per-repo release gating (§2d); optional — omit it and intake runs on every filed issue |
 | `.github/factory-branches.json` | the org's integration-branch policy (§6a); optional — omit it and the defaults (`staging`, required, auto-created) apply |
 | `.github/factory-orchestrator.json` | per-repo engine choice (§2e); optional — omit it and GitHub Actions drives the repo |
-| `.github/factory-testing.json` | per-repo system-test policy (§4b); optional — omit it and no Test Planner runs and no test case exists |
+| `.github/factory-testing.json` | per-repo system-test and bug-report policy (§4b, §4c); optional — omit it and no Test Planner runs, no test case exists and `Bug` does nothing |
 | `.github/ISSUE_TEMPLATE/factory-requirement.yml` | the intake entry point — GitHub only renders issue forms present in the repo being filed against |
+| `.github/ISSUE_TEMPLATE/factory-bug.yml` | the bug entry point (§4c); same reason, and optional — a tester can comment `Bug` on the epic instead |
 | `.claude/settings.json` | plugin `settings.json` supports only `agent` and `subagentStatusLine` — a **permissions** block cannot ship in a plugin, and the merge deny list is half of §8a |
 
 Templates for all of these are in `templates/`. Nothing else is copied: the

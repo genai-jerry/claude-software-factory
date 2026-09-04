@@ -50,6 +50,7 @@ def build_world(fx: dict) -> tuple[FakeRepo, dict[int, dict]]:
             "number": i["number"], "title": i["title"], "body": i.get("body", ""),
             "labels": [{"name": x} for x in i.get("labels", [])],
             "user": {"type": i.get("authorType", "User")},
+            "author_association": i.get("authorAssociation", "NONE"),
             "state": i.get("state", "open"),
             "milestone": ms(i.get("milestone")),
             **({"pull_request": {}} if i.get("isPullRequest") else {}),
@@ -119,6 +120,9 @@ def assert_expect(fx_name: str, expect: dict, world: FakeRepo, result, baseline:
             assert any(s in b for b in bodies), f"{fx_name}: #{n} no comment contains {s!r}: {bodies}"
         for s in want.get("notContains", []):
             assert not any(s in b for b in bodies), f"{fx_name}: #{n} comment contains {s!r}"
+    for n_str, want in expect.get("titles", {}).items():
+        got = (world.issues.get(int(n_str)) or {}).get("title")
+        assert got == want, f"{fx_name}: #{n_str} title {got!r} != {want!r}"
     if "createdCount" in expect:
         assert len(world.created) == expect["createdCount"], \
             f"{fx_name}: created {[i['title'] for i in world.created]}"

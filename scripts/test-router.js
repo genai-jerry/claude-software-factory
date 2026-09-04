@@ -77,6 +77,7 @@ function makeWorld(opts) {
           if (!i) { const e = new Error('not found'); e.status = 404; throw e; }
           if (p.state !== undefined) i.state = p.state;
           if (p.body !== undefined) i.body = p.body;
+          if (p.title !== undefined) i.title = p.title;
           state.log.push(`update #${p.issue_number} ${Object.keys(p).filter(k => k !== 'owner' && k !== 'repo' && k !== 'issue_number').join(',')}`);
         },
       },
@@ -962,6 +963,7 @@ function fixtureWorld(fx) {
       body: i.body || '',
       labels: (i.labels || []).map(name => ({ name })),
       user: { type: i.authorType || 'User' },
+      author_association: i.authorAssociation || 'NONE',
       state: i.state || 'open',
       milestone: msObj(i.milestone),
       pull_request: i.isPullRequest ? {} : undefined,
@@ -1027,6 +1029,10 @@ function assertExpect(name, fx, expect, world, outputs, baseline, chainOut) {
       check(`${name}: #${n} comment omits ${JSON.stringify(s.slice(0, 40))}`,
         !fresh.some(c => c.body.includes(s)), fresh.map(c => c.body.slice(0, 80)));
     }
+  }
+  for (const [n, want] of Object.entries(expect.titles || {})) {
+    const got = (world.state.issues[Number(n)] || {}).title;
+    check(`${name}: #${n} title=${JSON.stringify(want.slice(0, 40))}`, got === want, got);
   }
   if (expect.createdCount !== undefined) {
     check(`${name}: created ${expect.createdCount} issue(s)`, world.state.created.length === expect.createdCount,

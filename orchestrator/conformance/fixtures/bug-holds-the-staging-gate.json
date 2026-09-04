@@ -1,0 +1,82 @@
+{
+  "name": "bug-holds-the-staging-gate",
+  "description": "Approved at gate GS is refused while the epic has an open bug",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:epic-ready"
+        ]
+      },
+      {
+        "number": 41,
+        "title": "bug(9): Discount ignored at checkout",
+        "labels": [
+          "factory:bug",
+          "factory:bug-open"
+        ],
+        "body": "Part of #9\n\nBlocked by #42"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "9": {
+        "has": [
+          "factory:epic-ready"
+        ]
+      }
+    },
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "gate GS is held",
+          "#41 — Discount ignored at checkout (fix #42)"
+        ]
+      }
+    }
+  }
+}

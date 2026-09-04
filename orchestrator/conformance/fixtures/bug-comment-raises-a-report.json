@@ -1,0 +1,92 @@
+{
+  "name": "bug-comment-raises-a-report",
+  "description": "Bug on an epic under test opens a bug( sub-issue and files the task that fixes it",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Bug: the discount is ignored on the checkout total\nSteps: add SAVE10 to a cart of 100.00\nSaw: total 100.00 — expected 90.00",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "createdIssues": [
+      {
+        "titlePattern": "^bug\\(9\\): the discount is ignored on the checkout total$",
+        "labels": [
+          "factory:bug",
+          "factory:bug-open"
+        ],
+        "bodyContains": [
+          "Part of #9",
+          "@tess",
+          "> Steps: add SAVE10 to a cart of 100.00"
+        ]
+      },
+      {
+        "titlePattern": "^task\\(9\\): fix bug #\\d+ — the discount is ignored",
+        "labels": [
+          "factory:ready"
+        ],
+        "bodyContains": [
+          "Part of #9",
+          "@tess",
+          "Fix the behaviour the report describes"
+        ]
+      }
+    ],
+    "createdCount": 2,
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "raised by @tess",
+          "gate GS is held"
+        ]
+      }
+    }
+  }
+}
