@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import uuid
 from typing import Any
 
 import sqlalchemy as sa
+
+log = logging.getLogger("factory-orchestrator.ledger")
 
 metadata = sa.MetaData()
 
@@ -31,6 +34,21 @@ deliveries = sa.Table(
     sa.Column("error", sa.Text),
     sa.Column("received_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("processed_at", sa.DateTime(timezone=True)),
+)
+
+#: Every `owner/repo` this engine has been handed a delivery for. The
+#: reconciler sweeps these (orchestration/engine-contract): its whole job is
+#: catching automatic steps that were missed while the process was down, and
+#: `CLAIMED_REPOS` — the only sweep list before this — is optional, empty in
+#: every shipped config, and silent when unset, so the sweep ran over nothing
+#: and the one state where a lost delivery is terminal (an expedited task at
+#: `factory:ready`) had no backstop at all. A repo the orchestrator has been
+#: sent an event for is a repo it drives; that is the list.
+repos_seen = sa.Table(
+    "repos_seen", metadata,
+    sa.Column("full_name", sa.String(200), primary_key=True),
+    sa.Column("first_seen_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=False),
 )
 
 runs = sa.Table(
@@ -68,9 +86,42 @@ class Ledger:
                 cx.execute(deliveries.insert().values(
                     delivery_guid=guid, event=event,
                     payload=json.dumps(payload), received_at=_now()))
-                return True
+                fresh = True
             except sa.exc.IntegrityError:
-                return False
+                fresh = False
+        # Outside the insert's transaction: a redelivery still proves the repo
+        # is live, and a bookkeeping failure here must not lose the delivery.
+        self.note_repo((payload.get("repository") or {}).get("full_name") or "")
+        return fresh
+
+    def note_repo(self, full_name: str) -> None:
+        """Remember a repo this engine has seen work for. Never fails a caller.
+
+        Called on every recorded delivery, which is the one funnel every way
+        in shares (HMAC webhook, Console-forwarded event, operator dispatch).
+        Bookkeeping, like the rest of this module: losing a row costs a sweep,
+        never a state transition.
+        """
+        if not full_name or "/" not in full_name:
+            return
+        now = _now()
+        try:
+            with self.engine.begin() as cx:
+                seen = cx.execute(repos_seen.update()
+                                  .where(repos_seen.c.full_name == full_name)
+                                  .values(last_seen_at=now)).rowcount
+                if not seen:
+                    cx.execute(repos_seen.insert().values(
+                        full_name=full_name, first_seen_at=now, last_seen_at=now))
+        except sa.exc.SQLAlchemyError:
+            # Two processes can race the insert; the loser has nothing to do.
+            log.debug("could not record %s in the sweep list", full_name, exc_info=True)
+
+    def known_repos(self) -> list[str]:
+        """Every repo recorded by `note_repo`, oldest first."""
+        with self.engine.begin() as cx:
+            return [r[0] for r in cx.execute(
+                sa.select(repos_seen.c.full_name).order_by(repos_seen.c.first_seen_at))]
 
     def claim_pending(self, limit: int = 10) -> list[dict[str, Any]]:
         """Atomically move up to `limit` pending deliveries to processing."""

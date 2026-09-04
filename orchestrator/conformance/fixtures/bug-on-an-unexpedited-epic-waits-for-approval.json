@@ -1,0 +1,56 @@
+{
+  "name": "bug-on-an-unexpedited-epic-waits-for-approval",
+  "description": "a bug raised on an epic that is not expedited files the fix task and starts nothing: its start gate is a real one, and the notice asks for the Approved that opens it",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "implementation": [
+        "dev"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Bug: the discount is ignored on the checkout total\nSteps: add SAVE10 to a cart of 100.00\nSaw: total 100.00 — expected 90.00",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 2,
+    "comments": {
+      "7": {
+        "contains": [
+          "An implementer can start: comment `Approved` here"
+        ]
+      }
+    }
+  }
+}

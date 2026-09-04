@@ -149,3 +149,37 @@ def test_sweep_without_cross_repo_access_leaves_the_task_alone(tmp_path):
     # expedited one, and asking a human is the safe way to be wrong.
     tasks, _epic = cross_repo_world()
     assert sweep_repo(tasks, make_ledger(tmp_path)) == 0
+
+
+def test_the_sweep_list_learns_the_repos_deliveries_arrive_for(tmp_path):
+    """`CLAIMED_REPOS` is optional and empty in every shipped config, so the
+    sweep list has to come from somewhere else or the reconciler runs over
+    nothing — which is silent, and terminal for an expedited factory:ready."""
+    ledger = make_ledger(tmp_path)
+    assert ledger.known_repos() == []
+    ledger.record_delivery("d1", "issues", {
+        "action": "labeled", "repository": {"full_name": "o/app"}})
+    ledger.record_delivery("d2", "issues", {
+        "action": "labeled", "repository": {"full_name": "o/ui"}})
+    # A redelivery of a guid already seen still proves the repo is live.
+    ledger.record_delivery("d1", "issues", {
+        "action": "labeled", "repository": {"full_name": "o/app"}})
+    assert ledger.known_repos() == ["o/app", "o/ui"]
+
+
+def test_a_delivery_with_no_repository_is_not_a_sweep_target(tmp_path):
+    ledger = make_ledger(tmp_path)
+    ledger.record_delivery("d1", "ping", {"zen": "hi"})
+    ledger.record_delivery("d2", "issues", {"repository": {"full_name": "nonsense"}})
+    assert ledger.known_repos() == []
+
+
+def test_sweep_targets_union_claimed_repos_and_the_ledger(tmp_path):
+    from types import SimpleNamespace
+
+    from factory_orchestrator.main import sweep_targets
+
+    ledger = make_ledger(tmp_path)
+    ledger.record_delivery("d1", "issues", {"repository": {"full_name": "o/app"}})
+    engine = SimpleNamespace(cfg=SimpleNamespace(claimed_repos=("o/pinned", "o/app")))
+    assert sweep_targets(engine, ledger) == ["o/app", "o/pinned"]

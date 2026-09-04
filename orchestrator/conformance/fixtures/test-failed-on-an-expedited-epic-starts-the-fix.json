@@ -1,0 +1,86 @@
+{
+  "name": "test-failed-on-an-expedited-epic-starts-the-fix",
+  "description": "a failed system test case on an expedited epic files the fix task AND starts its implementer, the same way a bug report does",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "implementation": [
+        "dev"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved",
+          "factory:expedite"
+        ]
+      },
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": [
+          "factory:manual-test"
+        ],
+        "body": "Part of #9"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 30,
+    "comment": {
+      "body": "Test Failed",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "implementer",
+    "issues": [
+      "31"
+    ],
+    "labels": {
+      "30": {
+        "has": [
+          "factory:test-failed"
+        ],
+        "not": [
+          "factory:manual-test"
+        ]
+      }
+    },
+    "createdIssues": [
+      {
+        "titlePattern": "^task\\(9\\): fix ST-4",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ],
+    "createdCount": 1,
+    "comments": {
+      "31": {
+        "contains": [
+          "its implementer starts on its own"
+        ]
+      }
+    }
+  }
+}

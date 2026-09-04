@@ -75,14 +75,40 @@ def build_service():
     return cfg, ledger, engine, create_app(cfg, ledger, processor), (console_store, from_console)
 
 
+def sweep_targets(engine, ledger) -> list[str]:
+    """The repos this pass sweeps: everything the ledger has seen, plus
+    `CLAIMED_REPOS`.
+
+    `CLAIMED_REPOS` used to be the whole list, and it is optional and empty in
+    every shipped config — so the reconciler swept nothing, silently, in a
+    default deployment. That is only a delay for the states a human is going
+    to click anyway, but an expedited task at `factory:ready` has no click
+    left in front of it (FACTORY.md §4a): a missed delivery there parks it for
+    good, and the sweep is the only thing that would have found it.
+
+    A repo the orchestrator has been handed a delivery for is a repo it
+    drives, so the ledger already knows the answer. `CLAIMED_REPOS` stays
+    honoured, and still earns its keep for a repo whose very first delivery is
+    the one that went missing.
+    """
+    return sorted({*engine.cfg.claimed_repos, *ledger.known_repos()})
+
+
 def start_reconciler(engine, ledger, console: tuple | None = None,
                      interval_seconds: int = 900) -> threading.Thread:
-    repos = engine.cfg.claimed_repos
-
     def loop() -> None:
+        warned_empty = False
         while True:
             if console and console[0] is not None:
                 refresh_console_secrets(engine.cfg, console[0], console[1])
+            # Re-read every pass: a repo whose first delivery arrives after
+            # boot joins the sweep without a restart.
+            repos = sweep_targets(engine, ledger)
+            if not repos and not warned_empty:
+                log.warning(
+                    "reconciler has no repos to sweep yet — it starts sweeping each repo "
+                    "as its first delivery arrives; set CLAIMED_REPOS to sweep before that")
+                warned_empty = True
             for full in repos:
                 owner, repo = full.split("/", 1)
                 try:

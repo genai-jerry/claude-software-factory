@@ -1,0 +1,75 @@
+{
+  "name": "bug-on-an-expedited-epic-starts-the-fix",
+  "description": "a bug raised on an expedited epic files the fix task AND starts its implementer, because expedite already waived the click the fix would otherwise wait for",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "implementation": [
+        "dev"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 5,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 5,
+    "comment": {
+      "body": "Bug: the discount is ignored on the checkout total\nSteps: add SAVE10 to a cart of 100.00\nSaw: total 100.00 — expected 90.00",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "implementer",
+    "issues": [
+      "7"
+    ],
+    "createdIssues": [
+      {
+        "titlePattern": "^bug\\(5\\):",
+        "labels": [
+          "factory:bug",
+          "factory:bug-open"
+        ]
+      },
+      {
+        "titlePattern": "^task\\(5\\): fix bug #6",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ],
+    "createdCount": 2,
+    "comments": {
+      "7": {
+        "contains": [
+          "its implementer starts on its own"
+        ]
+      }
+    }
+  }
+}
