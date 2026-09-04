@@ -25,6 +25,8 @@ from factory_orchestrator.router import (
     EPIC_READY,
     EXPEDITE,
     EXPEDITE_MAP,
+    RepoConfig,
+    Router,
     expedited_next,
     expedited_ready_tasks,
     is_expedited,
@@ -181,3 +183,69 @@ def test_a_sibling_repo_that_cannot_be_listed_does_not_lose_the_others():
     }, {}, owner="o", repo="backend")
     assert expedited_ready_tasks(
         epic_repo, 5, [Unreachable({}, {}, owner="o", repo="ui")]) == [("o/backend", 8)]
+
+
+def _bug_router(epic_labels):
+    """An epic with one open bug report on it, ready for a `Test Failed`."""
+    world = FakeRepo({
+        5: {"number": 5, "title": "Epic",
+            "labels": [{"name": l} for l in epic_labels]},
+        6: {"number": 6, "title": "bug(5): the discount is ignored",
+            "body": "Part of #5", "labels": [{"name": "factory:bug"},
+                                             {"name": "factory:bug-retest"}]},
+    }, {}, owner="o", repo="r")
+    return world, Router(world, RepoConfig(testing={"system_tests": True}))
+
+
+def test_a_second_fix_on_an_expedited_epic_starts_its_implementer():
+    """The `Test Failed` re-test path files through `file_bug_fix` too.
+
+    The fixtures cover the first fix (a `Bug` comment) and the failed-case
+    fix; this is the third way a task is born already at `factory:ready`, and
+    it parked for exactly the same reason — a label applied in the create call
+    emits no event for the expedite branch to answer.
+    """
+    world, router = _bug_router(["factory:design-approved", EXPEDITE])
+    r = router.route("issue_comment", {
+        "action": "created", "issue": world.issues[6],
+        "comment": {"body": "Test Failed", "user": {"login": "tess"},
+                    "author_association": "COLLABORATOR"},
+    })
+    fix = world.created[-1]
+    assert "factory:ready" in [l["name"] for l in fix["labels"]]
+    assert r.role == "implementer"
+    assert r.issues == [str(fix["number"])]
+
+
+def test_a_second_fix_on_an_unexpedited_epic_still_waits_for_the_click():
+    world, router = _bug_router(["factory:design-approved"])
+    r = router.route("issue_comment", {
+        "action": "created", "issue": world.issues[6],
+        "comment": {"body": "Test Failed", "user": {"login": "tess"},
+                    "author_association": "COLLABORATOR"},
+    })
+    assert world.created, "the fix task is filed either way"
+    assert r.role == "none"
+
+
+def test_adopting_a_filed_bug_on_an_expedited_epic_starts_its_fix():
+    """The `factory:bug` label path files through `raise_bug` as well, and its
+    branch returns out of the issues router before the route is finished —
+    the start has to survive that."""
+    world = FakeRepo({
+        5: {"number": 5, "title": "Epic",
+            "labels": [{"name": "factory:design-approved"}, {"name": EXPEDITE}]},
+        6: {"number": 6, "title": "Discount ignored at checkout",
+            "body": "Epic: #5\n\nTotal stays 100.00 with SAVE10 applied.",
+            "labels": [{"name": "factory:bug"}], "user": {"login": "tess"}},
+    }, {}, owner="o", repo="r")
+    router = Router(world, RepoConfig(testing={"system_tests": True}))
+    r = router.route("issues", {
+        "action": "labeled", "issue": world.issues[6],
+        "label": {"name": "factory:bug"},
+        "sender": {"login": "tess"},
+    })
+    fix = world.created[-1]
+    assert fix["title"].startswith("task(5): fix bug #6")
+    assert r.role == "implementer"
+    assert r.issues == [str(fix["number"])]

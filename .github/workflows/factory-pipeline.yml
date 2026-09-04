@@ -152,6 +152,17 @@ jobs:
             const fs = require('fs');
             const { owner, repo } = context.repo;
             let role = 'none', issue = '', issues = [], releaseIssue = '';
+            // A fix task this run filed at factory:ready on an EXPEDITED epic
+            // (§4c, and the failed-case path of §4b), which nothing else will
+            // start. It is created and labelled in one call, and a label set
+            // at creation emits no `labeled` event — and the workflow token
+            // emits none at all — so the factory:ready + expedite branch never
+            // sees it, while the `opened` branch skips task(<epic>) sub-issues
+            // by design. The notice on the new task says "its implementer
+            // starts on its own"; this is what makes that true. Null when the
+            // epic is not expedited, where the notice asks for the `Approved`
+            // the start gate is genuinely waiting for.
+            let expeditedFix = null;
             const ev = context.eventName;
 
             // A release tracker carries factory:release (a KIND label, not a
@@ -684,6 +695,7 @@ jobs:
                 owner, repo, issue_number: epic,
               }).catch(() => ({ data: null })) || {};
               const expedited = parent ? await isExpedited(parent) : false;
+              if (expedited) expeditedFix = fix.number;
               const impl = approverList('implementation');
               await say(fix.number, expedited
                 ? 'Filed from a bug report — this epic is expedited, so its implementer starts on its ' +
@@ -1288,6 +1300,7 @@ jobs:
                     ].join('\n'),
                     labels: ['factory:ready'],
                   });
+                  if (expedited) expeditedFix = fix.number;
                   await say(fix.number, expedited
                     ? 'Filed from a failed system test — this epic is expedited, so its implementer starts ' +
                       'on its own. Nothing to approve.'
@@ -2040,6 +2053,27 @@ jobs:
                 issue = String(prof.number);
                 role = 'profiler';
                 core.info(`Profile-relevant paths changed on ${ref} - re-checking on #${prof.number}`);
+              }
+            }
+            // A fix task filed onto an expedited epic starts here, in the run
+            // that filed it. Nothing else can: the create call applies
+            // factory:ready itself, no `labeled` event follows a label set at
+            // creation, and the `opened` route skips task(<epic>) sub-issues.
+            // Before this the task sat at factory:ready under a notice
+            // promising an implementer that was never started — silent, and
+            // terminal, because expedite had already waived the click that
+            // would have rescued it.
+            if (expeditedFix !== null) {
+              if (role === 'none') {
+                role = 'implementer';
+                issue = String(expeditedFix);
+                core.info(`Filed fix #${expeditedFix} onto an expedited epic - starting its implementer`);
+              } else {
+                // No route carries two roles. Nothing does this today; if a
+                // future one does, the LangGraph engine's reconciler sweep is
+                // the backstop and this line is how it gets noticed.
+                core.warning(`Fix #${expeditedFix} was filed onto an expedited epic but this route ` +
+                             `already runs '${role}' - its implementer was not started`);
               }
             }
             // A matrix with no values is a workflow error, so never claim a role

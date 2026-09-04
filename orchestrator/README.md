@@ -104,7 +104,7 @@ and CI run the same remote compose script.
    | `DATABASE_URL` | `postgresql+psycopg://…` (or `sqlite:///…` for a single-repo install) |
    | `PUBLIC_BASE_URL` | where this service is reachable — failure comments link `<base>/runs/<id>` |
    | `FACTORY_REPO`, `FACTORY_REF` | the factory source for FACTORY.md + role prompts (pin like the Actions stub pins `@v1`) |
-   | `CLAIMED_REPOS` | comma-separated `owner/repo` list — the estate. The reconciliation sweep walks it, and a cross-repo epic's expedite fan-out searches it for the sub-issues that are not in the epic's own repo (FACTORY.md §4a, §7). A repo left out of it is still driven by its webhooks; it just gets neither backstop |
+   | `CLAIMED_REPOS` | comma-separated `owner/repo` list — the estate. A cross-repo epic's expedite fan-out searches it for the sub-issues that are not in the epic's own repo (FACTORY.md §4a, §7), and the reconciliation sweep covers it on top of every repo the ledger has recorded a delivery for. Leaving it empty no longer means the sweep runs over nothing — a repo joins it as its first delivery arrives — but a repo listed here is swept from the first pass, including the one whose very first delivery went missing |
    | `DISPATCH_TOKEN` | bearer token for the manual `/dispatch` endpoint |
    | `FACTORY_CROSS_REPO_TOKEN` | optional estate-wide PAT, same role as in Actions |
    | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | optional — set them and LangGraph traces to LangSmith, unset and nothing changes |
@@ -189,9 +189,11 @@ Do not point Hostinger Docker Manager at `docker-compose.yml`.
    (`GET /runs?repo=owner/repo`, plus the ordinary labels and comments on
    the issue — they are byte-identical to the Actions engine's traces).
    Drive it through one gate before trusting the repo to the engine.
-5. Add the repo to `CLAIMED_REPOS` so the reconciliation sweep covers it — and,
-   if it holds sub-issues of an epic that lives in another repo, so an
-   expedited epic's fan-out can find them (FACTORY.md §4a).
+5. Add the repo to `CLAIMED_REPOS` if it holds sub-issues of an epic that
+   lives in another repo, so an expedited epic's fan-out can find them
+   (FACTORY.md §4a). The reconciliation sweep no longer needs it: a repo
+   enters the sweep list as its first delivery reaches the ledger. Listing it
+   here brings that forward to the first pass.
 
 **Rollback** is the same PR in reverse: set `"engine": "github-actions"`
 (or delete the file) and merge. Actions resumes routing from the repo's

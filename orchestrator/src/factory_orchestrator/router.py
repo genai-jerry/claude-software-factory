@@ -438,6 +438,16 @@ class Router:
         #: names where they are, so the fan-out searches the estate. Empty
         #: means "this repo only", which is what a single-repo estate is.
         self.estate = tuple(estate)
+        #: A fix task this route filed at `factory:ready` on an EXPEDITED epic
+        #: (§4c and the failed-case path of §4b), which nothing else will
+        #: start. It is created and labelled in one call, and GitHub emits no
+        #: `labeled` event for a label set at creation — so the `factory:ready`
+        #: + expedite branch below never sees it, and the `opened` branch skips
+        #: `task(<epic>)` sub-issues by design. The notice on the new task says
+        #: "its implementer starts on its own"; this is what makes that true.
+        #: `None` when the epic is not expedited, where the notice asks for the
+        #: `Approved` the gate is genuinely waiting for.
+        self.expedited_fix: int | None = None
 
     def sibling_ports(self) -> list[RepoPort]:
         """Ports on the rest of the estate, for searches that span repos.
@@ -807,6 +817,8 @@ class Router:
         )
         expedited = is_expedited(self.port, self.port.get_issue(epic) or {"number": epic},
                                  self.port_for)
+        if expedited:
+            self.expedited_fix = fix["number"]
         impl = self.cfg.approver_list("implementation")
         self.say(fix["number"],
                  "Filed from a bug report — this epic is expedited, so its implementer starts "
@@ -1003,6 +1015,27 @@ class Router:
                 r.role = "profiler"
                 log.info("Profile-relevant paths changed on %s - re-checking on #%s", ref, r.issue)
 
+        # A fix task filed onto an expedited epic starts here, in the run that
+        # filed it. Nothing else can: `create_issue` applies `factory:ready` in
+        # the same call, GitHub sends no `labeled` event for a label set at
+        # creation, and the `opened` route skips `task(<epic>)` sub-issues. The
+        # webhook echo the expedite branch relies on never arrives, so before
+        # this the task sat at `factory:ready` under a notice promising an
+        # implementer that was never started — silent, and terminal, because
+        # expedite had already waived the click that would have rescued it.
+        if self.expedited_fix is not None:
+            if r.role == "none":
+                r.role = "implementer"
+                r.issue = str(self.expedited_fix)
+                log.info("Filed fix #%s onto an expedited epic - starting its implementer",
+                         self.expedited_fix)
+            else:
+                # No route carries two roles. Nothing does this today; if a
+                # future one does, the reconciler's expedited-ready sweep is
+                # the backstop and this line is how it gets noticed.
+                log.warning("Fix #%s was filed onto an expedited epic but this route already "
+                            "runs '%s' - leaving its implementer to the reconciler",
+                            self.expedited_fix, r.role)
         if r.role != "none" and not r.issues and r.issue:
             r.issues = [r.issue]
         if r.role != "none" and not r.issues:
@@ -1286,6 +1319,8 @@ class Router:
                     ]),
                     labels=["factory:ready"],
                 )
+                if expedited:
+                    self.expedited_fix = fix["number"]
                 impl = cfg.approver_list("implementation")
                 self.say(fix["number"],
                          "Filed from a failed system test — this epic is expedited, so its implementer "
