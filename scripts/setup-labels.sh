@@ -27,7 +27,9 @@ OWNER="$1"; shift
 # keeps whatever state it is in while the factory advances it — see §4a.
 # The three factory:test-* / factory:manual-test states are ordinary states,
 # but they only ever sit on a test(<epic>) sub-issue: a system test case a
-# human runs against the assembled epic — see §4b.)
+# human runs against the assembled epic — see §4b. factory:bug is a KIND
+# marker on a bug report, which also carries one of the three factory:bug-*
+# states — see §4c.)
 LABELS=$(cat <<'EOF'
 factory:backlog|8B949E|Filed, waiting for its release milestone to be approved
 factory:release|24597A|Tracker issue for a release milestone (kind, not a state)
@@ -49,6 +51,10 @@ factory:epic-ready|41A08A|Epic fully assembled and green; awaiting gate GS (rele
 factory:manual-test|D96C1F|System test case ready for a human to run (test sub-issue)
 factory:test-passed|1F7A4D|System test case passed (test sub-issue; terminal)
 factory:test-failed|C0392B|System test case failed; a fix task is in flight (test sub-issue)
+factory:bug|B33A3A|Bug report raised against an epic during testing (kind, not a state)
+factory:bug-open|C0392B|Bug raised; its fix task is in flight (bug sub-issue)
+factory:bug-retest|D96C1F|Bug fix assembled; a human confirms the repair (bug sub-issue)
+factory:bug-verified|1F7A4D|Bug repair confirmed by a tester (bug sub-issue; terminal)
 factory:in-staging|3D9970|Merged to staging and verified there; awaiting gate G3 promotion to the default branch
 factory:deployed|0B8043|In production; soak in progress
 factory:fast-track|8C8C8C|Small change: Fast-Track implements it and opens a PR

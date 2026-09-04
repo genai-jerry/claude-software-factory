@@ -1,0 +1,67 @@
+{
+  "name": "bug-retest-notifies-the-testers",
+  "description": "factory:bug-retest assigns the testers and says how to answer",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 41,
+        "title": "bug(9): Discount ignored at checkout",
+        "labels": [
+          "factory:bug",
+          "factory:bug-retest"
+        ],
+        "body": "Part of #9\n\nBlocked by #42"
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 41,
+    "label": "factory:bug-retest",
+    "sender": "factory[bot]",
+    "senderType": "Bot"
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "41": {
+        "countAtLeast": 1,
+        "contains": [
+          "@tess",
+          "A bug re-test",
+          "Test Passed"
+        ]
+      }
+    }
+  }
+}

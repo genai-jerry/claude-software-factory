@@ -1,0 +1,63 @@
+{
+  "name": "bug-without-the-policy-explained",
+  "description": "Bug does nothing where .github/factory-testing.json does not enable bug reports",
+  "config": {
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Bug: the discount is ignored on the checkout total\nSteps: add SAVE10 to a cart of 100.00\nSaw: total 100.00 — expected 90.00",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 0,
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "bug reports are not enabled",
+          "\"bug_reports\": true"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "name": "bug-advisory-mode-does-not-hold-the-gate",
+  "description": "Under mode advisory an open bug is evidence, not a hold: gate GS opens",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "advisory"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:epic-ready"
+        ]
+      },
+      {
+        "number": 41,
+        "title": "bug(9): Discount ignored at checkout",
+        "labels": [
+          "factory:bug",
+          "factory:bug-open"
+        ],
+        "body": "Part of #9\n\nBlocked by #42"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Approved",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "release",
+    "issues": [
+      "9"
+    ]
+  }
+}

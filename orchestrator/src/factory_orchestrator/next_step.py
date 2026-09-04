@@ -17,14 +17,14 @@ import json
 import logging
 from pathlib import Path
 
-from .router import EXPEDITE, IN_PROGRESS, RELEASE_KIND
+from .router import BUG_KIND, EXPEDITE, IN_PROGRESS, RELEASE_KIND
 
 log = logging.getLogger("factory-orchestrator.next-step")
 
 NEXT_MARK = "factory-next:"
 TABLE_PATH = Path("handbook") / "next-step.json"
 #: Kind markers sit alongside the state label and are never the state itself.
-NOT_A_STATE = {IN_PROGRESS, EXPEDITE, RELEASE_KIND}
+NOT_A_STATE = {IN_PROGRESS, EXPEDITE, RELEASE_KIND, BUG_KIND}
 GATE_OF_STATE = {
     "factory:release-ready": "release_scope",
     "factory:spec-ready": "spec",
@@ -33,6 +33,7 @@ GATE_OF_STATE = {
     "factory:epic-ready": "staging",
     "factory:in-staging": "release",
     "factory:manual-test": "testers",
+    "factory:bug-retest": "testers",
 }
 #: A gate whose own key is absent or empty borrows another's list. GS is the
 #: only one: an estate that has not adopted `staging` keeps releasing to

@@ -1,0 +1,89 @@
+{
+  "name": "bug-retest-passed-closes-the-report",
+  "description": "Test Passed on a bug at re-test closes it and re-dispatches the epic",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 41,
+        "title": "bug(9): Discount ignored at checkout",
+        "labels": [
+          "factory:bug",
+          "factory:bug-retest"
+        ],
+        "body": "Part of #9\n\nBlocked by #42"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 41,
+    "comment": {
+      "body": "Test Passed",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "dispatch",
+    "issues": [
+      "9"
+    ],
+    "labels": {
+      "41": {
+        "has": [
+          "factory:bug-verified"
+        ],
+        "not": [
+          "factory:bug-retest"
+        ]
+      }
+    },
+    "createdCount": 0,
+    "comments": {
+      "41": {
+        "countAtLeast": 1,
+        "contains": [
+          "Repair confirmed",
+          "@tess"
+        ]
+      }
+    }
+  }
+}

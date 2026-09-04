@@ -26,7 +26,13 @@
     "(.github/factory-testing.json, FACTORY.md §4b): the states whose story",
     "changes when an epic also has human-run cases to finish. Renderers pick",
     "it the way they pick 'expedited', and fall back to who/how without the",
-    "policy — which is right for every repo that has not turned tests on."
+    "policy — which is right for every repo that has not turned tests on.",
+    "",
+    "The three factory:bug-* states (FACTORY.md §4c) belong to a bug report",
+    "raised by a tester against an epic under test. They read like the case",
+    "states above because they are the same shape of work: a human found",
+    "something, the factory files an ordinary task to fix it, and the same",
+    "human confirms the repair."
   ],
   "states": {
     "factory:backlog": {
@@ -136,6 +142,18 @@
     "factory:test-passed": {
       "who": "nobody — this case is done",
       "how": "It passed and is closed. Where system tests gate the staging release, the epic reaches `factory:epic-ready` once every one of its cases has; if others are still open, the epic is waiting on them, not on this."
+    },
+    "factory:bug-open": {
+      "who": "the fix task, then the testers",
+      "how": "This bug is raised against its epic and the factory filed a task to fix it — named in the comment above. That task is implemented, reviewed, tested and assembled onto the epic branch like any other; when it lands, the Dispatcher moves this bug to `factory:bug-retest` and asks you to confirm the repair. Nothing here needs you until then."
+    },
+    "factory:bug-retest": {
+      "who": "the testers — {approvers}",
+      "how": "The fix for this bug is assembled and green. Re-run what you did when you found it, on the environment named above, then comment exactly `Test Passed` here to close the bug, or exactly `Test Failed` if it is still there — which files another fix task and brings this bug back to you when that lands."
+    },
+    "factory:bug-verified": {
+      "who": "nobody — this bug is done",
+      "how": "A tester confirmed the repair and the report is closed. Where bug reports gate the staging release, the epic reaches `factory:epic-ready` once every one of its bugs is closed; if others are still open, the epic is waiting on them, not on this."
     },
     "factory:in-staging": {
       "who": "gate G3 — {approvers}",

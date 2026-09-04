@@ -1,0 +1,68 @@
+{
+  "name": "bug-label-without-an-epic-explained",
+  "description": "A factory:bug issue naming no epic is left alone with the reason",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 41,
+        "title": "[Bug] Discount ignored at checkout",
+        "labels": [
+          "factory:bug"
+        ],
+        "body": "The total stayed at 100.00."
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 41,
+    "label": "factory:bug",
+    "sender": "tess"
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 0,
+    "titles": {
+      "41": "[Bug] Discount ignored at checkout"
+    },
+    "comments": {
+      "41": {
+        "countAtLeast": 1,
+        "contains": [
+          "does not name an epic",
+          "Epic: #<n>"
+        ]
+      }
+    }
+  }
+}

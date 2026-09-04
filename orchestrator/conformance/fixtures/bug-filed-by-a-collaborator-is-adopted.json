@@ -1,0 +1,72 @@
+{
+  "name": "bug-filed-by-a-collaborator-is-adopted",
+  "description": "A factory:bug issue filed by a collaborator is adopted on opening",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 41,
+        "title": "[Bug] Discount ignored",
+        "labels": [
+          "factory:bug"
+        ],
+        "authorAssociation": "COLLABORATOR",
+        "body": "Epic: #9\n\nThe total stayed at 100.00."
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 41
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 1,
+    "titles": {
+      "41": "bug(9): Discount ignored"
+    },
+    "labels": {
+      "41": {
+        "has": [
+          "factory:bug-open"
+        ]
+      }
+    }
+  }
+}

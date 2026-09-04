@@ -33,7 +33,7 @@ NEXT_MARK = "factory-next:"
 IN_PROGRESS = "factory:in-progress"
 EXPEDITE = "factory:expedite"
 # Kind markers, not states: they sit alongside the state label (FACTORY.md §3).
-NOT_A_STATE = {IN_PROGRESS, EXPEDITE, "factory:release"}
+NOT_A_STATE = {IN_PROGRESS, EXPEDITE, "factory:release", "factory:bug"}
 GATE_OF_STATE = {
     "factory:release-ready": "release_scope",
     "factory:spec-ready": "spec",
@@ -42,6 +42,7 @@ GATE_OF_STATE = {
     "factory:epic-ready": "staging",
     "factory:in-staging": "release",
     "factory:manual-test": "testers",
+    "factory:bug-retest": "testers",
 }
 #: A gate whose own key is absent or empty borrows another's list. GS is the
 #: only one: an estate that has not adopted `staging` keeps releasing to

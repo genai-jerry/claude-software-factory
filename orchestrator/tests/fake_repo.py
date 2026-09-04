@@ -105,5 +105,8 @@ class FakeRepo:
     def update_issue_state(self, number, state):
         self.issues[number]["state"] = state
 
+    def update_issue_title(self, number, title):
+        self.issues[number]["title"] = title
+
     def update_issue_body(self, number, body):
         self.issues[number]["body"] = body

@@ -44,7 +44,7 @@
           ]
         },
         "testing": {
-          "description": ".github/factory-testing.json contents (FACTORY.md \u00a74b), or \"invalid-json\". Absent means the file is absent, which means system tests are off.",
+          "description": ".github/factory-testing.json contents (system tests §4b, bug reports §4c), or \"invalid-json\". Absent means the file is absent, which means both are off.",
           "$ref": "#/$defs/configFile"
         }
       }
@@ -122,6 +122,10 @@
             "User",
             "Bot"
           ]
+        },
+        "authorAssociation": {
+          "description": "The issue AUTHOR's association with the repo, as GitHub sends it on `issues` payloads. Only the bug-report path reads it (FACTORY.md §4c); absent behaves as \"NONE\".",
+          "type": "string"
         },
         "state": {
           "enum": [
@@ -398,6 +402,13 @@
                 }
               }
             }
+          }
+        },
+        "titles": {
+          "description": "Final title of an issue after routing, by number. Written by the one route that renames an issue: adopting a filed `factory:bug` report as `bug(<epic>): ...` (§4c).",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
           }
         },
         "createdIssues": {

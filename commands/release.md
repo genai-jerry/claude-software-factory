@@ -118,18 +118,25 @@ were started on an epic whose tasks are all assembled but which is not
 
    **With system tests on in `gate` mode** (`.github/factory-testing.json`,
    FACTORY.md §4b) and an epic branch, complete also means every open
-   `test(<epic>)` case whose plan is merged is `factory:test-passed`. If the
-   code is assembled but cases are open, do **not** flip the epic: post the
-   assembly report, say it is assembled and waiting on those N cases (name
-   them and their testers), and stop. The last `Test Passed` re-runs the
-   Dispatcher, and that is what flips the epic. In `advisory` mode, and for
-   an epic with no epic branch, the cases never hold the flip — list any
-   open or failed case in the report as unverified. On the **epic** issue, remove whatever state it
+   `test(<epic>)` case whose plan is merged is `factory:test-passed`, **and
+   no `bug(<epic>)` report is open** (§4c) — a bug is a defect a tester found
+   in this epic, and its fix is one of the tasks you are assembling. If the
+   code is assembled but cases or bugs are open, do **not** flip the epic:
+   post the assembly report, say it is assembled and waiting on those N cases
+   and M bugs (name them, their fixes and their testers), and stop. The last
+   `Test Passed` — on the last case or the last bug — re-runs the Dispatcher,
+   and that is what flips the epic. In `advisory` mode, and for
+   an epic with no epic branch, neither holds the flip — list any
+   open or failed case, and any open bug, in the report as unverified. On the **epic** issue, remove whatever state it
    carries and apply `factory:epic-ready`, then post an **assembly report**:
    which task PR merged onto which branch in which order, the suite result,
    and anything a human should weigh before this goes to staging. With system
    tests on, that includes the **test matrix** — every case, its verdict and
-   who gave it — since gate GS is where a human weighs it.
+   who gave it — and every bug raised against this epic with its verdict
+   (§4c), since gate GS is where a human weighs it. A bug raised after the
+   epic reached `factory:epic-ready` does not send it backwards: the gate
+   refuses the release while one is open, and re-posting the notice with the
+   bug named is the whole of your part.
 
    Then **stop**. `factory:epic-ready` is gate GS (FACTORY.md §4): a `staging`
    approver comments `Approved` on the epic, and that starts phase 1b as a
@@ -187,9 +194,12 @@ phase 1 — go back.
     (name every epic riding this promotion), the position of this repo in the
     merge order, the staging evidence from step 9, and the rollback plan. With
     system tests on, add the **test matrix** — every case with its verdict
-    and tester — and, when any case is still open or failed, say so in as
+    and tester, and every bug raised against this epic with its verdict
+    (§4c) — and, when any case is still open or failed, or any bug is still
+    open, say so in as
     many words at the top of the body: this promotion carries unverified
-    system tests, and the human merging it is the one deciding that is
+    system tests or unrepaired defects, and the human merging it is the one
+    deciding that is
     acceptable. If
     the promotion PR conflicts because the default branch moved, merge the
     default branch **into the integration branch** and re-verify staging —

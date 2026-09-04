@@ -1,0 +1,62 @@
+name: "Factory bug report"
+description: "Report a defect found while testing an epic the factory has built but not yet shipped (FACTORY.md §4c)"
+title: "[Bug] "
+labels: ["factory:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is for a defect in an **epic under test** — one the factory has
+        built and not yet shipped. The factory raises it against that epic and
+        files an ordinary task to fix it, which is implemented, reviewed,
+        QA'd and merged back onto the epic branch with the rest of the change.
+
+        - A defect **in released behaviour** is not this: file an ordinary
+          issue, or `factory:incident` if production is affected.
+        - A system test case that failed its own expected result is not this
+          either: comment `Test Failed` on the case.
+        - Faster still, if you are already reading the epic: comment `Bug`
+          there with the report underneath. It does exactly the same thing.
+  - type: input
+    id: epic
+    attributes:
+      label: Epic
+      description: >-
+        The epic issue this defect is in — the requirement issue, not a task or
+        a test case. The factory files the fix as a task of it, so a bug with
+        no epic cannot be routed.
+      placeholder: "#123"
+    validations:
+      required: true
+  - type: textarea
+    id: saw
+    attributes:
+      label: What happened
+      description: What you observed, in as much detail as you have. Screenshots and values help.
+      placeholder: "The checkout total stayed at 100.00 after applying SAVE10."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order, and where you did it (which environment, which data).
+      placeholder: |
+        1. Sign in as a seeded customer on staging
+        2. Add SAVE10 to a cart of 100.00
+        3. Go to checkout
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened instead, and — if you know — which requirement or case says so.
+    validations:
+      required: true
+  - type: input
+    id: case
+    attributes:
+      label: Related test case (optional)
+      description: If you found this while running a system test case, its issue number.
+      placeholder: "#456"

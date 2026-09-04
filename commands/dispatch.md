@@ -7,7 +7,7 @@ This is a mechanical coordination role — no design or code.
 
 **Input:** an epic issue number labelled `factory:design-approved`: $ARGUMENTS
 
-## Step 0 — is this repo running system tests?
+## Step 0 — is this repo running system tests and bug reports?
 
 Read `.github/factory-testing.json`. A missing or unparseable file, or
 `"system_tests"` anything but `true`, means system tests are **off**: ignore
@@ -15,6 +15,12 @@ every `test(<epic>)` sub-issue below, use the completeness rule as it was
 before FACTORY.md §4b, and behave exactly as you always have. Otherwise note
 its `"mode"` — `"gate"` (the default when the file is present) or
 `"advisory"` — which decides only step 4.
+
+`"bug_reports"` (FACTORY.md §4c) follows `"system_tests"` unless it is set:
+`true` means this epic may also have `bug(<epic>)` reports — defects a tester
+found in the built code, each with an ordinary task filed to fix it — and
+step 2b applies. `false` means ignore them. `mode` decides their part in
+step 4 exactly as it does the cases'.
 
 ## Steps
 1. Read `tasks.md` in the epic's change folder
@@ -71,10 +77,29 @@ its `"mode"` — `"gate"` (the default when the file is present) or
    - Never start an implementer, reviewer or QA run on a `test(` sub-issue,
      and never apply a code state to one.
 
+2b. **Bug reports** (only with bug reports on, §4c). A `bug(<epic>): ...`
+   sub-issue is the third kind of child: a defect a tester raised against the
+   built code, whose fix is one of the tasks above.
+   - A bug at `factory:bug-open` whose `Blocked by` fix tasks have **all**
+     reached their assembled state — `factory:on-epic` with an epic branch,
+     `factory:in-staging` without one, or closed either way — moves to
+     `factory:bug-retest`: assign the `testers` (falling back to
+     `implementation`, then to nobody) and comment naming the fix that
+     landed, the environment to re-test on, and the two controls — "comment
+     exactly `Test Passed` when the defect is gone, exactly `Test Failed` if
+     it is still there, with what you saw." A bug whose fix has not landed is
+     left where it is; say so in your summary.
+   - Leave `factory:bug-retest` and `factory:bug-verified` alone. Those move
+     on a tester's verdict, never on you.
+   - Never start an implementer, reviewer or QA run on a `bug(` sub-issue,
+     and never apply a code state to one. The work is the fix task; the
+     report is the record.
+
 3. Comment a summary on the epic: which tasks are now ready (per repo), which
    remain blocked and on what — and, with system tests on, which cases you
    released, which are still waiting and on which tasks, and which are held
-   behind an unmerged plan PR. Cc the `implementation` approvers from
+   behind an unmerged plan PR; with bug reports on, which bugs you sent for
+   re-test and which are still waiting on their fix. Cc the `implementation` approvers from
    `.github/factory-approvers.json` — starting implementers is theirs. On an
    expedited epic, skip the cc: nobody is being asked for anything.
 4. **If every task of the epic is finished and none is left to release** — with
@@ -83,26 +108,36 @@ its `"mode"` — `"gate"` (the default when the file is present) or
 
    With system tests on **in `gate` mode**, that is not yet complete: every
    open `test(<epic>)` case whose plan is merged must also be
-   `factory:test-passed`. If any is not, stop here — leave
+   `factory:test-passed`, **and no bug report of this epic may be open**
+   (§4c) — a bug at `factory:bug-open` or `factory:bug-retest` is a defect
+   somebody found in this epic that nobody has confirmed repaired. If either
+   is outstanding, stop here — leave
    `factory:design-approved` on the epic and say in your summary that it is
-   assembled and waiting on N cases, naming them and their testers. The last
-   `Test Passed` re-runs you, and that run makes the flip. In `advisory`
-   mode, and for an epic with no epic branch, the cases never hold the flip;
-   list any that are open or failed as unverified instead.
+   assembled and waiting on N cases and M bugs, naming them, their fixes and
+   their testers. The last
+   `Test Passed` — on a case or on a bug — re-runs you, and that run makes
+   the flip; so does a human closing the last bug as "not a defect". In
+   `advisory` mode, and for an epic with no epic branch, neither holds the
+   flip; list any open or failed case, and any open bug, as unverified
+   instead.
 
    When it is complete: remove
    `factory:design-approved` and apply `factory:epic-ready`, and say on the
    epic that it is at **gate GS**: a `staging` approver (falling back to the
    `release` list) comments `Approved` to release it to staging. With system
    tests on, include the **test matrix** in that notice — every case, its
-   verdict, and who gave it — because that is the evidence the approver is
+   verdict, and who gave it, and every bug raised against this epic with its
+   verdict (§4c) — because that is the evidence the approver is
    being asked to weigh.
 
-   **Never move an epic backwards to accommodate a late plan.** An epic that
-   is already `factory:epic-ready` (or beyond) when its cases become runnable
-   keeps that state: re-post its gate notice once, with the open cases named,
+   **Never move an epic backwards to accommodate a late plan, or a late
+   bug.** An epic that
+   is already `factory:epic-ready` (or beyond) when its cases become runnable,
+   or when a tester raises a bug on it, keeps that state: re-post its gate
+   notice once, with the open cases and bugs named,
    so the approver knows the evidence has changed, and leave the decision
-   where it belongs. This is the
+   where it belongs. The gate itself refuses the release while a bug is open
+   (§4c); that refusal is the router's, not a state you take away. This is the
    same flip the Release Manager makes when it lands the last task; you make
    it on a re-dispatch that finds the work already done, so an epic whose last
    task closed cannot sit with nothing asking for it.

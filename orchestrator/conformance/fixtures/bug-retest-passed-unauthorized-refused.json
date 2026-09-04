@@ -1,0 +1,85 @@
+{
+  "name": "bug-retest-passed-unauthorized-refused",
+  "description": "Confirming a repair is the testers' call, like a passing case",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 41,
+        "title": "bug(9): Discount ignored at checkout",
+        "labels": [
+          "factory:bug",
+          "factory:bug-retest"
+        ],
+        "body": "Part of #9\n\nBlocked by #42"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 41,
+    "comment": {
+      "body": "Test Passed",
+      "login": "dev",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "41": {
+        "has": [
+          "factory:bug-retest"
+        ],
+        "not": [
+          "factory:bug-verified"
+        ]
+      }
+    },
+    "comments": {
+      "41": {
+        "countAtLeast": 1,
+        "contains": [
+          "@dev",
+          "@tess"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "name": "bug-retest-failed-files-another-fix",
+  "description": "Test Failed on a bug at re-test files another fix and keeps one report",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 41,
+        "title": "bug(9): Discount ignored at checkout",
+        "labels": [
+          "factory:bug",
+          "factory:bug-retest"
+        ],
+        "body": "Part of #9\n\nBlocked by #42"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 41,
+    "comment": {
+      "body": "Test Failed",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "41": {
+        "has": [
+          "factory:bug-open"
+        ],
+        "not": [
+          "factory:bug-retest"
+        ]
+      }
+    },
+    "createdIssues": [
+      {
+        "titlePattern": "^task\\(9\\): fix bug #41 —",
+        "labels": [
+          "factory:ready"
+        ],
+        "bodyContains": [
+          "still open",
+          "Still failing after the previous fix."
+        ]
+      }
+    ],
+    "createdCount": 1,
+    "comments": {
+      "41": {
+        "countAtLeast": 1,
+        "contains": [
+          "Still open",
+          "same bug, not a new one"
+        ]
+      }
+    }
+  }
+}
