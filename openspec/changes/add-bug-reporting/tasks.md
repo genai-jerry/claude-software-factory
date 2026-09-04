@@ -76,12 +76,12 @@ Companion Console change: `add-bug-reporting-console` in
 
 ## 5. Console (software-factory-view)
 
-- [ ] 5.1 The four labels, the three states and the `bug` issue kind in
+- [x] 5.1 The four labels, the three states and the `bug` issue kind in
       `packages/core` — label table, state derivation, phases, state
       sentences and the next-step wording.
-- [ ] 5.2 The API: bug rows in the epic workspace payload, `POST
+- [x] 5.2 The API: bug rows in the epic workspace payload, `POST
       /api/epics/:id/bugs` posting the `Bug` comment as the acting user, and
       the re-test verdict on a bug.
-- [ ] 5.3 The Tests tab: a Bugs section grouped by state, a **Report a bug**
+- [x] 5.3 The Tests tab: a Bugs section grouped by state, a **Report a bug**
       form, and the Pass/Fail control on a bug at re-test.
-- [ ] 5.4 Tests for the new core functions, the endpoints and the tab.
+- [x] 5.4 Tests for the new core functions, the endpoints and the tab.
