@@ -52,6 +52,11 @@ flowchart TB
     MT -. "Test Failed" .-> TF["factory:test-failed<br/>fix task filed"]
     TF -. "fix lands" .-> MT
     TP -. "last case" .-> ER
+    E2 -. "a tester comments<br/>Bug" .-> BO["a bug:<br/>factory:bug-open<br/>fix task filed"]
+    BO -. "fix lands" .-> BR["factory:bug-retest"]
+    BR -- "Test Passed" --> BV["factory:bug-verified"]
+    BR -. "Test Failed" .-> BO
+    BV -. "last bug" .-> ER
     ER -- "GS · Approved<br/>release to staging" --> S["factory:in-staging"]
     S -- "G3 · human merges<br/>the promotion PR" --> K["factory:deployed"]
   end
@@ -66,8 +71,8 @@ flowchart TB
   classDef halt fill:#F5E6E3,stroke:#A33526,stroke-width:1.5px,color:#4E1811
   classDef entry fill:#EDF0F1,stroke:#9FADB1,stroke-width:1.5px,color:#3A464B
 
-  class A,C,D,F,G,H,I,J,E2,R0,R1,R3,TP state
-  class MT,TF gate
+  class A,C,D,F,G,H,I,J,E2,R0,R1,R3,TP,BV state
+  class MT,TF,BO,BR gate
   class B,E,S,ER,R2 gate
   class K done
   class X halt
@@ -91,6 +96,15 @@ each one when the code it depends on is assembled, and a tester comments
 `factory:epic-ready` only once every case has passed — the last pass is what
 flips it.
 
+The three `factory:bug-*` states hang off the same point and answer the other
+half of testing (FACTORY.md §4c): what a tester found that no case predicted.
+A `Bug` comment on the epic — or an issue labelled `factory:bug` — raises a
+`bug(<epic>)` report and files an ordinary task to fix it onto the epic
+branch; when that lands the Dispatcher asks the testers to confirm the
+repair, with the same two verdicts a case takes. In `gate` mode an open bug
+holds gate GS: `Approved` is refused while one is open, without ever sending
+the epic backwards out of `factory:epic-ready`.
+
 The `factory:on-epic` hop exists only with the epic-branch policy on
 (`"epics": true` in `.github/factory-branches.json`, FACTORY.md §6b). With it
 off, tasks wait at `factory:ready-to-ship` until the whole epic is there; the
@@ -105,7 +119,7 @@ pre-epic behaviour.
 | **G0** | `factory:release-ready` | Is this the right batch of work to start? | Owner comments `Approved` on the release tracker — or, in `"approval": "agent"` mode, the Scrum Master's own GO |
 | **G1** | `factory:spec-ready` | Is the spec concrete enough to plan against? | Owner comments `Approved` |
 | **G2** | `factory:design-ready` | Does the architecture actually solve it? | Owner comments `Approved` |
-| **GS** | `factory:epic-ready` | May this assembled epic go to staging? | A `staging` approver comments `Approved` (falls back to the `release` list). With system tests in `gate` mode the epic only arrives here once every case has passed |
+| **GS** | `factory:epic-ready` | May this assembled epic go to staging? | A `staging` approver comments `Approved` (falls back to the `release` list). With system tests in `gate` mode the epic only arrives here once every case has passed, and the approval is refused while any bug report is open (§4c) |
 | **G3** | `factory:in-staging` | May this land on `main`? | A human presses Merge on the promotion PR |
 
 G0 only exists with release gating on, and is the one gate that can be handed to
