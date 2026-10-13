@@ -1,0 +1,4 @@
+# Code owners are requested for review automatically. With the branch rule
+# "Require review from Code Owners" on, nothing merges without their approval.
+# See .github/REPOSITORY_SETTINGS.md.
+*   @genai-jerry

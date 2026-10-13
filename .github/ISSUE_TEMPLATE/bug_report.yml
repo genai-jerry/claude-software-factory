@@ -1,0 +1,51 @@
+name: Bug report
+description: The factory, a role, a workflow or the orchestrator did something wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security issues (guardrail bypasses, token exposure) go to
+        [SECURITY.md](https://github.com/genai-jerry/claude-software-factory/blob/main/SECURITY.md), not here.**
+        Please remove tokens, private keys, hostnames and private code from anything you paste.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what the factory did instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      options:
+        - GitHub Actions (reusable workflow)
+        - LangGraph orchestrator
+        - Local (claude --plugin-dir / plugin install)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: role
+    attributes:
+      label: Role or stage
+      placeholder: e.g. planner, reviewer, release, router
+  - type: input
+    id: ref
+    attributes:
+      label: Factory ref
+      description: The `factory_ref` you pin (e.g. v1), or a commit SHA.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Labels on the issue before and after, and the comment or event that triggered it.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The relevant part of the Actions run log or orchestrator run transcript. Redact secrets.
+      render: shell
