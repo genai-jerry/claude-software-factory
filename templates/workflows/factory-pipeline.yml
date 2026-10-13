@@ -65,6 +65,20 @@ permissions:
 
 jobs:
   factory:
+    # Public-repo guard: an issue opened by someone without write access must
+    # not start an agent (it spends API budget and feeds untrusted text to a
+    # session that can push). Such issues wait for a maintainer, who adopts one
+    # by applying `factory:fast-track` (a labelled event the maintainer sends,
+    # so it passes) or by running this workflow by hand with role `intake`.
+    # GitHub Apps (the factory's own) are installed by the owner and pass too.
+    # Comments are gated inside the router itself. Harmless on a private repo,
+    # where everyone who can open an issue already has access.
+    if: >-
+      github.event_name != 'issues' ||
+      github.event.action == 'closed' ||
+      github.event.sender.type == 'Bot' ||
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) ||
+      (github.event.action == 'labeled' && github.event.sender.login != github.event.issue.user.login)
     uses: genai-jerry/claude-software-factory/.github/workflows/factory-pipeline.yml@v1
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

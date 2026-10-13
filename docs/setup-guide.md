@@ -174,6 +174,11 @@ Notes:
   unpassed case does.
 - `.claude/settings.json`'s `_doc` key documents itself; delete it before
   committing if you'd rather not carry commentary in a settings file.
+- **On a public repository, keep the `if:` guard in `factory-pipeline.yml`.**
+  It ignores issues opened by people without write access, so a stranger
+  can't start an agent or spend your API budget. A maintainer adopts such an
+  issue by applying `factory:fast-track`, or by running the workflow by hand
+  with role `intake`. On a private repo the guard changes nothing.
 - **The caller stubs must declare `permissions:` themselves.** A called
   workflow's token is capped by the caller's, so a stub missing that block
   inherits the repo default and fails at startup before any job runs. The

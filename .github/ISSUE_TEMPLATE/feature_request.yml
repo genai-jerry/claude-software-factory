@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement to the factory
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation. Leave the solution for the next box.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Does this change a public contract?
+      description: Labels, comment controls, gates and template files are read by every consuming repo.
+      options:
+        - label: It changes labels, gates or comment controls
+        - label: It changes files consuming repos copy from templates/
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I'm willing to open a pull request for this.

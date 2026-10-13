@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/genai-jerry/claude-software-factory/security/advisories/new
+    about: Please report guardrail bypasses and other security issues privately.
+  - name: Factory Console (the web UI)
+    url: https://github.com/genai-jerry/software-factory-view/issues
+    about: Issues with the Console belong in its own repository.

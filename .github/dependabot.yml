@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # Reusable workflows are pinned by every consuming repo, so their action
+  # versions matter beyond this repository.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /orchestrator
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /orchestrator
+    schedule:
+      interval: weekly
