@@ -36,7 +36,7 @@ jobs:
         # The policy file is the org's (FACTORY.md §6a); the profile may
         # override the branch NAME for this repo. Both live in the repo being
         # guarded, so read them from the checkout rather than guessing.
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           sparse-checkout: |
             .github/factory-branches.json
@@ -66,7 +66,7 @@ jobs:
           PY
           tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/branch-policy"
       - name: Verify push came from a pull request
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           INCIDENT_LABEL: ${{ inputs.incident_label }}
           INTEGRATION_BRANCH: ${{ steps.policy.outputs.integration }}

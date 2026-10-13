@@ -135,11 +135,11 @@ jobs:
       # The release-chain job picks it up.
       release_issue: ${{ steps.route.outputs.release_issue }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: .github
       - id: route
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           DISPATCH_ROLE: ${{ inputs.role }}
           DISPATCH_ISSUE: ${{ inputs.issue_number }}
@@ -2139,7 +2139,7 @@ jobs:
           echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
             "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
           echo "Marked #$ISSUE factory:in-progress for the $ROLE run."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Start epic-scoped roles on the epic branch (§6b)
@@ -2571,7 +2571,7 @@ jobs:
       count: ${{ steps.release.outputs.count }}
     steps:
       - id: release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           RELEASE_ISSUE: ${{ needs.route.outputs.release_issue }}
         with:
@@ -2702,7 +2702,7 @@ jobs:
           echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
             "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
           echo "Marked #$ISSUE factory:in-progress for the intake run."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Load factory role definition
@@ -2879,7 +2879,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Verify the planner advanced the epic, and that system tests are on
         id: gate
         env:
@@ -2915,7 +2915,7 @@ jobs:
           echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
             "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
           echo "Marked #$ISSUE factory:in-progress for the Test Planner run."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.gate.outputs.proceed == 'true'
         with:
           fetch-depth: 0
@@ -3136,7 +3136,7 @@ jobs:
           echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
             "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
           echo "Marked #$ISSUE factory:in-progress for the dispatch run."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.gate.outputs.proceed == 'true'
         with:
           fetch-depth: 0
@@ -3366,7 +3366,7 @@ jobs:
           echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
             "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
           echo "Marked #$ISSUE factory:in-progress for the architect run."
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.gate.outputs.proceed == 'true'
         with:
           fetch-depth: 0
@@ -3588,10 +3588,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: .github
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@v9
         env:
           RAN_ROLE: ${{ needs.route.outputs.role }}
           RAN_ISSUES: ${{ needs.route.outputs.issues }}
