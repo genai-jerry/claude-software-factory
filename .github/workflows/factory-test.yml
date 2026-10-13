@@ -46,7 +46,7 @@ jobs:
       role: ${{ steps.read.outputs.role }}
       issue: ${{ steps.read.outputs.issue }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: read
         run: |
           echo "role=$(python3 -c 'import json;print(json.load(open(".github/factory-test-request.json"))["role"])')" >> "$GITHUB_OUTPUT"
@@ -86,7 +86,7 @@ jobs:
             >/dev/null 2>&1 || true
           echo '{"labels":["factory:in-progress"]}' | gh api -X POST \
             "repos/$GITHUB_REPOSITORY/issues/$ISSUE/labels" --input - >/dev/null
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Install Claude Code CLI

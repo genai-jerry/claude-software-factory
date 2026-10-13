@@ -51,7 +51,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Resolve deployment metadata
         run: |
@@ -107,7 +107,7 @@ jobs:
           echo "orchestrator_host=$host" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build Docker image
         run: docker build -t "${DOCKER_IMAGE}:latest" orchestrator/
@@ -119,7 +119,7 @@ jobs:
         run: cp orchestrator/infra/docker-compose.deploy.yml docker-compose.yml
 
       - name: Prepare deploy directory
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -129,7 +129,7 @@ jobs:
             mkdir -p "$HOME/factory-orchestrator"
 
       - name: Transfer image to deploy host
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -141,7 +141,7 @@ jobs:
           target: "/tmp/"
 
       - name: Transfer compose
-        uses: appleboy/scp-action@v0.1.7
+        uses: appleboy/scp-action@v1.0.0
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -150,7 +150,7 @@ jobs:
           target: "~/factory-orchestrator/"
 
       - name: Deploy on host
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.5
         env:
           ORCHESTRATOR_HOST: ${{ steps.host.outputs.orchestrator_host }}
           GH_APP_ID: ${{ secrets.FACTORY_GH_APP_ID }}
