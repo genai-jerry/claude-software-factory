@@ -1,7 +1,7 @@
 # The LangGraph orchestration engine for the Claude Software Factory.
 # Runs the webhook service; role runs shell out to the Claude Code CLI and
 # git, both installed here.
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git curl ca-certificates gnupg \
