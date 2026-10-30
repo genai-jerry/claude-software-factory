@@ -232,8 +232,13 @@ GitHub carries all of it.
   order they arrived. Role runs are capped separately by `MAX_PARALLEL`.
 - **Missed events**: the reconciliation sweep (startup + every 15 min)
   re-queues approved gates whose follow-up role never ran and approved
-  releases never fanned out. Everything it queues flows through the same
-  idempotent router, so a double-detection is harmless.
+  releases never fanned out. It also restarts idle issues (FACTORY.md §4a):
+  a role cut off by a restart (after 10 min) or a usage limit (after its
+  reset), a role that failed (twice at most), and an expedited task left at a
+  state the auto-advance map moves. A restart is a `workflow_dispatch` with
+  `expect_state`, so it stands down if the issue moved on in the meantime.
+  Everything it queues flows through the same idempotent router, so a
+  double-detection is harmless.
 - **Conformance**: `pytest tests/` runs the shared routing fixtures; a
   routing change is a change to `conformance/fixtures/` plus both engines,
   gated by `.github/workflows/conformance.yml`.

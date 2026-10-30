@@ -474,3 +474,41 @@ def test_a_second_event_on_an_issue_does_not_rechain_the_first(tmp_path):
     world.add_labels(5, ["factory:spec-approved"])
     Processor(engine, graph)("workflow_dispatch", dispatch)
     assert [c["role"] for c in runner.calls] == ["planner", "architect"] * 2
+
+
+def test_a_cross_repo_tasks_release_re_dispatches_its_epic(tmp_path):
+    """beacon-connectors#10 landed, but beacon-web#23, which it unblocked, never
+    left the shelf: the epic was looked up in the task's repo, not its own."""
+    api = ConfiguredRepo({34: issue(34, "Epic", ["factory:design-approved"])},
+                         {}, owner="o", repo="api")
+    conn = ConfiguredRepo({10: {"number": 10, "title": "task(34): the adapter",
+                                "body": "Part of o/api#34",
+                                "labels": [{"name": "factory:ready-to-ship"}],
+                                "user": {"type": "Bot"}, "state": "open", "milestone": None}},
+                          {}, owner="o", repo="conn")
+    ports = {"o/api": api, "o/conn": conn}
+
+    class Runner(ScriptedRunner):
+        def run(self, *, owner, repo, role, issue, **_):
+            self.calls.append({"role": role, "issue": issue, "repo": f"{owner}/{repo}"})
+            w = ports[f"{owner}/{repo}"]
+            if role == "release":
+                flip(w, issue, "factory:ready-to-ship", "factory:on-epic")
+            else:
+                w.create_comment(issue, "released\n\n<!-- factory-agent -->")
+            return RoleOutcome(status="success", transcript="ok", exit_code=0)
+
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/l.db",
+                       "CLAIMED_REPOS": "o/api,o/conn"})
+    runner = Runner(api, {})
+    engine = Engine(cfg, Ledger(cfg.database_url), FakeApp(api), runner,
+                    probe=lambda m: True, transcript_dir=str(tmp_path / "tr"),
+                    port_factory=lambda o, r: ports[f"{o}/{r}"])
+    (tmp_path / "tr").mkdir(exist_ok=True)
+    graph = build_graph(engine, checkpointer=SqliteSaver(
+        sqlite3.connect(":memory:", check_same_thread=False)))
+    Processor(engine, graph)("workflow_dispatch", {
+        "inputs": {"role": "release", "issue_number": 10},
+        "repository": {"full_name": "o/conn"}})
+    assert [(c["role"], c["repo"], c["issue"]) for c in runner.calls] == [
+        ("release", "o/conn", 10), ("dispatch", "o/api", 34)]
