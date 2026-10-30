@@ -1,0 +1,58 @@
+{
+  "name": "blocked-resume-ready-implementer",
+  "description": "an approver's reply on a task blocked at the rework cap starts another implementer round",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 11,
+        "title": "task(34): sheets adapter",
+        "labels": [
+          "factory:blocked",
+          "factory:ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 11,
+    "comment": {
+      "body": "Go Ahead",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "implementer",
+    "issues": [
+      "11"
+    ],
+    "labels": {
+      "11": {
+        "not": [
+          "factory:blocked"
+        ],
+        "has": [
+          "factory:ready"
+        ]
+      }
+    }
+  }
+}

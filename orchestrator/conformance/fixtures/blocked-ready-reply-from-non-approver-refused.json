@@ -1,0 +1,62 @@
+{
+  "name": "blocked-ready-reply-from-non-approver-refused",
+  "description": "a reply from someone off the implementation list does not start another implementer round",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 11,
+        "title": "task(34): sheets adapter",
+        "labels": [
+          "factory:blocked",
+          "factory:ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 11,
+    "comment": {
+      "body": "Go Ahead",
+      "login": "stranger",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "11": {
+        "has": [
+          "factory:blocked",
+          "factory:ready"
+        ]
+      }
+    },
+    "comments": {
+      "11": {
+        "count": 1,
+        "contains": [
+          "another implementer round",
+          "@boss"
+        ]
+      }
+    }
+  }
+}

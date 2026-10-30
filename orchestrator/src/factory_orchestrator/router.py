@@ -1595,8 +1595,12 @@ class Router:
                 "factory:planned": "architect",
                 "factory:design-approved": "dispatch",
                 # A task held mid-pipeline resumes the stage that halted it —
-                # what the blocked notice promises. Neither role has an
-                # approver list of its own (§2b), so a reply is enough.
+                # what the blocked notice promises. At factory:ready that is
+                # the Reviewer's rework cap (§8): the reply is the human
+                # allowing another implementer round, so it is authorised
+                # like an `Approved` start. Reviewer and QA have no approver
+                # list of their own (§2b), so any reply resumes them.
+                "factory:ready": "implementer",
                 "factory:in-review": "reviewer",
                 "factory:in-test": "qa",
             }
@@ -1608,6 +1612,10 @@ class Router:
                     x == "factory:blocked" for x in labels
                     if x.startswith("factory:") and x != IN_PROGRESS):
                 r.role = "scrum" if is_tracker else "intake"
+            if r.role == "implementer" and not authorized("implementation"):
+                refuse("implementation", "another implementer round on this task")
+                r.role = "none"
+                return
             if r.role != "none":
                 log.info("Human reply on blocked issue - resuming %s", r.role)
                 if r.role == "scrum":
@@ -1616,8 +1624,9 @@ class Router:
             else:
                 self.say(i["number"],
                          f"This issue is `factory:blocked` at **{self.state_of(labels)}**, which has no automatic resume "
-                         "step — your reply did not restart anything. Use Actions → \"Factory pipeline\" → Run workflow "
-                         "with the role you want and this issue number.")
+                         "step — your reply did not restart anything. Start the role you want on this issue from the "
+                         "Factory Console, or with Actions → \"Factory pipeline\" → Run workflow where the Actions "
+                         "engine runs this repo.")
                 log.info("Blocked at a stage without an automatic resume mapping - use Run workflow")
 
     # -- issues -------------------------------------------------------------

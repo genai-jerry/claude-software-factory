@@ -1583,7 +1583,10 @@ jobs:
                   'factory:spec-approved': 'planner',
                   'factory:planned': 'architect',
                   'factory:design-approved': 'dispatch',
-                  // A task held mid-pipeline resumes the stage that halted it.
+                  // A task held mid-pipeline resumes the stage that halted it;
+                  // at factory:ready the reply allows another implementer
+                  // round, so it is authorised like an `Approved` start.
+                  'factory:ready': 'implementer',
                   'factory:in-review': 'reviewer',
                   'factory:in-test': 'qa',
                 };
@@ -1595,15 +1598,19 @@ jobs:
                           .every(n => n === 'factory:blocked')) {
                   role = isTracker ? 'scrum' : 'intake';
                 }
-                if (role !== 'none') {
+                if (role === 'implementer' && !authorized('implementation')) {
+                  await refuse('implementation', 'another implementer round on this task');
+                  role = 'none';
+                } else if (role !== 'none') {
                   core.info(`Human reply on blocked issue - resuming ${role}`);
                   if (role === 'scrum') releaseIssue = issue;
                   await dropLabel(i.number, 'factory:blocked');
                 } else {
                   await say(i.number,
                     `This issue is \`factory:blocked\` at **${stateOf(labels)}**, which has no automatic resume ` +
-                    'step — your reply did not restart anything. Use Actions → "Factory pipeline" → Run workflow ' +
-                    'with the role you want and this issue number.');
+                    'step — your reply did not restart anything. Start the role you want on this issue from the ' +
+                    'Factory Console, or with Actions → "Factory pipeline" → Run workflow where the Actions ' +
+                    'engine runs this repo.');
                   core.info('Blocked at a stage without an automatic resume mapping - use Run workflow');
                 }
               }
