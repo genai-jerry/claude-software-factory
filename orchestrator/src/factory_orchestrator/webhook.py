@@ -94,6 +94,7 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
     app.state.cfg = cfg
     app.state.ledger = ledger
     app.state.processor = processor
+    app.state.asker = None  # set by main.build_service; tests may set a stub
 
     async def worker_loop() -> None:
         log.info("orchestrator worker started — GitHub events arrive at POST /webhooks/github and POST /events")
@@ -244,6 +245,26 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
             ",".join(applied) or "none",
         )
         return {"queued": fresh, "delivery_guid": guid}
+
+    @app.post("/ask")
+    async def ask(request: Request) -> dict[str, Any]:
+        """A person's question about a thread, answered by the Claude CLI (ask.py)."""
+        _require_dispatch_token(request)
+        body = await request.json()
+        for key in ("owner", "repo", "question"):
+            if not isinstance(body.get(key), str) or not body[key].strip():
+                raise HTTPException(status_code=400, detail=f"missing {key}")
+        if app.state.asker is None:
+            raise HTTPException(status_code=501, detail="this orchestrator cannot answer questions")
+        apply_runtime_agent_secrets(cfg, body)
+        from .ask import AskError
+        try:
+            return await asyncio.to_thread(
+                app.state.asker, owner=body["owner"], repo=body["repo"],
+                question=body["question"], context=str(body.get("context") or ""),
+                branch=body.get("branch") if isinstance(body.get("branch"), str) else None)
+        except AskError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
 
     @app.post("/dispatch")
     async def dispatch(request: Request) -> dict[str, Any]:
