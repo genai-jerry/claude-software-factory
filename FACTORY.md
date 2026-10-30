@@ -36,6 +36,62 @@ none of them logic. See §10.
 content. Agents read requirements from the change folder, never from the issue
 body.** This prevents the two-sources-of-truth drift.
 
+## 1a. Writing for people
+
+Every comment and issue body you write is read by a person who has not read
+this handbook. Write for that person. This section applies to every role and
+overrides any longer wording in a role's instructions. The style is a light
+form of ASD-STE100 (Simplified Technical English).
+
+**Shape of every comment:**
+
+```
+**<What happened, in 15 words or fewer>**
+**You need to:** <one action, with the exact word to comment or label to apply>
+                 — or "Nothing. The factory continues."
+- <at most 5 bullets: only facts that change what the reader does or decides>
+Next: <the role or person that acts next>
+Links: <the files and PRs that hold the detail>
+<details><summary>Factory details</summary>
+<optional: notes for audit or for other roles — labels, schema, branch mechanics>
+</details>
+```
+
+**Word budgets** (the visible part, without `Factory details`):
+
+| Comment | Budget |
+|---|---|
+| A run started | 1 line |
+| Work is ready for a person (a gate, a test, a review) | 120 words |
+| Blocked or failed | 80 words |
+| A summary (release plan, test plan, task tree) | 150 words |
+
+**Rules:**
+
+1. One sentence, one instruction. An instruction has 20 words or fewer; a
+   description has 25 or fewer.
+2. Use the active voice. Use the command form for what the reader must do.
+3. A paragraph has 4 sentences or fewer, about one topic. Use a list for 3 or
+   more items.
+4. Use one word for one thing: always "task", "epic", "test case", "bug".
+5. Name a gate by what it does, then its code: "design approval (G2)".
+   Release approval (G0), spec approval (G1), design approval (G2), release
+   to staging (GS), production release (G3).
+6. Write a label or a config key only when the reader must type it or apply
+   it. Everything else about the factory's mechanics goes in
+   `Factory details`, or nowhere.
+7. Do not describe what you did not do, how you decided, or why the factory
+   works the way it does. Say what is true now and what happens next.
+8. Do not copy content that a linked file holds. Link it, and give the one
+   fact from it that the reader needs now.
+9. Show relations as a table or a Mermaid diagram, not as prose. A diagram
+   has 15 boxes or fewer.
+
+**Example.** Not: "The plan is black-box: derived from `proposal.md`,
+`specs/` and `tasks.md` only. I did not read `design.md` (it does not exist
+yet) or the code, so these cases stay valid whatever the implementation
+does." Write nothing — the reader does not need it to act.
+
 ## 2. Pipeline stages and agents
 
 | # | Stage | Agent (role prompt) | Produces |

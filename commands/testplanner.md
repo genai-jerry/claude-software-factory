@@ -139,7 +139,8 @@ screens, the data shapes, the error paths as a user meets them.
    templates in the factory checkout
    (`templates/openspec/schemas/factory/templates/`) — the files are
    identical either way, and a repo that has not adopted the schema is not a
-   reason to stop. Say which case you were in, in one line, in your summary.
+   reason to stop. Say which case you were in, in one line, under `Factory
+   details` in your comment (step 7).
 
 6. **Open one sub-issue per non-withdrawn case**, in the **epic's own repo**
    (system tests are end to end; the epic's repo is where the gate lives):
@@ -157,10 +158,37 @@ screens, the data shapes, the error paths as a user meets them.
    On a revision: update the sub-issue that exists rather than opening a
    second one, and close the sub-issue of a case you withdrew, saying why.
 
-7. **Comment the case list on the epic** as a checklist, beside the Planner's
-   task tree: each case, what it covers, and which tasks it waits on. Say
-   plainly what happens next — that the Dispatcher releases each case once its
-   code is assembled and (on the adopted path) once the plan PR has merged.
+7. **Comment once on the epic**, in the shape and the 150-word summary budget
+   of FACTORY.md §1a. The plan and the sub-issues hold the case list; the
+   comment does not repeat it.
+   - Headline: the number of cases and where the plan is.
+   - **You need to:** on the chained run, "Nothing now. You approve the plan
+     with the design at design approval (G2)." On an adopted run, review the
+     plan PR.
+   - Bullets (5 or fewer): what a tester will prove, grouped (for example
+     "ST-1 to ST-9: …"); the one riskiest case, by name; and anything a
+     tester must set up first — an environment, a real call, an account.
+   - A Mermaid `flowchart LR` from each case group to the tasks it waits on,
+     when that has 15 boxes or fewer. Otherwise, a table of case → tasks.
+   - Next: the Architect (chained run) or the Dispatcher (adopted run).
+   - Links: `test-plan.md`, `test-data.md`, and the range of `test(<epic>)`
+     sub-issues.
+   - `Factory details`: the branch, the schema case from step 5, and any
+     scenario left to the automated suites, each in one line.
+
+   Example of the visible part:
+
+   ```
+   **Test plan ready for #34: 14 test cases.**
+   **You need to:** nothing now. You approve the plan with the design at design approval (G2).
+   - ST-1 to ST-9: status words from a real Google Sheet reach Beacon, and Beacon's writes land in the right columns.
+   - ST-10: an opt-out word in the sheet stops the dialing.
+   - ST-14 is the riskiest: Beacon's own write must not come back as a second outcome.
+   - Testers need the epic branches of beacon-api, beacon-connectors and beacon-web running. Use the beacon-infra local stack.
+   - Five cases make a real AI call to the tester's phone. Make one test call first.
+   Next: the Architect writes the design on the same branch.
+   Links: test-plan.md · test-data.md · #44–#57
+   ```
 
 8. **Leave the epic's state alone** and stop. On the chained run the Architect
    goes next; on an adopted run, nothing does.

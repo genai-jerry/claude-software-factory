@@ -10,6 +10,7 @@
 4. [[Re-dispatch on Task Close]]
 5. [[Release Gating]]
 6. [[Repo Workspaces]]
+7. [[Readable Output]]
 
 **In the repo**
 

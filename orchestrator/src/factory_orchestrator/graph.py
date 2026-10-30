@@ -57,6 +57,7 @@ from .router import (
     is_expedited,
     release_chain,
 )
+from .writing_lint import score_new_comments
 
 log = logging.getLogger("factory-orchestrator.graph")
 
@@ -471,6 +472,14 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         live.event("phase", "finished")
         guards = {"before": before.__dict__, "trace": traced, "phase": "finished",
                   "model": resolved.model, "fallbacks": resolved.fallbacks}
+        # FACTORY.md §1a, report-only: how readable were this run's comments?
+        writing = score_new_comments(port, issue, before.comments, factory_checkout(engine))
+        if writing:
+            guards["writing"] = writing
+            ws = writing["summary"]
+            log.info("writing role=%s repo=%s/%s#%s ok=%s/%s words_max=%s",
+                     role, owner, repo, issue, ws.get("ok"), ws.get("comments"),
+                     ws.get("words_max"))
         engine.ledger.finish_run(run_id, outcome=status, model=resolved.model,
                                  model_fallbacks=resolved.fallbacks, guards=guards,
                                  transcript_path=str(transcript_path), error=error)

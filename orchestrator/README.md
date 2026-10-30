@@ -216,6 +216,10 @@ GitHub carries all of it.
   every run. Copies go when their issue closes, or on the sweep once closed
   or idle for `WORKSPACE_IDLE_DAYS` (default 7). Deleting a copy by hand is
   always safe — it is only a cache. See the wiki's *Repo Workspaces* sheet.
+- **Writing scores**: every run's new agent comments are scored against
+  FACTORY.md §1a with `scripts/comment-lint.js` from the factory checkout,
+  and stored under `guards.writing` on the run (`GET /runs/<id>`). Report
+  only; nothing is blocked.
 - **Missed events**: the reconciliation sweep (startup + every 15 min)
   re-queues approved gates whose follow-up role never ran and approved
   releases never fanned out. Everything it queues flows through the same
