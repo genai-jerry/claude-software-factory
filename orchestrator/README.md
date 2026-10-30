@@ -208,6 +208,14 @@ GitHub carries all of it.
 - **Manual dispatch** (the "Run workflow" equivalent):
   `POST /dispatch {"owner","repo","role","issue"}` with
   `Authorization: Bearer $DISPATCH_TOKEN`.
+- **Workspaces**: one bare master per repo in `REPO_CACHE_DIR`, refreshed
+  by an incremental fetch before each run. A repo with
+  `runners.workspace: "issue"` in its `.github/factory-orchestrator.json`
+  keeps one copy per issue in `WORKSPACE_DIR/<owner>/<repo>/<number>/`
+  (`meta.json` beside it names the epic), reset to GitHub at the start of
+  every run. Copies go when their issue closes, or on the sweep once closed
+  or idle for `WORKSPACE_IDLE_DAYS` (default 7). Deleting a copy by hand is
+  always safe — it is only a cache. See the wiki's *Repo Workspaces* sheet.
 - **Missed events**: the reconciliation sweep (startup + every 15 min)
   re-queues approved gates whose follow-up role never ran and approved
   releases never fanned out. Everything it queues flows through the same

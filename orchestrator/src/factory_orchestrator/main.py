@@ -19,9 +19,11 @@ from .console_secrets import (
 )
 from .github_app import GitHubApp
 from .graph import Engine, Processor, build_graph, make_checkpointer
+from .issue_workspaces import DEFAULT_IDLE_DAYS, IssueWorkspaces
 from .ledger import Ledger
 from .models import default_probe
 from .reconcile import sweep_repo
+from .repo_cache import RepoCache
 from .role_runner import FactorySource, RoleRunner
 from .token_refresh import ConsoleTokenSource
 from .webhook import create_app
@@ -67,7 +69,12 @@ def build_service():
             "from the Console. Long roles will 401 unless /dispatch carries "
             "console_url and installation_id.")
     source = FactorySource(cfg, local_path=os.environ.get("FACTORY_LOCAL_PATH"))
-    runner = RoleRunner(cfg, source)
+    repo_cache = RepoCache(os.environ.get("REPO_CACHE_DIR"))
+    issue_workspaces = IssueWorkspaces(
+        repo_cache, os.environ.get("WORKSPACE_DIR"),
+        idle_days=float(os.environ.get("WORKSPACE_IDLE_DAYS") or DEFAULT_IDLE_DAYS))
+    runner = RoleRunner(cfg, source, repo_cache=repo_cache,
+                        issue_workspaces=issue_workspaces)
     engine = Engine(cfg, ledger, app, runner, default_probe(cfg),
                     transcript_dir=os.environ.get("TRANSCRIPT_DIR"))
     graph = build_graph(engine, checkpointer=make_checkpointer(cfg.database_url))
@@ -94,6 +101,27 @@ def sweep_targets(engine, ledger) -> list[str]:
     return sorted({*engine.cfg.claimed_repos, *ledger.known_repos()})
 
 
+def sweep_workspaces(engine) -> int:
+    """Delete issue copies whose issue closed without us hearing, or that sat idle."""
+    workspaces = getattr(engine.runner, "issue_workspaces", None)
+    if workspaces is None:
+        return 0
+
+    def is_closed(owner: str, repo: str, number: int) -> bool:
+        issue = engine.port(owner, repo).get_issue(number)
+        return issue is None or issue.get("state") == "closed"
+
+    try:
+        removed = workspaces.sweep(is_closed)
+    except Exception:  # noqa: BLE001
+        log.exception("issue workspace sweep failed")
+        return 0
+    if removed:
+        log.info("workspace sweep removed %d issue cop%s", removed,
+                 "y" if removed == 1 else "ies")
+    return removed
+
+
 def start_reconciler(engine, ledger, console: tuple | None = None,
                      interval_seconds: int = 900) -> threading.Thread:
     def loop() -> None:
@@ -116,6 +144,7 @@ def start_reconciler(engine, ledger, console: tuple | None = None,
                                port_for=engine.port)
                 except Exception:  # noqa: BLE001
                     log.exception("reconcile sweep failed for %s", full)
+            sweep_workspaces(engine)
             time.sleep(interval_seconds)
 
     t = threading.Thread(target=loop, daemon=True, name="reconciler")

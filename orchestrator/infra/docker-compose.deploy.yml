@@ -23,6 +23,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////data/factory-orchestrator.db}
       TRANSCRIPT_DIR: /data/transcripts
+      REPO_CACHE_DIR: /data/repos
+      WORKSPACE_DIR: /data/workspaces
     volumes:
       - factory-orchestrator-data:/data
     healthcheck:

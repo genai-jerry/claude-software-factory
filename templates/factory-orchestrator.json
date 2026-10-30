@@ -1,8 +1,9 @@
 {
-  "$comment": "Copy to .github/factory-orchestrator.json to choose which engine drives this repo's factory pipeline. Absent file (or engine: github-actions) keeps the Actions pipeline. Naming an external engine (langgraph) makes the Actions route job stand down; the external engine refuses repos whose config does not name it, so exactly one engine acts per event. endpoint and runners are read by the external engine only.",
+  "$comment": "Copy to .github/factory-orchestrator.json to choose which engine drives this repo's factory pipeline. Absent file (or engine: github-actions) keeps the Actions pipeline. Naming an external engine (langgraph) makes the Actions route job stand down; the external engine refuses repos whose config does not name it, so exactly one engine acts per event. endpoint and runners are read by the external engine only. runners.workspace: \"run\" (default) gives every run a throwaway copy of the repo; \"issue\" keeps one copy per issue, reset to GitHub at the start of each run, so ignored files such as installed dependencies stay warm across an issue's roles (FACTORY.md §2e).",
   "engine": "github-actions",
   "endpoint": "",
   "runners": {
-    "max_parallel": 4
+    "max_parallel": 4,
+    "workspace": "run"
   }
 }
