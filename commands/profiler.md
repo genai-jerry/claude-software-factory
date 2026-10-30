@@ -132,8 +132,13 @@ enforce conventions this repo does not follow. Everything below serves that.
    could not verify and left out.
 9. **Report on the issue.** Comment with the PR link, the commands as you ran
    them with their outcomes, and any `gotchas` you found — those are the part a
-   human is most likely to want to correct. Then remove `factory:profile` from
-   the issue so the label is free to trigger the next run.
+   human is most likely to want to correct. Keep the comment in the shape of
+   FACTORY.md §1a.
+
+   Leave `factory:profile` on the issue. It is a kind marker: it is how every
+   engine and the Factory Console find this repo's one profile issue. Without
+   it they file a second one. A person re-runs you by removing the label and
+   applying it again.
 
 ## Guardrails
 

@@ -1,0 +1,36 @@
+{
+  "name": "push-relevant-path-runs-profiler",
+  "description": "a push that changes a nested package.json re-checks the profile",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "event": {
+    "name": "push",
+    "ref": "refs/heads/main",
+    "defaultBranch": "main",
+    "changedFiles": [
+      "src/app.ts",
+      "apps/web/package.json"
+    ]
+  },
+  "expect": {
+    "role": "profiler",
+    "issues": [
+      "1"
+    ],
+    "createdCount": 1
+  }
+}

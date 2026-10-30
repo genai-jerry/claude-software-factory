@@ -1,0 +1,68 @@
+{
+  "name": "push-profile-issue-found-by-title",
+  "description": "a profile issue whose label came off is found by its exact title (the newest wins), gets the label back, and is reused - no second profile issue",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 3,
+        "title": "Factory: repo profile",
+        "labels": [],
+        "authorType": "Bot"
+      },
+      {
+        "number": 8,
+        "title": "Factory: repo profile",
+        "labels": [],
+        "authorType": "Bot"
+      },
+      {
+        "number": 9,
+        "title": "Factory: repo profile notes",
+        "labels": []
+      }
+    ]
+  },
+  "event": {
+    "name": "push",
+    "ref": "refs/heads/main",
+    "defaultBranch": "main",
+    "changedFiles": [
+      "package.json"
+    ]
+  },
+  "expect": {
+    "role": "profiler",
+    "issues": [
+      "8"
+    ],
+    "createdCount": 0,
+    "labels": {
+      "8": {
+        "has": [
+          "factory:profile"
+        ]
+      },
+      "3": {
+        "not": [
+          "factory:profile"
+        ]
+      }
+    }
+  }
+}

@@ -997,7 +997,10 @@ function fixtureContext(fx, world, msObj) {
     });
   }
   if (ev.name === 'milestone') return ctx('milestone', { action: ev.action, milestone: msObj(ev.milestone) });
-  if (ev.name === 'push') return ctx('push', { ref: ev.ref, repository: { default_branch: ev.defaultBranch } });
+  if (ev.name === 'push') return ctx('push', {
+    ref: ev.ref, repository: { default_branch: ev.defaultBranch },
+    ...(ev.changedFiles ? { commits: [{ added: [], modified: ev.changedFiles, removed: [] }] } : {}),
+  });
   if (ev.name === 'workflow_dispatch') return ctx('workflow_dispatch', {}, { DISPATCH_ROLE: ev.role, DISPATCH_ISSUE: ev.issue });
   throw new Error(`unknown event ${ev.name}`);
 }

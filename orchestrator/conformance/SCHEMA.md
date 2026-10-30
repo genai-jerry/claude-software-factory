@@ -76,7 +76,9 @@ Exactly one of these shapes, selected by `event.name`:
   `issue` is the number of an entry in `repo.issues`)
 - `issue_comment`: `{ "name": "issue_comment", "action": "created", "issue": 5, "comment": { "body": "Approved", "login": "boss", "authorAssociation": "OWNER", "authorType": "User" } }`
 - `milestone`: `{ "name": "milestone", "action": "created", "milestone": 7 }`
-- `push`: `{ "name": "push", "ref": "refs/heads/main", "defaultBranch": "main" }`
+- `push`: `{ "name": "push", "ref": "refs/heads/main", "defaultBranch": "main", "changedFiles": ["package.json"] }`
+  (`changedFiles` optional: the paths the push changed. Absent means the payload
+  carries no file lists, which routes as a relevant change)
 - `workflow_dispatch`: `{ "name": "workflow_dispatch", "role": "reviewer", "issue": "12" }`
 
 ## `expect` — the decision and its visible effects
