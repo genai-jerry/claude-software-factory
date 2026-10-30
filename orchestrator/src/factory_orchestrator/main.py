@@ -18,7 +18,8 @@ from .console_secrets import (
     refresh_console_secrets,
 )
 from .github_app import GitHubApp
-from .graph import Engine, Processor, build_graph, make_checkpointer
+from .graph import Engine, Processor, build_graph, make_checkpointer, run_link_base
+from .guards import clear_in_progress, report_failure
 from .issue_workspaces import DEFAULT_IDLE_DAYS, IssueWorkspaces
 from .ledger import Ledger
 from .models import default_probe
@@ -101,6 +102,38 @@ def sweep_targets(engine, ledger) -> list[str]:
     return sorted({*engine.cfg.claimed_repos, *ledger.known_repos()})
 
 
+INTERRUPTED = ("Interrupted: the orchestrator restarted while this run was in progress. "
+               "The event that started it is picked up again and routed from the "
+               "issue's current state.")
+
+
+def close_interrupted_runs(engine, ledger) -> int:
+    """Close the runs a prior process left open, before anything new starts.
+
+    The ledger is always corrected. The note on the issue is best effort: right
+    after a restart this engine may hold no GitHub token yet (they can arrive
+    with the Console's next event). The re-run of the requeued event clears
+    `factory:in-progress` itself when it ends.
+    """
+    rows = ledger.interrupt_unfinished(INTERRUPTED)
+    for row in rows:
+        owner, _, repo = (row.get("repo") or "").partition("/")
+        log.warning("closed interrupted run %s role=%s repo=%s#%s",
+                    row["id"], row.get("role"), row.get("repo"), row.get("issue"))
+        if not (owner and repo):
+            continue
+        try:
+            port = engine.port(owner, repo)
+            clear_in_progress(port, row["issue"])
+            report_failure(port, row["issue"], row.get("role") or "role",
+                           f"{run_link_base(engine, owner, repo)}/runs/{row['id']}",
+                           reason=INTERRUPTED)
+        except Exception:  # noqa: BLE001 - the ledger is already right
+            log.warning("could not note the interrupted run on %s#%s",
+                        row.get("repo"), row.get("issue"), exc_info=True)
+    return len(rows)
+
+
 def sweep_workspaces(engine) -> int:
     """Delete issue copies whose issue closed without us hearing, or that sat idle."""
     workspaces = getattr(engine.runner, "issue_workspaces", None)
@@ -155,6 +188,8 @@ def start_reconciler(engine, ledger, console: tuple | None = None,
 def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     cfg, ledger, engine, app, console = build_service()
+    # Before the worker starts: a run opened from here on is this process's own.
+    close_interrupted_runs(engine, ledger)
     start_reconciler(engine, ledger, console)
     import uvicorn
     uvicorn.run(app, host=os.environ.get("HOST", "0.0.0.0"),
