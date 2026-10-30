@@ -34,6 +34,7 @@ from langgraph.types import Send
 
 from . import claim
 from .config import Config
+from .factory_ci import post_qa_status
 from .github_app import GitHubApp, RepoPort, parse_json_or_empty
 from .guards import (
     clear_in_progress,
@@ -480,6 +481,12 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             log.info("writing role=%s repo=%s/%s#%s ok=%s/%s words_max=%s",
                      role, owner, repo, issue, ws.get("ok"), ws.get("comments"),
                      ws.get("words_max"))
+        # FACTORY.md §6c: where the repo's CI is the factory, QA's verdict is
+        # the check, posted on the PR's head commit as `factory/tests`.
+        if role == "qa" and status == "success":
+            ci = post_qa_status(port, issue, run_url)
+            if ci:
+                guards["ci"] = ci
         engine.ledger.finish_run(run_id, outcome=status, model=resolved.model,
                                  model_fallbacks=resolved.fallbacks, guards=guards,
                                  transcript_path=str(transcript_path), error=error)

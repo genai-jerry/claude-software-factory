@@ -216,6 +216,13 @@ GitHub carries all of it.
   every run. Copies go when their issue closes, or on the sweep once closed
   or idle for `WORKSPACE_IDLE_DAYS` (default 7). Deleting a copy by hand is
   always safe — it is only a cache. See the wiki's *Repo Workspaces* sheet.
+- **Factory CI**: a repo with `"ci": "factory"` in its
+  `.github/factory-orchestrator.json` gets a `factory/tests` commit status
+  on the task PR's head after every QA run: green at
+  `factory:ready-to-ship`, red back at `factory:ready`, none otherwise.
+  It replaces GitHub Actions as the PR's CI (FACTORY.md §6c). The App needs
+  the *Commit statuses: Read and write* permission; without it the status
+  is logged as refused and the run is unaffected.
 - **Writing scores**: every run's new agent comments are scored against
   FACTORY.md §1a with `scripts/comment-lint.js` from the factory checkout,
   and stored under `guards.writing` on the run (`GET /runs/<id>`). Report

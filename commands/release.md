@@ -90,7 +90,8 @@ were started on an epic whose tasks are all assembled but which is not
 1. From the sub-issue dependency links and the profiles' `estate_role`, compute
    the merge order: schema/data-model change first, then the repo that owns the
    contract, then its consumers.
-2. Verify every PR before it moves: CI green, agent-reviewed (`factory:in-test`
+2. Verify every PR before it moves: CI green (the `factory/tests` status
+   where the repo's `ci` is `"factory"`, FACTORY.md §6c), agent-reviewed (`factory:in-test`
    passed), QA report posted, and **based on that repo's epic branch** (or its
    integration branch when the epic has none). A PR based on any other branch
    does not get merged and does not get promoted — send its task back to

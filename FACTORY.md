@@ -1005,7 +1005,8 @@ it waits for gate GS.
 - One task = one PR. PR body links its task issue (`Closes #N`) and the change
   folder, and notes any deviation from `design.md`.
 - Draft PR until the Reviewer marks it ready. CI must be green before
-  `factory:ready-to-ship`.
+  `factory:ready-to-ship`. CI means the repo's GitHub Actions checks, or the
+  `factory/tests` status where the factory is the CI (§6c).
 
 ### Where PRs merge (base branches)
 
@@ -1212,6 +1213,39 @@ rule runs in reverse on a flip back to `false`.
 agent-writable (§8a); only the default branch is human-only. The fast lane is
 unaffected: `factory:fast-track` changes have no epic and keep basing on the
 integration branch.
+
+## 6c. The factory as CI (no GitHub Actions)
+
+A repo can prove its PRs without GitHub Actions. This helps when Actions
+cannot run (a billing hold or spending limit stops every job before its first
+step) or when the minutes cost too much. It needs the orchestrator engine
+(§2e). Set `ci` in `.github/factory-orchestrator.json`:
+
+| `ci` | What counts as CI on a task PR |
+|---|---|
+| `"actions"` (default; also: absent or unknown) | The repo's GitHub Actions checks |
+| `"factory"` | QA's own test run in the factory's workspace, published as the `factory/tests` commit status |
+
+With `"factory"`:
+
+- **QA** runs `commands.test` and `commands.build` as it always does. That
+  run is the CI. QA does not wait for Actions checks, and a job that never
+  started does not block the PR.
+- **The orchestrator**, not the agent, posts `factory/tests` on the PR's
+  head commit after each QA run. It reads the task's state after the run:
+  `factory:ready-to-ship` is green, a return to `factory:ready` is red, and
+  no verdict (blocked, or a failed run) posts nothing. The status links to
+  the run, which holds the test output.
+- **The Release Manager** reads `factory/tests` where §6 says "CI green".
+- **Branch protection** can require `factory/tests` in place of the Actions
+  check names.
+- **The GitHub App needs "Commit statuses: Read and write".** Without it the
+  status is refused, the refusal is logged, and the run still succeeds.
+
+What changes is who runs the tests, not whether they run. Under Actions, a
+clean runner checks the agent's claim. Here the factory's workspace and QA's
+verdict are the evidence, so the run log is what a reviewer reads to check
+it.
 
 ## 7. Cross-repo epics
 
