@@ -61,6 +61,30 @@ Catch what the author cannot see. Approve only what conforms.
 - Clean → approve-comment summarising what you verified, mark the PR ready for
   review, remove `factory:in-review`, apply `factory:in-test`.
 
+## Writing the comment
+
+Your findings go in the PR: line comments and the ONE review. That is where
+the engineer reads the mechanism, the repro and the repair, so write them
+there in full. The comment on the task issue is a notice for the person who
+must act, in the shape of FACTORY.md §1a: 120 words when work is ready, 80
+when blocked, with `Factory details` at 100 words or fewer. Do not repeat the
+analysis, and do not list what conforms.
+
+Example of the visible part, for the third finding round (blocked):
+
+```
+**Round 2 blocked: a status word can still overwrite a lead's phone number.**
+**You need to:** read the blocking comment on #21, then reply here to allow one more round.
+- When the chosen column is also the status column, the guard drops the phone column.
+- `98450 12345` then becomes `Won by AI`. The number is in no other store.
+Next: you. The two-round cap is spent.
+Links: #21
+```
+
+`Factory details` for it, in 45 words: the label change, the rounds counted
+from the newest human reply, and one line saying everything else conforms
+(base branch, contract, tests: 195 passed, 2 skipped).
+
 ## Guardrails
 - Review the diff you fetched, not the PR description's claims.
 - Human approval on protected branches is still required (gate G3); you never

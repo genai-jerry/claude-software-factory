@@ -58,6 +58,17 @@ const cases = {
     assert.strictEqual(guessKind('**Blocked: no test command in the profile.**'), 'blocked');
     assert.strictEqual(guessKind('@a — **Gate G1 (spec approval)** is waiting on you.'), 'ready');
   },
+  'a comment asking for nothing is a summary even if it says approve'() {
+    assert.strictEqual(guessKind('**Test plan ready.**\n**You need to:** nothing now. You approve the plan with the design.'), 'summary');
+    assert.strictEqual(guessKind('**Spec ready.**\n**You need to:** approve the spec.'), 'ready');
+  },
+  'the Factory details fold has its own cap'() {
+    const fold = n => `**You need to:** nothing.\n\n<details><summary>Factory details</summary>\n${'word '.repeat(n)}\n</details>`;
+    assert.deepStrictEqual(lint(fold(100), 'summary').problems, []);
+    const r = lint(fold(101), 'summary');
+    assert.strictEqual(r.details_words, 101);
+    assert.ok(r.problems.some(p => /Factory details is 101 words/.test(p)), r.problems.join('; '));
+  },
   'summary gives percentiles'() {
     const s = summarize([10, 20, 30, 40, 1000].map(n => lint('w '.repeat(n), 'summary')));
     assert.strictEqual(s.comments, 5);
