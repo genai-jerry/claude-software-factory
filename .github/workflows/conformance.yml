@@ -12,6 +12,8 @@ on:
       - ".github/workflows/factory-pipeline.yml"
       - ".github/workflows/conformance.yml"
       - "scripts/test-router.js"
+      - "scripts/comment-lint.js"
+      - "scripts/test-comment-lint.js"
       # The hand-off table and its Actions renderer: test_next_step.py renders
       # the same table through BOTH engines and requires identical output, so
       # a change to either half without the other has to fail here.
@@ -23,6 +25,8 @@ on:
     paths:
       - ".github/workflows/factory-pipeline.yml"
       - "scripts/test-router.js"
+      - "scripts/comment-lint.js"
+      - "scripts/test-comment-lint.js"
       - "handbook/**"
       - "scripts/say_next_step.py"
       - "orchestrator/**"
@@ -41,6 +45,7 @@ jobs:
           node-version: 20
       - run: npm install --no-save js-yaml
       - run: node scripts/test-router.js
+      - run: node scripts/test-comment-lint.js
 
   python-router:
     name: LangGraph engine (Python router + fixtures)
