@@ -23,3 +23,10 @@ updates:
     directory: /orchestrator
     schedule:
       interval: weekly
+    # The image's Python is the one CI tests on (conformance.yml pins 3.11).
+    # A minor bump is a runtime change, not a patch: it needs the CI matrix
+    # moved with it, and new releases lag on binary wheels (3.15 broke the
+    # image build on zstandard). Move both together, by hand.
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
