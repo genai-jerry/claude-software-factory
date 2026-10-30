@@ -671,7 +671,13 @@ They execute it differently because their event models differ:
   backstop for the one lost delivery that is silent *and* terminal: an
   expedited task parked at `factory:ready` with no recorded run, in any repo of
   the estate, is re-queued within a sweep interval. Elsewhere a missed webhook
-  only delays a notification; here nobody is coming to click.
+  only delays a notification; here nobody is coming to click. The same sweep
+  restarts an expedited task that sits idle at a state the map advances (a
+  chain that broke, or a task already past `factory:ready` when the epic was
+  expedited), and, on any issue, a role whose run was cut off by a restart or
+  a Claude usage limit (after the reset), or that failed outright (at most
+  twice). It never restarts a blocked issue, a live one, or a role whose run
+  already moved the issue on.
 - **The Actions engine** re-dispatches itself: one `workflow_dispatch` per
   follow-up issue, so each role gets its own run, its own timeout and its own
   model resolution. That needs **`FACTORY_CROSS_REPO_TOKEN`** — the workflow

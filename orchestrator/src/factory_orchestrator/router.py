@@ -1041,6 +1041,19 @@ class Router:
             r.issue = str(inputs.get("issue_number") or "")
             if r.role == "scrum":
                 r.release_issue = r.issue
+            # A restart the orchestrator queued itself (reconcile.py) names
+            # the state it found the issue in. By the time it is processed a
+            # real event may already have moved the issue on, or started the
+            # role: then running it would repeat work, so it stands down.
+            expect = inputs.get("expect_state")
+            if expect and r.role != "none":
+                now = self.port.get_issue(int(r.issue)) or {}
+                ls = _names(now.get("labels"))
+                if (now.get("state") == "closed" or expect not in ls
+                        or "factory:blocked" in ls or IN_PROGRESS in ls):
+                    log.info("#%s is no longer idle at %s - not restarting %s",
+                             r.issue, expect, r.role)
+                    r.role = "none"
 
         elif event_name == "milestone":
             ms = payload.get("milestone") or {}

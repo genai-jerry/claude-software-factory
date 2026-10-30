@@ -104,8 +104,8 @@ def sweep_targets(engine, ledger) -> list[str]:
 
 
 INTERRUPTED = ("Interrupted: the orchestrator restarted while this run was in progress. "
-               "The event that started it is picked up again and routed from the "
-               "issue's current state.")
+               "If this issue is still where the run started, the factory starts the "
+               "role again on its own within about 15 minutes.")
 
 
 def close_interrupted_runs(engine, ledger) -> int:

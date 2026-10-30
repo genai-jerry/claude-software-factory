@@ -51,10 +51,12 @@ from .issue_workspaces import MODES, IssueKey, workspace_key
 from .ledger import Ledger
 from .live_log import LiveRunLog
 from .models import ModelResolutionError, Probe, load_models_config, resolve_model
+from .reconcile import usage_limit_error
 from .role_runner import RoleRunner
 from .router import (
     RepoConfig,
     Router,
+    epic_ref_from_body,
     expedited_ready_tasks,
     is_expedited,
     release_chain,
@@ -284,6 +286,15 @@ def build_graph(engine: Engine, checkpointer=None):
             ran_on = c_port.get_issue(c["issue"]) or {}
             m = re.match(r"^task\((\d+)\)", ran_on.get("title") or "")
             epic_no = int(m.group(1)) if m else c["issue"]
+            # A task in a sibling repo (FACTORY.md §7) names its epic's repo
+            # in `Part of owner/repo#n`. Reading the epic number in the task's
+            # own repo found nothing there, so a cross-repo task's release
+            # never re-dispatched, and tasks it unblocked were never released.
+            if m:
+                epic_repo, body_no = epic_ref_from_body(ran_on.get("body"))
+                if epic_repo and epic_repo != c_repo and body_no in (None, epic_no):
+                    owner, name = epic_repo.split("/", 1)
+                    c_port, c_repo = engine.port(owner, name), epic_repo
             epic = c_port.get_issue(epic_no) or {}
             labels = [(l if isinstance(l, str) else l.get("name"))
                       for l in epic.get("labels", [])]
@@ -483,7 +494,9 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             error = f"Role '{role}' exceeded the {engine.cfg.role_timeout_seconds}s wall clock."
         else:
             status = outcome.status
-            error = outcome.error or (
+            # A usage limit reads as a bare non-zero exit; say what it was and
+            # when it resets, which is also what the reconciler restarts on.
+            error = usage_limit_error(outcome.transcript) or outcome.error or (
                 f"Claude exited {outcome.exit_code}."
                 if outcome.exit_code is not None else f"Role '{role}' failed.")
         body = outcome.transcript or ""
