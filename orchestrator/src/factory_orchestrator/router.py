@@ -1594,6 +1594,11 @@ class Router:
                 "factory:spec-approved": "planner",
                 "factory:planned": "architect",
                 "factory:design-approved": "dispatch",
+                # A task held mid-pipeline resumes the stage that halted it —
+                # what the blocked notice promises. Neither role has an
+                # approver list of its own (§2b), so a reply is enough.
+                "factory:in-review": "reviewer",
+                "factory:in-test": "qa",
             }
             for lbl, role in resume.items():
                 if lbl in labels:

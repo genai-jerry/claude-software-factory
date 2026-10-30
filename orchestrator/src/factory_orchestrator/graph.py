@@ -25,6 +25,7 @@ import logging
 import operator
 import re
 import tempfile
+import uuid
 from itertools import zip_longest
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
@@ -92,6 +93,13 @@ class PipelineState(TypedDict, total=False):
     trigger: str
     pending: list[dict[str, Any]]                 # [{"role": ..., "issue": ...}]
     completed: Annotated[list[dict[str, Any]], operator.add]
+    # One id per graph invocation. `completed` only ever grows — its reducer
+    # appends, so returning [] does not clear it — and a thread is durable per
+    # issue, so it still holds every earlier invocation's runs. `chain` reads
+    # only this invocation's; without the filter a second event on the same
+    # issue re-chained the first one's completions and every follow-up role
+    # ran twice, then three times on the third event.
+    invocation: str
     release_issue: str
     release_dispatched: bool
     expedited: bool
@@ -104,6 +112,7 @@ class RunItem(TypedDict):
     role: str
     issue: int
     trigger: str
+    invocation: str
 
 
 class Engine:
@@ -222,17 +231,20 @@ def build_graph(engine: Engine, checkpointer=None):
         )
         return {"pending": pending, "release_issue": result.release_issue,
                 "release_dispatched": False, "expedited": False,
-                "round": 0, "completed": []}
+                "round": 0, "completed": [], "invocation": uuid.uuid4().hex}
 
     def run_role_node(item: RunItem) -> dict[str, Any]:
         summary = execute_role(engine, item)
+        summary["invocation"] = item.get("invocation", "")
         return {"completed": [summary]}
 
     def chain_node(state: PipelineState) -> dict[str, Any]:
         port = engine.port(state["owner"], state["repo"])
         pending: list[dict[str, Any]] = []
         expedited_seen = bool(state.get("expedited"))
-        this_round = [c for c in state.get("completed", []) if c.get("round") == state["round"]]
+        this_round = [c for c in state.get("completed", [])
+                      if c.get("round") == state["round"]
+                      and c.get("invocation", "") == state.get("invocation", "")]
 
         def port_of(c: dict[str, Any]) -> tuple[RepoPort, str]:
             full = c.get("repo") or f"{state['owner']}/{state['repo']}"
@@ -334,7 +346,15 @@ def build_graph(engine: Engine, checkpointer=None):
         if state["round"] >= cap:
             log.warning("round cap reached (%d) - ending invocation", cap)
             return END
-        items = state.get("pending") or []
+        # One run per (role, issue, repo) per round: two completions that chain
+        # to the same follow-up (a cross-repo pair, a repeated decision) must
+        # not start two agents on one issue and one workspace.
+        items, seen = [], set()
+        for i in state.get("pending") or []:
+            k = (i["role"], int(i["issue"]), i.get("repo") or "")
+            if k not in seen:
+                seen.add(k)
+                items.append(i)
         if items:
             def target(i: dict[str, Any]) -> tuple[str, str]:
                 full = i.get("repo") or ""
@@ -346,6 +366,7 @@ def build_graph(engine: Engine, checkpointer=None):
             return [Send("run_role", RunItem(
                 owner=target(i)[0], repo=target(i)[1], role=i["role"],
                 issue=i["issue"], trigger=state.get("trigger", state["event_name"]),
+                invocation=state.get("invocation", ""),
             ) | {"round": state["round"]}) for i in items]
         if state.get("release_issue") and not state.get("release_dispatched"):
             return "chain"

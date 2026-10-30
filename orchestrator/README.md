@@ -227,6 +227,9 @@ GitHub carries all of it.
   FACTORY.md §1a with `scripts/comment-lint.js` from the factory checkout,
   and stored under `guards.writing` on the run (`GET /runs/<id>`). Report
   only; nothing is blocked.
+- **Event worker**: deliveries for different issues are processed side by
+  side (`WORKER_CONCURRENCY`, default 8); one issue's deliveries run in the
+  order they arrived. Role runs are capped separately by `MAX_PARALLEL`.
 - **Missed events**: the reconciliation sweep (startup + every 15 min)
   re-queues approved gates whose follow-up role never ran and approved
   releases never fanned out. Everything it queues flows through the same

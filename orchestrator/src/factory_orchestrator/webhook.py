@@ -59,9 +59,28 @@ def _carry_refresh(inputs: dict[str, Any], console_url: Any, installation_id: An
     inputs["console_url"] = str(console_url)
 
 
+def thread_key(payload: dict[str, Any]) -> str:
+    """The issue a delivery belongs to — the same key as the graph's thread."""
+    repo = (payload.get("repository") or {}).get("full_name", "unknown/unknown")
+    issue = (payload.get("issue") or {}).get("number")
+    if issue is None:
+        issue = (payload.get("inputs") or {}).get("issue_number", "repo")
+    return f"{repo}#{issue}"
+
+
 def create_app(cfg: Config, ledger: Ledger, processor: Processor,
-               *, poll_interval: float = 0.5) -> FastAPI:
+               *, poll_interval: float = 0.5, concurrency: int = 8) -> FastAPI:
     stop = asyncio.Event()
+    # Deliveries for different issues run side by side; deliveries for one
+    # issue run in the order they arrived. One graph invocation can hold its
+    # delivery for hours (an expedited epic walks every stage inside it), and
+    # a single serial worker left every other issue's events queued behind
+    # it — a reply on a blocked task waited for someone else's release run.
+    # Role runs are capped separately, by RoleRunner's max_parallel slots.
+    slots = asyncio.Semaphore(max(1, concurrency))
+    issue_locks: dict[str, asyncio.Lock] = {}
+    waiting: dict[str, int] = {}  # deliveries holding or queued on each lock
+    inflight: set[asyncio.Task] = set()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -90,22 +109,36 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
                 continue
             for item in batch:
                 payload = item["payload"] if isinstance(item["payload"], dict) else {}
-                repo = (payload.get("repository") or {}).get("full_name", "-")
-                issue = (payload.get("issue") or {}).get("number")
-                if issue is None:
-                    issue = (payload.get("inputs") or {}).get("issue_number", "-")
-                log.info(
-                    "processing delivery=%s event=%s action=%s repo=%s issue=%s",
-                    item["guid"], item["event"], payload.get("action", ""), repo, issue,
-                )
-                try:
-                    # Processing runs in a thread: role runs block for minutes
-                    # and must not stall the event loop or the intake endpoint.
-                    await asyncio.to_thread(app.state.processor, item["event"], item["payload"])
-                    ledger.finish_delivery(item["guid"])
-                except Exception as exc:  # noqa: BLE001 - stamped on the ledger
-                    log.exception("delivery %s failed", item["guid"])
-                    ledger.finish_delivery(item["guid"], error=public_delivery_error(exc))
+                key = thread_key(payload)
+                # Taken here, in claim order, so one issue's deliveries queue
+                # on its lock in the order they arrived (asyncio.Lock is FIFO).
+                lock = issue_locks.setdefault(key, asyncio.Lock())
+                waiting[key] = waiting.get(key, 0) + 1
+                task = asyncio.create_task(process(item, payload, key, lock))
+                inflight.add(task)
+                task.add_done_callback(inflight.discard)
+        if inflight:
+            await asyncio.gather(*inflight, return_exceptions=True)
+
+    async def process(item: dict[str, Any], payload: dict[str, Any], key: str,
+                      lock: asyncio.Lock) -> None:
+        async with lock, slots:
+            log.info(
+                "processing delivery=%s event=%s action=%s thread=%s",
+                item["guid"], item["event"], payload.get("action", ""), key,
+            )
+            try:
+                # Processing runs in a thread: role runs block for minutes
+                # and must not stall the event loop or the intake endpoint.
+                await asyncio.to_thread(app.state.processor, item["event"], item["payload"])
+                ledger.finish_delivery(item["guid"])
+            except Exception as exc:  # noqa: BLE001 - stamped on the ledger
+                log.exception("delivery %s failed", item["guid"])
+                ledger.finish_delivery(item["guid"], error=public_delivery_error(exc))
+        waiting[key] -= 1
+        if not waiting[key]:  # nothing else queued for this issue: drop its lock
+            del waiting[key]
+            issue_locks.pop(key, None)
 
     async def start_worker() -> None:
         stop.clear()

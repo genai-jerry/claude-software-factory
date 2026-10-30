@@ -1,0 +1,58 @@
+{
+  "name": "blocked-resume-in-test-qa",
+  "description": "a human reply on a task blocked at factory:in-test resumes the qa",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 40,
+        "title": "task(34): status map",
+        "labels": [
+          "factory:blocked",
+          "factory:in-test"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 40,
+    "comment": {
+      "body": "rerun QA",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "qa",
+    "issues": [
+      "40"
+    ],
+    "labels": {
+      "40": {
+        "not": [
+          "factory:blocked"
+        ],
+        "has": [
+          "factory:in-test"
+        ]
+      }
+    }
+  }
+}
