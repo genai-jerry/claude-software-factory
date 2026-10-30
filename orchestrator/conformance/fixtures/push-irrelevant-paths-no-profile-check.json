@@ -1,0 +1,34 @@
+{
+  "name": "push-irrelevant-paths-no-profile-check",
+  "description": "a push to the default branch that changes no manifest, lockfile, workflow or tool config runs no profile check and files no issue",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "event": {
+    "name": "push",
+    "ref": "refs/heads/main",
+    "defaultBranch": "main",
+    "changedFiles": [
+      "src/app.ts",
+      ".factory/profile.json",
+      "docs/readme.md"
+    ]
+  },
+  "expect": {
+    "role": "none",
+    "createdCount": 0
+  }
+}

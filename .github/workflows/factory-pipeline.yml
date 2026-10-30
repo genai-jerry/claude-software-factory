@@ -188,6 +188,34 @@ jobs:
             // in one place.
             const PROFILE_KIND = 'factory:profile';
             const PROFILE_TITLE = 'Factory: repo profile';
+            // Where a profile goes stale from. The same list as the caller
+            // stub's on.push.paths, which already filters pushes here; the
+            // orchestrator is sent every push, so both routers check it.
+            const PROFILE_PATHS = [
+              'package.json', '**/package.json', 'pnpm-lock.yaml', 'package-lock.json',
+              'yarn.lock', 'pyproject.toml', 'requirements*.txt', 'go.mod', 'Cargo.toml',
+              'pom.xml', 'build.gradle*', 'Gemfile', 'composer.json', 'Makefile',
+              'Dockerfile', 'docker-compose*.yml', '.github/workflows/**',
+            ];
+            const globRe = (pattern) => {
+              let out = '';
+              for (let i = 0; i < pattern.length;) {
+                if (pattern.startsWith('**/', i)) { out += '(?:.*/)?'; i += 3; }
+                else if (pattern.startsWith('**', i)) { out += '.*'; i += 2; }
+                else if (pattern[i] === '*') { out += '[^/]*'; i += 1; }
+                else { out += pattern[i].replace(/[.+?^${}()|[\]\\]/g, '\\$&'); i += 1; }
+              }
+              return new RegExp(`^${out}$`);
+            };
+            // A payload with no file lists counts as relevant: checking once
+            // too often is cheap, never checking is not.
+            const pushTouchesProfile = (payload) => {
+              const commits = Array.isArray(payload.commits) ? payload.commits : [];
+              const files = commits.flatMap(c => [...(c.added || []), ...(c.modified || []), ...(c.removed || [])]);
+              if (!files.length) return true;
+              const res = PROFILE_PATHS.map(globRe);
+              return files.some(f => res.some(r => r.test(f)));
+            };
 
             // "A GitHub Action is working on this issue right now." Applied by
             // the agent jobs when they start and removed when they finish, so
@@ -917,15 +945,29 @@ jobs:
 
             // The profile issue, found the same way and for the same reason as
             // a release tracker: by label, never by search.
+            // By label, else by its exact title: the title heals a repo where
+            // the label came off (the Profiler used to remove it after every
+            // run), so it reuses that thread instead of filing another. The
+            // newest match wins, as the Factory Console picks it.
             const profileIssue = async () => {
               const found = await github.paginate(github.rest.issues.listForRepo, {
                 owner, repo, labels: PROFILE_KIND, state: 'all', per_page: 100,
               });
-              return found.find(x => !x.pull_request) || null;
+              const labelled = found.find(x => !x.pull_request);
+              if (labelled) return labelled;
+              const all = await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, state: 'all', per_page: 100,
+              });
+              const titled = all.filter(x => !x.pull_request && x.title === PROFILE_TITLE);
+              return titled.sort((a, b) => b.number - a.number)[0] || null;
             };
             const ensureProfileIssue = async () => {
               const existing = await profileIssue();
               if (existing) {
+                if (!namesOf(existing.labels).includes(PROFILE_KIND)) {
+                  await github.rest.issues.addLabels({ owner, repo, issue_number: existing.number, labels: [PROFILE_KIND] });
+                  core.info(`Re-applied ${PROFILE_KIND} to profile issue #${existing.number}`);
+                }
                 // Reopen rather than file a second one: this thread is where
                 // the previous drafts and their evidence live.
                 if (existing.state === 'closed') {
@@ -2048,6 +2090,8 @@ jobs:
               const def = 'refs/heads/' + ((context.payload.repository || {}).default_branch || '');
               if (!def || ref !== def) {
                 core.info(`Push to ${ref || '(unknown ref)'} - profile drift is only checked on the default branch`);
+              } else if (!pushTouchesProfile(context.payload)) {
+                core.info(`Push to ${ref} changed no profile-relevant path - no profile check`);
               } else {
                 const prof = await ensureProfileIssue();
                 issue = String(prof.number);

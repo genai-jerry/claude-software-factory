@@ -31,6 +31,17 @@ FAST_TRACK = "factory:fast-track"
 FAST_TRACK_DONE = "<!-- factory-fast-track-done -->"
 PROFILE_KIND = "factory:profile"
 PROFILE_TITLE = "Factory: repo profile"
+#: Where a profile goes stale from (FACTORY.md §2c): manifests, lockfiles, CI
+#: workflows and tool config. The same list as the Actions caller stub's
+#: `on.push.paths` (templates/workflows/factory-pipeline.yml); a test keeps the
+#: two equal. The stub filters before the router runs; the orchestrator is sent
+#: every push, so the router has to filter it here.
+PROFILE_PATHS = (
+    "package.json", "**/package.json", "pnpm-lock.yaml", "package-lock.json",
+    "yarn.lock", "pyproject.toml", "requirements*.txt", "go.mod", "Cargo.toml",
+    "pom.xml", "build.gradle*", "Gemfile", "composer.json", "Makefile",
+    "Dockerfile", "docker-compose*.yml", ".github/workflows/**",
+)
 IN_PROGRESS = "factory:in-progress"
 EXPEDITE = "factory:expedite"
 EPIC_READY = "factory:epic-ready"
@@ -420,6 +431,40 @@ def _kind_of(issue: dict[str, Any], labels: list[str]) -> str:
     return "not an epic"
 
 
+def _glob_re(pattern: str) -> re.Pattern[str]:
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out, i = out + "(?:.*/)?", i + 3
+        elif pattern.startswith("**", i):
+            out, i = out + ".*", i + 2
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    return re.compile(f"^{out}$")
+
+
+_PROFILE_PATH_RES = tuple(_glob_re(p) for p in PROFILE_PATHS)
+
+
+def push_touches_profile(payload: dict[str, Any]) -> bool:
+    """True when a push changed a path the profile can go stale from.
+
+    A payload with no commit file lists (a branch creation, a hand-made test
+    event) counts as relevant: checking once too often is cheap, never
+    checking is not.
+    """
+    commits = payload.get("commits")
+    if not isinstance(commits, list) or not commits:
+        return True
+    files = [f for c in commits if isinstance(c, dict)
+             for key in ("added", "modified", "removed") for f in (c.get(key) or [])]
+    if not files:
+        return True
+    return any(r.match(f) for f in files for r in _PROFILE_PATH_RES)
+
+
 def _is_task_title(title: str | None) -> bool:
     return bool(re.match(r"^task\(\d+\)", title or ""))
 
@@ -545,15 +590,26 @@ class Router:
         return data
 
     def profile_issue(self) -> dict[str, Any] | None:
+        """The repo's one profile issue: by label, else by its exact title.
+
+        The title fallback heals a repo where the label came off — the Profiler
+        used to remove it after every run — so it reuses that thread instead of
+        filing another. The newest match wins, as the Factory Console picks it.
+        """
         found = self.port.list_issues(labels=PROFILE_KIND, state="all")
         for x in found:
             if x.get("pull_request") is None:
                 return x
-        return None
+        titled = [x for x in self.port.list_issues(state="all")
+                  if x.get("title") == PROFILE_TITLE and x.get("pull_request") is None]
+        return max(titled, key=lambda x: x.get("number", 0)) if titled else None
 
     def ensure_profile_issue(self) -> dict[str, Any]:
         existing = self.profile_issue()
         if existing:
+            if PROFILE_KIND not in _names(existing.get("labels")):
+                self.port.add_labels(existing["number"], [PROFILE_KIND])
+                log.info("Re-applied %s to profile issue #%s", PROFILE_KIND, existing["number"])
             if existing.get("state") == "closed":
                 try:
                     self.port.update_issue_state(existing["number"], "open")  # type: ignore[attr-defined]
@@ -1009,6 +1065,8 @@ class Router:
             if not default or ref != f"refs/heads/{default}":
                 log.info("Push to %s - profile drift is only checked on the default branch",
                          ref or "(unknown ref)")
+            elif not push_touches_profile(payload):
+                log.info("Push to %s changed no profile-relevant path - no profile check", ref)
             else:
                 prof = self.ensure_profile_issue()
                 r.issue = str(prof["number"])

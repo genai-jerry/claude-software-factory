@@ -86,7 +86,10 @@ def build_event(fx: dict, world: FakeRepo, milestones: dict) -> tuple[str, dict]
     if ev["name"] == "milestone":
         return "milestone", {"action": ev["action"], "milestone": ms(ev["milestone"])}
     if ev["name"] == "push":
-        return "push", {"ref": ev["ref"], "repository": {"default_branch": ev["defaultBranch"]}}
+        push = {"ref": ev["ref"], "repository": {"default_branch": ev["defaultBranch"]}}
+        if "changedFiles" in ev:
+            push["commits"] = [{"added": [], "modified": ev["changedFiles"], "removed": []}]
+        return "push", push
     if ev["name"] == "workflow_dispatch":
         return "workflow_dispatch", {"inputs": {"role": ev["role"], "issue_number": ev["issue"]}}
     raise ValueError(ev["name"])

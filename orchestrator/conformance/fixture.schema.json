@@ -308,6 +308,12 @@
             },
             "defaultBranch": {
               "type": "string"
+            },
+            "changedFiles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
