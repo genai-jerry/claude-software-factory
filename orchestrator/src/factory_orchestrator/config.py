@@ -78,6 +78,9 @@ class Config:
     github_api_url: str = "https://api.github.com"
     # Execution budgets — mirror the Actions engine's caps.
     max_parallel_default: int = 4
+    # Graph invocations (one per delivery) processed at once, for different
+    # issues; one issue's deliveries always run in order.
+    worker_concurrency: int = 8
     role_timeout_seconds: int = 45 * 60
     max_turns: int = 100
     # Public base URL of this service; failure comments link run logs under it.
@@ -169,6 +172,7 @@ def load_config(env: dict[str, str] | None = None) -> Config:
         engine_name=e.get("ENGINE_NAME", "langgraph"),
         github_api_url=e.get("GITHUB_API_URL", "https://api.github.com"),
         max_parallel_default=int(e.get("MAX_PARALLEL", "4")),
+        worker_concurrency=int(e.get("WORKER_CONCURRENCY", "8")),
         role_timeout_seconds=int(e.get("ROLE_TIMEOUT_SECONDS", str(45 * 60))),
         max_turns=int(e.get("MAX_TURNS", "100")),
         public_base_url=e.get("PUBLIC_BASE_URL", "http://localhost:8080").rstrip("/"),

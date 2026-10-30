@@ -303,3 +303,66 @@ async def test_forwarded_events_take_the_installation_from_the_payload(service):
         assert inputs["installation_id"] == 4242
         assert inputs["console_url"] == "https://console.example"
     await with_client(app, go)
+
+
+def _issue_event(repo, n):
+    return json.dumps({"action": "created", "issue": {"number": n},
+                       "repository": {"full_name": repo}}).encode()
+
+
+async def test_a_long_delivery_does_not_hold_up_another_issue(tmp_path):
+    # beacon-api#40: a reply on a blocked task sat queued behind an expedited
+    # epic's invocation, which held the single worker for hours.
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db"})
+    ledger = Ledger(cfg.database_url)
+    release = __import__("threading").Event()
+    done = []
+
+    def proc(ev, payload):
+        n = payload["issue"]["number"]
+        if n == 64:
+            release.wait(5)
+        done.append(n)
+
+    app = create_app(cfg, ledger, proc, poll_interval=0.02)
+
+    async def go(client):
+        await post_event(client, "long", _issue_event("o/r", 64))
+        await asyncio.sleep(0.1)
+        await post_event(client, "short", _issue_event("o/r", 40))
+        for _ in range(100):
+            await asyncio.sleep(0.02)
+            if 40 in done:
+                break
+        assert done == [40]  # #40 finished while #64 was still running
+        release.set()
+    await with_client(app, go)
+    assert done == [40, 64]
+
+
+async def test_one_issues_deliveries_still_run_in_order(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db"})
+    ledger = Ledger(cfg.database_url)
+    running, seen, overlap = [], [], []
+
+    def proc(ev, payload):
+        if running:
+            overlap.append(payload["n"])
+        running.append(1)
+        __import__("time").sleep(0.05)
+        seen.append(payload["n"])
+        running.pop()
+
+    app = create_app(cfg, ledger, proc, poll_interval=0.02)
+
+    async def go(client):
+        for k in range(4):
+            body = json.dumps({"n": k, "issue": {"number": 7},
+                               "repository": {"full_name": "o/r"}}).encode()
+            await post_event(client, f"g{k}", body)
+        for _ in range(200):
+            await asyncio.sleep(0.02)
+            if len(seen) == 4:
+                break
+    await with_client(app, go)
+    assert seen == [0, 1, 2, 3] and overlap == []

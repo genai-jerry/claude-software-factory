@@ -455,3 +455,22 @@ def test_release_does_not_chain_a_dispatch_past_the_build(tmp_path):
         "inputs": {"role": "release", "issue_number": "12"},
         "repository": {"full_name": "o/r"}})
     assert [c["role"] for c in runner.calls] == ["release"]
+
+
+def test_a_second_event_on_an_issue_does_not_rechain_the_first(tmp_path):
+    # beacon-api#62-#64: the thread's `completed` list kept the first event's
+    # runs, so the second event's chain step saw two planners and started two
+    # architects (and on a third event, three).
+    world = ConfiguredRepo({5: issue(5, "Epic", ["factory:spec-approved"])})
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {
+        "planner": lambda w, n: flip(w, n, "factory:spec-approved", "factory:planned"),
+        "architect": lambda w, n: flip(w, n, "factory:planned", "factory:design-ready"),
+    })
+    dispatch = {"inputs": {"role": "planner", "issue_number": 5},
+                "repository": {"full_name": "o/r"}}
+    Processor(engine, graph)("workflow_dispatch", dispatch)
+    assert [c["role"] for c in runner.calls] == ["planner", "architect"]
+    world.remove_label(5, "factory:design-ready")
+    world.add_labels(5, ["factory:spec-approved"])
+    Processor(engine, graph)("workflow_dispatch", dispatch)
+    assert [c["role"] for c in runner.calls] == ["planner", "architect"] * 2

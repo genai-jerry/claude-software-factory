@@ -80,7 +80,8 @@ def build_service():
                     transcript_dir=os.environ.get("TRANSCRIPT_DIR"))
     graph = build_graph(engine, checkpointer=make_checkpointer(cfg.database_url))
     processor = Processor(engine, graph)
-    return cfg, ledger, engine, create_app(cfg, ledger, processor), (console_store, from_console)
+    return cfg, ledger, engine, create_app(cfg, ledger, processor,
+                                         concurrency=cfg.worker_concurrency), (console_store, from_console)
 
 
 def sweep_targets(engine, ledger) -> list[str]:
