@@ -96,7 +96,7 @@ def limit_resets_at(error: str, finished: dt.datetime) -> dt.datetime:
     return at if at > finished else at + dt.timedelta(days=1)
 
 
-def _when(v: Any) -> dt.datetime | None:
+def as_utc(v: Any) -> dt.datetime | None:
     if v is None:
         return None
     if isinstance(v, str):
@@ -104,7 +104,7 @@ def _when(v: Any) -> dt.datetime | None:
     return v if v.tzinfo else v.replace(tzinfo=dt.UTC)
 
 
-def _kind(run: dict[str, Any]) -> str:
+def run_kind(run: dict[str, Any]) -> str:
     """success | interrupted | limit | failed | other, for one finished run."""
     outcome, error = run.get("outcome"), run.get("error") or ""
     if outcome == "success":
@@ -132,8 +132,8 @@ def stalled_role(port: RepoPort, issue: dict[str, Any], labels: list[str],
     if len(states) != 1:
         return None  # no state, or drift: a human's call
     state, last = states[0], runs[0]
-    finished = _when(last.get("finished_at")) or now
-    kind = _kind(last)
+    finished = as_utc(last.get("finished_at")) or now
+    kind = run_kind(last)
 
     if kind in ("interrupted", "limit", "failed") and state in ROLE_STARTS.get(last["role"], ()):
         if kind == "limit" and now < limit_resets_at(last.get("error") or "", finished):
@@ -145,9 +145,9 @@ def stalled_role(port: RepoPort, issue: dict[str, Any], labels: list[str],
         if kind == "failed":
             fails = 0
             for r in runs:
-                if r["role"] != last["role"] or _kind(r) == "success":
+                if r["role"] != last["role"] or run_kind(r) == "success":
                     break
-                fails += _kind(r) == "failed"
+                fails += run_kind(r) == "failed"
             if fails > MAX_RETRIES:
                 return None
         return last["role"], state
