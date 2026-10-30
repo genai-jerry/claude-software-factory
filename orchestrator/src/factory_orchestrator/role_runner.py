@@ -46,9 +46,10 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from .claude_stream import StreamReader, run_usage
 from .config import Config, agent_path
 from .issue_workspaces import IssueKey, IssueWorkspaces
 from .repo_cache import RepoCache
@@ -243,6 +244,9 @@ class RoleOutcome:
     transcript: str
     exit_code: int | None = None
     error: str | None = None
+    #: Tokens, estimated cost and any rate-limit detail Claude reported
+    #: (claude_stream.run_usage); None when it reported nothing.
+    usage: dict | None = field(default=None)
 
 
 class RoleRunner:
@@ -316,25 +320,32 @@ class RoleRunner:
             "PYTHONUNBUFFERED": "1",
             **self.cfg.agent_credential_env(),
         }
+        readers: list[StreamReader] = []
         outcome = self._invoke_claude(
             prompt, cwd=cwd, env=env, model=model,
             github_token=github_token, deadline=deadline,
-            on_phase=on_phase, on_output=on_output)
-        if outcome.status == "timeout":
-            return outcome
-        return self._observe(
-            outcome, cwd=cwd, workspace=home, env=env,
-            owner=owner, repo=repo, role=role, issue=issue,
-            model=model, github_token=github_token,
-            deadline=deadline, on_phase=on_phase, on_output=on_output)
+            on_phase=on_phase, on_output=on_output, readers=readers)
+        if outcome.status != "timeout":
+            outcome = self._observe(
+                outcome, cwd=cwd, workspace=home, env=env,
+                owner=owner, repo=repo, role=role, issue=issue,
+                model=model, github_token=github_token,
+                deadline=deadline, on_phase=on_phase, on_output=on_output,
+                readers=readers)
+        outcome.usage = run_usage(readers)
+        return outcome
 
     def _invoke_claude(self, prompt: str, *, cwd: Path, env: dict[str, str],
                        model: str, github_token: str, deadline: float,
                        on_phase: Callable[[str], None] | None,
-                       on_output: Callable[[str], None] | None = None) -> RoleOutcome:
+                       on_output: Callable[[str], None] | None = None,
+                       readers: list[StreamReader] | None = None) -> RoleOutcome:
         argv = [self.claude_bin, "-p", prompt,
                 "--model", model,
                 "--max-turns", str(self.cfg.max_turns),
+                # JSON events so the run's usage can be read (claude_stream);
+                # the log still shows text. stream-json requires --verbose.
+                "--output-format", "stream-json",
                 "--verbose",
                 "--permission-mode", "acceptEdits",
                 "--allowedTools", ALLOWED_TOOLS]
@@ -344,15 +355,22 @@ class RoleRunner:
         if on_phase:
             on_phase(f"running Claude ({model})")
         emit = self._emitter(github_token, on_output)
+        reader = StreamReader()
+        if readers is not None:
+            readers.append(reader)
+
+        def show(line: str) -> None:
+            text = reader.feed(line)
+            if text and emit:
+                emit(text)
+
         try:
-            proc = _run_bounded(argv, cwd=cwd, env=env, deadline=deadline, on_output=emit)
-        except subprocess.TimeoutExpired as e:
-            transcript = self._redact((e.stdout or "") + "\n" + (e.stderr or ""),
-                                      github_token)
+            proc = _run_bounded(argv, cwd=cwd, env=env, deadline=deadline, on_output=show)
+        except subprocess.TimeoutExpired:
             log.error("claude timeout cwd=%s after wall clock", cwd)
-            return RoleOutcome(status="timeout", transcript=transcript)
-        transcript = self._redact((proc.stdout or "") + "\n" + (proc.stderr or ""),
-                                  github_token)
+            return RoleOutcome(status="timeout",
+                               transcript=self._redact(reader.text(), github_token))
+        transcript = self._redact(reader.text(), github_token)
         status = "success" if proc.returncode == 0 else "error"
         log.info("claude exit cwd=%s code=%s status=%s", cwd, proc.returncode, status)
         return RoleOutcome(status=status, transcript=transcript,
@@ -362,7 +380,8 @@ class RoleRunner:
                  env: dict[str, str], owner: str, repo: str, role: str,
                  issue: int, model: str, github_token: str, deadline: float,
                  on_phase: Callable[[str], None] | None,
-                 on_output: Callable[[str], None] | None = None) -> RoleOutcome:
+                 on_output: Callable[[str], None] | None = None,
+                 readers: list[StreamReader] | None = None) -> RoleOutcome:
         """Own tests for a local factory branch, then push — or resume Claude on red."""
         parts = [outcome.transcript]
         resumes = 0
@@ -415,7 +434,7 @@ class RoleRunner:
                     outcome = self._invoke_claude(
                         fix, cwd=cwd, env=env, model=model,
                         github_token=github_token, deadline=deadline,
-                        on_phase=on_phase, on_output=on_output)
+                        on_phase=on_phase, on_output=on_output, readers=readers)
                     parts.append(outcome.transcript)
                     if outcome.status == "timeout":
                         return RoleOutcome(

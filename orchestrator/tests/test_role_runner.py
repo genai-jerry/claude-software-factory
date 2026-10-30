@@ -440,3 +440,24 @@ exit 0
     assert "GATE_MISSING" not in joined
     assert gate.is_file()
 
+
+
+def test_a_run_asks_for_the_json_stream_and_keeps_its_usage(tmp_path):
+    cfg = load_config({**BASE, "ROLE_TIMEOUT_SECONDS": "60"})
+    source = FactorySource(cfg, local_path=str(make_local_factory(tmp_path)))
+    out_dir = tmp_path / "captured"
+    result = json.dumps({"type": "result", "result": "All done.", "num_turns": 3,
+                         "total_cost_usd": 0.12,
+                         "usage": {"input_tokens": 40, "output_tokens": 9}})
+    claude = make_fake_claude(tmp_path, out_dir, on_run=f"echo '{result}'\n")
+    runner = LocalCloneRunner(cfg, source, workspace_root=str(tmp_path / "ws"),
+                              claude_bin=str(claude), origin=make_consuming_repo(tmp_path))
+    (tmp_path / "ws").mkdir(exist_ok=True)
+    shown: list[str] = []
+    outcome = runner.run(owner="o", repo="r", role="intake", issue=5,
+                         model="claude-sonnet-5", github_token="ghs_t", on_output=shown.append)
+    argv = next(out_dir.glob("argv-*.txt")).read_text().split("\n")
+    assert argv[argv.index("--output-format") + 1] == "stream-json"
+    assert "All done.\n" in shown and "All done." in outcome.transcript
+    assert '"type": "result"' not in outcome.transcript  # people read text, not JSON
+    assert outcome.usage["input_tokens"] == 40 and outcome.usage["cost_usd"] == 0.12

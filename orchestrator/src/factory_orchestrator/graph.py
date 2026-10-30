@@ -507,6 +507,9 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         live.event("phase", "finished")
         guards = {"before": before.__dict__, "trace": traced, "phase": "finished",
                   "model": resolved.model, "fallbacks": resolved.fallbacks}
+        usage = getattr(outcome, "usage", None)
+        if usage:
+            guards["usage"] = usage  # read back by GET /usage
         # FACTORY.md §1a, report-only: how readable were this run's comments?
         writing = score_new_comments(port, issue, before.comments, factory_checkout(engine))
         if writing:

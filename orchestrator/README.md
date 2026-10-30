@@ -223,6 +223,13 @@ GitHub carries all of it.
   It replaces GitHub Actions as the PR's CI (FACTORY.md §6c). The App needs
   the *Commit statuses: Read and write* permission; without it the status
   is logged as refused and the run is unaffected.
+- **Usage**: runs ask Claude for `--output-format stream-json`. The log
+  still shows text; each run stores the tokens and estimated cost Claude
+  reported under `guards.usage`. `GET /usage` sums the last five hours and
+  says whether a Claude usage limit is in force, when it resets, and which
+  issues wait for it. The Console's header badge reads it. A subscription's
+  remaining allowance has no documented headless source, so the percentage
+  appears only if a run ever reports one.
 - **Writing scores**: every run's new agent comments are scored against
   FACTORY.md §1a with `scripts/comment-lint.js` from the factory checkout,
   and stored under `guards.writing` on the run (`GET /runs/<id>`). Report

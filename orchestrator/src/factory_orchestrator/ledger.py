@@ -207,8 +207,11 @@ class Ledger:
             return dict(row) if row else None
 
     def list_runs(self, *, repo: str | None = None, issue: int | None = None,
-                  active_only: bool = False, limit: int = 100) -> list[dict[str, Any]]:
+                  active_only: bool = False, limit: int = 100,
+                  since: dt.datetime | None = None) -> list[dict[str, Any]]:
         q = sa.select(runs).order_by(runs.c.started_at.desc()).limit(limit)
+        if since is not None:
+            q = q.where(runs.c.started_at >= since)
         if repo:
             q = q.where(runs.c.repo == repo)
         if issue is not None:

@@ -24,6 +24,7 @@ from .console_secrets import apply_runtime_agent_secrets
 from .github_app import verify_signature
 from .ledger import Ledger
 from .live_log import read_events
+from .usage import summarize
 
 log = logging.getLogger("factory-orchestrator")
 
@@ -300,6 +301,11 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         if _wants_html(request):
             return Response(content=_runs_index_html(rows), media_type="text/html")
         return Response(content=json.dumps(rows), media_type="application/json")
+
+    @app.get("/usage")
+    async def usage() -> dict[str, Any]:
+        """The last five hours of Claude use and any limit in force (usage.py)."""
+        return summarize(ledger)
 
     @app.get("/runs/{run_id}")
     async def get_run(request: Request, run_id: str) -> Response:
