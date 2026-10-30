@@ -23,6 +23,8 @@ class FakeRepo:
         self.merged_bases: dict[int, str] = {}
         self.open_prs: dict[str, list[dict[str, Any]]] = {}
         self.branches: list[str] = ["main"]
+        # Commit statuses posted: (sha, state, context, description, target_url).
+        self.statuses: list[tuple[str, str, str, str, str | None]] = []
 
     # -- helpers -----------------------------------------------------------
     def labels_of(self, n: int) -> list[str]:
@@ -75,6 +77,12 @@ class FakeRepo:
 
     def list_open_prs(self, head):
         return list(self.open_prs.get(head, []))
+
+    def list_pulls(self):
+        return [pr for prs in self.open_prs.values() for pr in prs]
+
+    def create_status(self, sha, state, *, context, description, target_url=None):
+        self.statuses.append((sha, state, context, description, target_url))
 
     def merge_pr(self, number, method="squash"):
         self.merged_prs.append(number)

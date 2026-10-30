@@ -27,7 +27,11 @@ Prove the spec's scenarios are actually covered — by tests, not by reading cod
 4. Run the profile's `commands.test` (and `commands.build` when non-null) —
    the delta must be green; the profile's `gotchas` name any pre-existing
    failures that don't count against the PR. Verify CI checks on the PR are
-   green, and that the PR is based on its expected base branch: the epic
+   green — unless `.github/factory-orchestrator.json` sets `"ci": "factory"`
+   (FACTORY.md §6c): then your own run in this step is the CI, the
+   orchestrator publishes your verdict as the `factory/tests` status, and you
+   neither wait for nor block on GitHub Actions checks. Also verify that the
+   PR is based on its expected base branch: the epic
    branch `factory/epic-<epic-issue>` when the policy's `epics` is `true` and
    that branch exists on the remote (FACTORY.md §6b — an epic already past
    gate G2 at the flip has none and finishes on the integration branch), else
@@ -44,6 +48,11 @@ Prove the spec's scenarios are actually covered — by tests, not by reading cod
      Implementer; max 2 rounds then `factory:blocked`).
 
 ## Guardrails
+- An Actions job that never started (the annotation says payments failed or
+  the spending limit needs raising) is an account billing hold, not a test
+  result. Say the account owner fixes it at github.com/settings/billing (an
+  organization's billing page for an org repo), not in repo settings, and
+  mention FACTORY.md §6c as the way to run without Actions.
 - A scenario "covered" by code inspection is NOT covered. Only executing
   tests count as evidence.
 - Where the epic has a system test plan (FACTORY.md §4b), it is not yours and

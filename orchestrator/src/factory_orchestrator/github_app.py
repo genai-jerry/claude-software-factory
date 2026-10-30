@@ -80,6 +80,9 @@ class RepoPort(Protocol):
     def list_comments(self, number: int) -> list[dict[str, Any]]: ...
     def add_assignees(self, number: int, assignees: list[str]) -> None: ...
     def list_open_prs(self, head: str) -> list[dict[str, Any]]: ...
+    def list_pulls(self) -> list[dict[str, Any]]: ...
+    def create_status(self, sha: str, state: str, *, context: str,
+                      description: str, target_url: str | None = None) -> None: ...
     def merge_pr(self, number: int, method: str = "squash") -> None: ...
     def update_pr_base(self, number: int, base: str) -> None: ...
     def branch_exists(self, name: str) -> bool: ...
@@ -326,6 +329,17 @@ class RepoClient:
     def list_open_prs(self, head):
         r = self._req("GET", "/pulls", params={"state": "open", "head": head})
         return r.json()
+
+    def list_pulls(self):
+        """Every open PR — for finding a task's PR by branch or `Closes #N`."""
+        return self._paginate("/pulls", {"state": "open"})
+
+    def create_status(self, sha, state, *, context, description, target_url=None):
+        payload: dict[str, Any] = {"state": state, "context": context,
+                                   "description": description[:140]}
+        if target_url:
+            payload["target_url"] = target_url
+        self._req("POST", f"/statuses/{sha}", json=payload)
 
     def merge_pr(self, number, method="squash"):
         self._req("PUT", f"/pulls/{number}/merge", json={"merge_method": method})
