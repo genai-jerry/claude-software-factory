@@ -185,6 +185,22 @@ class Ledger:
                 guards=json.dumps(guards or {}),
                 transcript_path=transcript_path, error=error, finished_at=_now()))
 
+    def interrupt_unfinished(self, error: str) -> list[dict[str, Any]]:
+        """On startup: close every run a prior process left unfinished.
+
+        A run whose process died (a redeploy, a crash) never reaches
+        finish_run, so without this it reads as running forever. Returns the
+        rows it closed, as they were, so the caller can say so on each issue.
+        """
+        with self.engine.begin() as cx:
+            open_rows = [dict(r) for r in cx.execute(
+                sa.select(runs).where(runs.c.finished_at.is_(None))).mappings()]
+            if open_rows:
+                cx.execute(runs.update()
+                           .where(runs.c.id.in_([r["id"] for r in open_rows]))
+                           .values(outcome="error", error=error, finished_at=_now()))
+        return open_rows
+
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self.engine.begin() as cx:
             row = cx.execute(sa.select(runs).where(runs.c.id == run_id)).mappings().first()
