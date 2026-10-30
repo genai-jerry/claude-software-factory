@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 from factory_orchestrator.config import load_config
+from factory_orchestrator.repo_cache import RepoCache
 from factory_orchestrator.role_runner import (
     ALLOWED_TOOLS,
     PROMPT_BODY,
@@ -175,6 +176,28 @@ def build_runner(tmp_path, *, exit_code=0):
                               origin=make_consuming_repo(tmp_path))
     (tmp_path / "ws").mkdir(exist_ok=True)
     return cfg, runner, out_dir
+
+
+def test_role_run_copies_from_the_repo_master_and_keeps_it(tmp_path):
+    cfg = load_config({**BASE, "ROLE_TIMEOUT_SECONDS": "60"})
+    source = FactorySource(cfg, local_path=str(make_local_factory(tmp_path)))
+    out = tmp_path / "captured"
+    origin = make_bare_origin(make_consuming_repo(tmp_path), tmp_path / "r.git")
+    cache = RepoCache(str(tmp_path / "cache"), url_for=lambda o, r, t: str(origin),
+                      env={"PATH": os.environ["PATH"], "GIT_TERMINAL_PROMPT": "0"})
+    (tmp_path / "ws").mkdir()
+    runner = RoleRunner(cfg, source, workspace_root=str(tmp_path / "ws"),
+                        claude_bin=str(make_fake_claude(tmp_path, out)),
+                        repo_cache=cache)
+    for issue in (5, 6):
+        outcome = runner.run(owner="o", repo="r", role="intake", issue=issue,
+                             model="claude-sonnet-5", github_token="ghs_secret_token")
+        assert outcome.status == "success"
+    cwds = [Path(p.read_text().strip()) for p in sorted(out.glob("cwd-*.txt"))]
+    assert len(cwds) == 2 and all(c.name == "r" for c in cwds)
+    # each run's copy is gone; the master both copies came from is not
+    assert not any(c.exists() for c in cwds)
+    assert cache.master("o", "r").is_dir()
 
 
 def test_role_run_captures_prompt_and_cleans_workspace(tmp_path):

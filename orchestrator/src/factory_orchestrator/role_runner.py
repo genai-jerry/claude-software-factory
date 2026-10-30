@@ -3,10 +3,13 @@
 This is the node that gives a factory role the same footing the Actions
 agent job gives it, satisfying the engine contract's execution rules:
 
-- **Workspace per run.** A fresh clone of the consuming repo in a private
-  temp directory, deleted afterwards. Concurrent runs never share a
-  checkout, and a global semaphore bounds how many run at once (the
-  orchestrator's `max-parallel: 4` equivalent).
+- **Workspace per run.** A copy of the repo's refreshed master
+  (repo_cache.py) in a private temp directory, deleted afterwards — one
+  incremental fetch instead of a full clone. A repo that opts into issue
+  workspaces (issue_workspaces.py) instead works in its issue's long-lived
+  copy, reset to GitHub at the start of the run; `HOME` stays per run either
+  way. Concurrent runs never share a checkout, and a global semaphore bounds
+  how many run at once (the orchestrator's `max-parallel: 4` equivalent).
 - **Factory files outside the workspace.** FACTORY.md and the role prompt
   are resolved from the pinned factory ref into a cache directory the agent
   cannot reach with `git add` — the same reason Actions clones the factory
@@ -41,11 +44,14 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 from .config import Config, agent_path
+from .issue_workspaces import IssueKey, IssueWorkspaces
+from .repo_cache import RepoCache
 from .router import AGENT_MARK, FAST_TRACK_DONE
 
 log = logging.getLogger("factory-orchestrator.runner")
@@ -110,7 +116,8 @@ labels your role instructions specify — never extra ones — and let the
 pipeline's own routing decide what runs next.
 
 This is a one-shot session. When you stop calling tools the process
-exits and the workspace is deleted — background shells die with it.
+exits; anything you have not pushed is gone before the next run, and
+background shells die with it.
 Never background test, build, or lint; wait for each command to
 finish. Do not say you will check back later. Finish the role in this
 run: the issue comment, labels, and any PR the role requires must
@@ -242,61 +249,84 @@ class RoleRunner:
     def __init__(self, cfg: Config, source: FactorySource,
                  workspace_root: str | None = None,
                  claude_bin: str = "claude",
-                 max_parallel: int | None = None):
+                 max_parallel: int | None = None,
+                 repo_cache: RepoCache | None = None,
+                 issue_workspaces: IssueWorkspaces | None = None):
         self.cfg = cfg
         self.source = source
         self.workspace_root = Path(workspace_root or tempfile.gettempdir())
+        self.repo_cache = repo_cache or RepoCache()
+        self.issue_workspaces = issue_workspaces or IssueWorkspaces(self.repo_cache)
         self.claude_bin = claude_bin
         self._slots = threading.Semaphore(max_parallel or cfg.max_parallel_default)
 
     def clone_workspace(self, owner: str, repo: str, token: str, dest: Path) -> None:
         log.info("clone start repo=%s/%s dest=%s", owner, repo, dest / repo)
-        url = f"https://x-access-token:{token}@github.com/{owner}/{repo}"
-        subprocess.run(["git", "clone", url, str(dest / repo)],
-                       check=True, capture_output=True, timeout=600,
-                       env={"GIT_TERMINAL_PROMPT": "0", "PATH": "/usr/local/bin:/usr/bin:/bin"})
+        self.repo_cache.checkout(owner, repo, token, dest / repo)
         log.info("clone done repo=%s/%s dest=%s", owner, repo, dest / repo)
 
     def run(self, *, owner: str, repo: str, role: str, issue: int, model: str,
             github_token: str, on_phase: Callable[[str], None] | None = None,
-            on_output: Callable[[str], None] | None = None) -> RoleOutcome:
+            on_output: Callable[[str], None] | None = None,
+            workspace: IssueKey | None = None) -> RoleOutcome:
+        """One role session. `workspace` names the issue copy to work in; None
+        is a throwaway copy for this run alone."""
         prompt = assemble_prompt(
             role=role, repository=f"{owner}/{repo}", owner=owner, issue=issue,
             handbook=self.source.handbook(),
             role_instructions=self.source.role_instructions(role))
         with self._slots:
-            workspace = Path(tempfile.mkdtemp(prefix=f"run-{role}-{issue}-",
-                                              dir=self.workspace_root))
+            home = Path(tempfile.mkdtemp(prefix=f"run-{role}-{issue}-",
+                                         dir=self.workspace_root))
             deadline = time.monotonic() + self.cfg.role_timeout_seconds
             try:
                 if on_phase:
                     on_phase("cloning the repo")
-                self.clone_workspace(owner, repo, github_token, workspace)
-                cwd = workspace / repo
-                gh_token = (self.cfg.cross_repo_token.reveal()
-                            if self.cfg.cross_repo_token else github_token)
-                env = {
-                    "PATH": agent_path(),
-                    "HOME": str(workspace),
-                    "GH_TOKEN": gh_token,
-                    "OPENSPEC_TELEMETRY": "0",
-                    "GIT_TERMINAL_PROMPT": "0",
-                    "PYTHONUNBUFFERED": "1",
-                    **self.cfg.agent_credential_env(),
-                }
-                outcome = self._invoke_claude(
-                    prompt, cwd=cwd, env=env, model=model,
-                    github_token=github_token, deadline=deadline,
-                    on_phase=on_phase, on_output=on_output)
-                if outcome.status == "timeout":
-                    return outcome
-                return self._observe(
-                    outcome, cwd=cwd, workspace=workspace, env=env,
-                    owner=owner, repo=repo, role=role, issue=issue,
-                    model=model, github_token=github_token,
-                    deadline=deadline, on_phase=on_phase, on_output=on_output)
+                with self._checkout(owner, repo, github_token, home, workspace) as cwd:
+                    return self._session(
+                        prompt, cwd=cwd, home=home, owner=owner, repo=repo,
+                        role=role, issue=issue, model=model,
+                        github_token=github_token, deadline=deadline,
+                        on_phase=on_phase, on_output=on_output)
             finally:
-                shutil.rmtree(workspace, ignore_errors=True)
+                shutil.rmtree(home, ignore_errors=True)
+
+    @contextmanager
+    def _checkout(self, owner: str, repo: str, token: str, home: Path,
+                  key: IssueKey | None) -> Iterator[Path]:
+        if key is None:
+            self.clone_workspace(owner, repo, token, home)
+            yield home / repo
+            return
+        with self.issue_workspaces.acquire(owner, repo, key, token) as copy:
+            yield copy
+
+    def _session(self, prompt: str, *, cwd: Path, home: Path, owner: str, repo: str,
+                 role: str, issue: int, model: str, github_token: str, deadline: float,
+                 on_phase: Callable[[str], None] | None,
+                 on_output: Callable[[str], None] | None) -> RoleOutcome:
+        gh_token = (self.cfg.cross_repo_token.reveal()
+                    if self.cfg.cross_repo_token else github_token)
+        env = {
+            "PATH": agent_path(),
+            "HOME": str(home),
+            "GH_TOKEN": gh_token,
+            "OPENSPEC_TELEMETRY": "0",
+            "GIT_TERMINAL_PROMPT": "0",
+            "PYTHONUNBUFFERED": "1",
+            **self.cfg.agent_credential_env(),
+        }
+        outcome = self._invoke_claude(
+            prompt, cwd=cwd, env=env, model=model,
+            github_token=github_token, deadline=deadline,
+            on_phase=on_phase, on_output=on_output)
+        if outcome.status == "timeout":
+            return outcome
+        return self._observe(
+            outcome, cwd=cwd, workspace=home, env=env,
+            owner=owner, repo=repo, role=role, issue=issue,
+            model=model, github_token=github_token,
+            deadline=deadline, on_phase=on_phase, on_output=on_output)
 
     def _invoke_claude(self, prompt: str, *, cwd: Path, env: dict[str, str],
                        model: str, github_token: str, deadline: float,
@@ -348,7 +378,7 @@ class RoleRunner:
             if test_cmd is not None:
                 if on_phase:
                     on_phase("waiting for tests")
-                _wait_leftover_tests(workspace, deadline)
+                _wait_leftover_tests((workspace, cwd), deadline)
                 try:
                     test_proc, test_log = self._run_tests(
                         test_cmd, cwd=cwd, env=env, deadline=deadline,
@@ -648,9 +678,9 @@ def _default_base(cwd: Path, env: dict[str, str] | None) -> str:
     return "main"
 
 
-def _wait_leftover_tests(workspace: Path, deadline: float) -> None:
-    """If pytest/python whose cwd is under the workspace is still alive, wait on it."""
-    pids = _workspace_python_pids(workspace)
+def _wait_leftover_tests(roots: tuple[Path, ...], deadline: float) -> None:
+    """If pytest/python whose cwd is under the run's HOME or checkout is still alive, wait on it."""
+    pids = sorted({p for root in roots for p in _workspace_python_pids(root)})
     if not pids:
         return
     log.info("waiting on leftover test pids %s", pids)

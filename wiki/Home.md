@@ -9,7 +9,7 @@ These pages are the **visual companion** to the handbook. They describe the same
 system [`FACTORY.md`](https://github.com/genai-jerry/claude-software-factory/blob/v1/FACTORY.md)
 specifies; where the two disagree, `FACTORY.md` wins.
 
-## The five sheets
+## The six sheets
 
 | | Page | What it answers |
 |---|---|---|
@@ -18,6 +18,7 @@ specifies; where the two disagree, `FACTORY.md` wins.
 | 03 | [[Control Architecture]] | How does a GitHub event become a running role? |
 | 04 | [[Re-dispatch on Task Close]] | How do tasks blocked behind a sibling get released? |
 | 05 | [[Release Gating]] | How do you stop every filed issue from starting an agent? |
+| 06 | [[Repo Workspaces]] | Where does a run's checkout come from, and what may it remember? |
 
 ## The shape of it in one paragraph
 

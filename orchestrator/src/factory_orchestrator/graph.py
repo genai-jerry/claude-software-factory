@@ -45,6 +45,7 @@ from .guards import (
     snapshot,
     verify_no_op,
 )
+from .issue_workspaces import MODES, IssueKey, workspace_key
 from .ledger import Ledger
 from .live_log import LiveRunLog
 from .models import ModelResolutionError, Probe, load_models_config, resolve_model
@@ -165,6 +166,27 @@ class Engine:
             log.warning("could not refresh the GitHub token for %s/%s after the role "
                         "ran; the guard reads will retry on 401", owner, repo,
                         exc_info=True)
+
+    def workspace_mode(self, port: RepoPort) -> str:
+        """`run` (a throwaway copy per run) unless the repo opts into `issue`."""
+        runners = claim.orchestrator_settings(port).get("runners")
+        mode = runners.get("workspace") if isinstance(runners, dict) else None
+        return mode if mode in MODES else "run"
+
+    def workspace_for(self, port: RepoPort, issue: int) -> IssueKey | None:
+        if self.workspace_mode(port) != "issue":
+            return None
+        try:
+            return workspace_key(port, issue)
+        except Exception:  # noqa: BLE001 - an unresolved key is still this issue's copy
+            log.warning("could not resolve the workspace for %s/%s#%s - using its own number",
+                        port.owner, port.repo, issue, exc_info=True)
+            return IssueKey(issue)
+
+    def discard_workspaces(self, owner: str, repo: str, issue: int) -> None:
+        workspaces = getattr(self.runner, "issue_workspaces", None)
+        if workspaces is not None:
+            workspaces.discard(owner, repo, issue)
 
     def max_parallel(self, port: RepoPort) -> int:
         runners = claim.orchestrator_settings(port).get("runners")
@@ -416,11 +438,13 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         # can follow the log without an Actions run.
         report_start(port, issue, role, run_url)
         before = snapshot(port, issue)
+        key = engine.workspace_for(port, issue)
         outcome = engine.runner.run(
             owner=owner, repo=repo, role=role, issue=issue, model=resolved.model,
             github_token=engine.token_for_role(owner, repo),
             on_phase=lambda phase: note(phase, **extra),
-            on_output=live.write)
+            on_output=live.write,
+            **({"workspace": key} if key else {}))
         # The role may have run for the better part of an hour; everything from
         # here on needs a token that is good now, not one that was good then.
         engine.refresh_token_before_guards(owner, repo)
@@ -535,6 +559,12 @@ class Processor:
             self.engine.app.cache_token(
                 owner, repo, token,
                 expires_at=inputs.get("github_token_expires_at"))
+        if event_name == "issues" and payload.get("action") == "closed":
+            # A closed issue's copy is dead weight whoever drives the repo —
+            # this runs before the claim check, and routing never needs it.
+            number = (payload.get("issue") or {}).get("number")
+            if isinstance(number, int):
+                self.engine.discard_workspaces(owner, repo, number)
         port = self.engine.port(owner, repo)
         if not claim.claim_check(port, self.engine.cfg.engine_name):
             return

@@ -382,6 +382,20 @@ role prompts and every trace convention are identical whichever engine runs
 — the Console cannot tell them apart. Deployment and migration runbook:
 `orchestrator/README.md`.
 
+**Workspaces under the orchestrator.** The orchestrator keeps one bare
+master copy per consuming repo and refreshes it with an incremental fetch
+before every run. By default each run copies that master into a private
+workspace that is deleted when the run ends (`runners.workspace: "run"`). A
+repo can set `runners.workspace: "issue"` instead: every run on an issue then
+works in that issue's own long-lived copy. An epic's roles share the epic's
+copy, each task sub-issue has its own, and a reviewer or QA run handed a PR
+works in the copy of the task the PR closes. The copy is a cache, never
+state: each run starts by resetting it to GitHub, so only files git ignores
+(installed dependencies, build caches) carry over, and work a run did not
+push is gone exactly as under Actions. Copies are deleted when their issue
+closes (an epic takes its tasks' copies with it) or after they sit idle.
+Picture and details: the wiki's *Repo Workspaces* sheet.
+
 ## 3. Label state machine
 
 State labels are mutually exclusive; exactly one `factory:*` state label per

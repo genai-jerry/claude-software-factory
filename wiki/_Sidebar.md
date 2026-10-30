@@ -9,6 +9,7 @@
 3. [[Control Architecture]]
 4. [[Re-dispatch on Task Close]]
 5. [[Release Gating]]
+6. [[Repo Workspaces]]
 
 **In the repo**
 
