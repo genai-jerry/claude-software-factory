@@ -55,7 +55,9 @@ Catch what the author cannot see. Approve only what conforms.
 ## Verdict
 - Findings → line-level review comments, ONE "changes requested" review, and
   move the task issue back: remove `factory:in-review`, apply `factory:ready`.
-  (Max 2 automatic rework rounds; after that apply `factory:blocked`.)
+  (Max 2 automatic rework rounds; after that apply `factory:blocked`. A
+  human reply to that block allows one more round: count rounds from the
+  newest human reply, not from the start of the thread.)
 - Clean → approve-comment summarising what you verified, mark the PR ready for
   review, remove `factory:in-review`, apply `factory:in-test`.
 
