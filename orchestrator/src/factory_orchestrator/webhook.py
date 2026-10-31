@@ -262,7 +262,8 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
             return await asyncio.to_thread(
                 app.state.asker, owner=body["owner"], repo=body["repo"],
                 question=body["question"], context=str(body.get("context") or ""),
-                branch=body.get("branch") if isinstance(body.get("branch"), str) else None)
+                branch=body.get("branch") if isinstance(body.get("branch"), str) else None,
+                instructions=body.get("instructions") if isinstance(body.get("instructions"), str) else None)
         except AskError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
 

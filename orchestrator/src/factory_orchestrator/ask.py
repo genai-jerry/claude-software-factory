@@ -35,20 +35,25 @@ MAX_CONTEXT = 24_000
 ASK_TIMEOUT = 300
 ASK_TURNS = 14
 
-PROMPT = """You answer a question from a person using the Software Factory Console.
+INTRO = """You answer a question from a person using the Software Factory Console.
 
 Repository: {repo}. Your working directory is a read-only checkout of it{branch_note}.
 You can read files and run `git log`, `git show`, `git diff` and `git blame`.
-You cannot change anything, and you cannot reach GitHub or any other service.
+You cannot change anything, and you cannot reach GitHub or any other service."""
 
-Write for a person who has not read the factory's handbook. Use short, plain
+#: How to write the answer, unless the caller (the Console's epic panel, which
+#: cites numbered sources) brings its own.
+DEFAULT_INSTRUCTIONS = """Write for a person who has not read the factory's handbook. Use short, plain
 sentences. Start with the answer. Use at most 150 words and 5 bullets, unless
 the question asks for detail. Name a file or an issue only when it helps the
 reader act: write issues as `#21` or `owner/repo#21`. If the thread and the
-code do not answer the question, say what is missing. Do not guess.
+code do not answer the question, say what is missing. Do not guess."""
 
-The thread so far (oldest first; the factory's own comments are marked
-[agent]):
+PROMPT = """{intro}
+
+{instructions}
+
+What you are given (oldest first; the factory's own comments are marked [agent]):
 
 {context}
 
@@ -56,6 +61,7 @@ The question:
 
 {question}
 """
+MAX_INSTRUCTIONS = 8_000
 
 
 class AskError(RuntimeError):
@@ -86,7 +92,7 @@ def _result_of(stdout: str) -> dict[str, Any] | None:
 
 
 def answer_question(engine, *, owner: str, repo: str, question: str, context: str,
-                    branch: str | None = None) -> dict[str, Any]:
+                    branch: str | None = None, instructions: str | None = None) -> dict[str, Any]:
     """Run one read-only Claude session; the answer, model and usage."""
     question = (question or "").strip()
     if not question:
@@ -119,8 +125,10 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
             # GitHub. (After the checkout: removing the remote drops its branches.)
             _git(["remote", "remove", "origin"], dest)
             prompt = PROMPT.format(
-                repo=f"{owner}/{repo}", context=context or "(no comments yet)", question=question,
-                branch_note=f", on `{branch}`" if on_branch else "")
+                intro=INTRO.format(repo=f"{owner}/{repo}",
+                                   branch_note=f", on `{branch}`" if on_branch else ""),
+                instructions=(instructions or "").strip()[:MAX_INSTRUCTIONS] or DEFAULT_INSTRUCTIONS,
+                context=context or "(no comments yet)", question=question)
             argv = [runner.claude_bin, "-p", prompt, "--model", model,
                     "--max-turns", str(ASK_TURNS), "--output-format", "json",
                     "--allowedTools", ASK_TOOLS]

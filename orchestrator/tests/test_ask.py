@@ -63,6 +63,15 @@ def test_a_question_is_answered_in_a_read_only_session(tmp_path):
     assert not list((tmp_path / "ws").iterdir())
 
 
+def test_the_callers_instructions_replace_the_default_style(tmp_path):
+    engine, out = engine_for(tmp_path)
+    answer_question(engine, owner="o", repo="r", question="why?", context="[1] a source",
+                    instructions="Cite sources as [n].")
+    prompt = next(out.glob("prompt-*.txt")).read_text()
+    assert "Cite sources as [n]." in prompt and "at most 150 words" not in prompt
+    assert "[1] a source" in prompt
+
+
 def test_an_empty_question_or_missing_credential_is_refused(tmp_path):
     engine, _ = engine_for(tmp_path)
     with pytest.raises(AskError) as e:
@@ -90,7 +99,8 @@ async def test_the_endpoint_needs_the_operator_token_and_returns_the_answer(tmp_
         seen.update(kw)
         return {"answer": "Because of the cap.", "model": "m", "usage": {}}
     app.state.asker = asker
-    body = {"owner": "o", "repo": "r", "question": "why?", "context": "thread", "branch": "factory/epic-34"}
+    body = {"owner": "o", "repo": "r", "question": "why?", "context": "thread", "branch": "factory/epic-34",
+            "instructions": "Cite sources as [n]."}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         assert (await c.post("/ask", json=body)).status_code == 401
         ok = await c.post("/ask", json=body, headers={"authorization": "Bearer op-token"})
@@ -98,3 +108,4 @@ async def test_the_endpoint_needs_the_operator_token_and_returns_the_answer(tmp_
         bad = await c.post("/ask", json={"owner": "o"}, headers={"authorization": "Bearer op-token"})
         assert bad.status_code == 400
     assert seen["branch"] == "factory/epic-34" and seen["question"] == "why?"
+    assert seen["instructions"] == "Cite sources as [n]."
