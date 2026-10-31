@@ -55,7 +55,7 @@ Claude Code, and leaves byte-identical traces on GitHub.
     Actions-tab run log as the "where is it running" answer.
 - **No change to the state machine or content model.** Labels, gates,
   approvers, OpenSpec folders, branch/PR conventions, comment markers and the
-  Factory Console's ingestion all stay exactly as they are. The Console keeps
+  Compass's ingestion all stay exactly as they are. The Console keeps
   working unmodified because GitHub remains the sole source of truth.
 
 ## Capabilities

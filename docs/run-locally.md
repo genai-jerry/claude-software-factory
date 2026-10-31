@@ -1,7 +1,7 @@
 # Running the Factory locally: Orchestrator + Console
 
 How to run the **LangGraph orchestrator** (`claude-software-factory/orchestrator/`)
-and the **Factory Console** (`software-factory-view`) on your laptop — what to
+and the **Compass** (`software-factory-view`) on your laptop — what to
 configure, and which scripts to run.
 
 ## Prerequisites

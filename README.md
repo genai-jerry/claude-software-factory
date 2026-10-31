@@ -31,7 +31,7 @@ the factory. For a step-by-step walkthrough of every install step, see
 [`docs/setup-guide.md`](docs/setup-guide.md).
 
 > **Version:** plugin `factory` 0.2.0. Consuming repos pin the `v1` ref.
-> **Web UI:** [Factory Console](https://github.com/genai-jerry/software-factory-view)
+> **Web UI:** [Compass](https://github.com/genai-jerry/software-factory-view)
 > handles setup, review and gate approvals in the browser. It's optional, since
 > the factory is driven entirely through GitHub.
 

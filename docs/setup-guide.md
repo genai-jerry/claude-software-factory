@@ -73,7 +73,7 @@ This installs the `/opsx:*` commands and skills the factory's intake,
 implementer and ops roles depend on. OpenSpec is not vendored in this repo —
 it's a separate dependency, installed once per consuming repo.
 
-Using the [Factory Console](https://github.com/genai-jerry/software-factory-view)?
+Using the [Compass](https://github.com/genai-jerry/software-factory-view)?
 Its onboarding page has an **Install** button for this step: the Console's
 worker runs the same pinned CLI and pushes the scaffold onto the enablement
 branch, so it lands in the same human-merged PR as the workflow stubs — no
@@ -82,7 +82,7 @@ local checkout needed.
 ## 3. Write the repo profile
 
 Two ways in. **Let the Profiler draft it** — file an issue labelled
-`factory:profile` (the [Factory Console](https://github.com/genai-jerry/software-factory-view)
+`factory:profile` (the [Compass](https://github.com/genai-jerry/software-factory-view)
 has a button for it on the onboarding page) and the role runs in *your* Actions,
 reads the code, runs your test/build/lint commands to check they work, and opens
 a PR with its evidence field by field. You review and merge. Nothing outside
@@ -285,7 +285,7 @@ owns the consuming repo, and make sure the repo is included under the App's
 **Repository access** (Settings → Applications → Claude) — an App installed
 with "Only select repositories" silently excludes repos added later. Then
 re-run the failed workflow. Using the
-[Factory Console](https://github.com/genai-jerry/software-factory-view)? Its
+[Compass](https://github.com/genai-jerry/software-factory-view)? Its
 onboarding wizard has a dedicated step for this.
 
 ### A stage that "succeeds" but leaves the epic where it was

@@ -122,7 +122,7 @@ branch, and counted before the epic is called ready for staging.
   becomes thirteen), `handbook/next-step.json` (three new entries),
   `templates/factory-models.json`, the `planner`/`architect`/`dispatch`/
   `release`/`qa`/`ops` role prompts where they count tasks or name the chain,
-  the wiki state diagram, and the Factory Console (companion change
+  the wiki state diagram, and the Compass (companion change
   `add-system-test-tasks-console` in `software-factory-view`: the three
   states, the `test(` task kind, tester attention items, Pass/Fail actions,
   the plan in the artifact reader, the test matrix on the GS panel).

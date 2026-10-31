@@ -108,11 +108,11 @@ and CI run the same remote compose script.
    | `DISPATCH_TOKEN` | bearer token for the manual `/dispatch` endpoint |
    | `FACTORY_CROSS_REPO_TOKEN` | optional estate-wide PAT, same role as in Actions |
    | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | optional — set them and LangGraph traces to LangSmith, unset and nothing changes |
-   | `CONSOLE_DATABASE_URL`, `CONSOLE_MASTER_KEY`, `CONSOLE_ORG` | optional — read agent secrets the Factory Console retained (below) |
+   | `CONSOLE_DATABASE_URL`, `CONSOLE_MASTER_KEY`, `CONSOLE_ORG` | optional — read agent secrets the Compass retained (below) |
 
-### Agent secrets from the Factory Console
+### Agent secrets from the Compass
 
-Agent secrets entered in the Factory Console (`software-factory-view`) —
+Agent secrets entered in the Compass (`software-factory-view`) —
 `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `FACTORY_CROSS_REPO_TOKEN`
 — are written through to each repo's GitHub Actions secrets *and retained*,
 sealed in the Console's `orchestrator_secrets` table. Point the
@@ -136,10 +136,10 @@ secrets); the orchestrator is the only reader, via the shared master key.
    own database.
    `GET /healthz` is the health endpoint.
 
-### Deploy to a VPS (Hostinger) — same path as Factory Console
+### Deploy to a VPS (Hostinger) — same path as Compass
 
 This is **not** Hostinger shared hosting or the Docker Manager UI. It is the
-same Hostinger **VPS** as Factory Console: GitHub Actions builds the image,
+same Hostinger **VPS** as Compass: GitHub Actions builds the image,
 SCP + `docker load`, `docker compose up` in `~/factory-orchestrator`. Traefik
 on `lighthouse-network` terminates TLS at `Host(ORCHESTRATOR_HOST)`.
 
@@ -156,11 +156,11 @@ One-time setup:
      `DEPLOY_KEY`, `FACTORY_GH_APP_ID`, `FACTORY_GH_APP_PRIVATE_KEY_B64`
      (`base64 -i app.pem`), `FACTORY_GH_WEBHOOK_SECRET` (GitHub forbids
      names starting `GITHUB_`), `DISPATCH_TOKEN`. Anthropic credentials are
-     optional here if the Factory Console forwards them on `POST /events`.
+     optional here if the Compass forwards them on `POST /events`.
    - **Variables**: `PUBLIC_BASE_URL` (required, e.g.
      `https://factory.genaipeople.com`), optional `CLAIMED_REPOS`,
      `FACTORY_REPO`, `FACTORY_REF` (default this repo `@v1`).
-3. On Factory Console's `production` environment set
+3. On Compass's `production` environment set
    `ORCHESTRATOR_DISPATCH_TOKEN` to the same value as `DISPATCH_TOKEN`, and
    optionally `ORCHESTRATOR_URL=http://factory-orchestrator:8080`. Redeploy
    the Console so api/worker join `lighthouse-network`.

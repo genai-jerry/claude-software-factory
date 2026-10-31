@@ -594,7 +594,7 @@ class Router:
 
         The title fallback heals a repo where the label came off — the Profiler
         used to remove it after every run — so it reuses that thread instead of
-        filing another. The newest match wins, as the Factory Console picks it.
+        filing another. The newest match wins, as the Compass picks it.
         """
         found = self.port.list_issues(labels=PROFILE_KIND, state="all")
         for x in found:
@@ -882,7 +882,7 @@ class Router:
                  if expedited else
                  "Filed from a bug report. An implementer can start: comment `Approved` here, "
                  "run the \"Factory pipeline\" workflow with role=implementer and this issue "
-                 "number, or press **Approve** in the Factory Console."
+                 "number, or press **Approve** in the Compass."
                  + (" cc " + ", ".join("@" + u for u in impl) if impl else ""))
         try:
             self.port.update_issue_body(  # type: ignore[attr-defined]
@@ -1399,7 +1399,7 @@ class Router:
                          if expedited else
                          "Filed from a failed system test. An implementer can start: comment `Approved` "
                          "here, run the \"Factory pipeline\" workflow with role=implementer and this "
-                         "issue number, or press **Approve** in the Factory Console."
+                         "issue number, or press **Approve** in the Compass."
                          + (" cc " + ", ".join("@" + u for u in impl) if impl else ""))
                 try:
                     self.port.update_issue_body(  # type: ignore[attr-defined]
@@ -1638,7 +1638,7 @@ class Router:
                 self.say(i["number"],
                          f"This issue is `factory:blocked` at **{self.state_of(labels)}**, which has no automatic resume "
                          "step — your reply did not restart anything. Start the role you want on this issue from the "
-                         "Factory Console, or with Actions → \"Factory pipeline\" → Run workflow where the Actions "
+                         "Compass, or with Actions → \"Factory pipeline\" → Run workflow where the Actions "
                          "engine runs this repo.")
                 log.info("Blocked at a stage without an automatic resume mapping - use Run workflow")
 

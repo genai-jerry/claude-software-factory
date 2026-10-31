@@ -17,7 +17,7 @@ current implementation:
 - **Consuming repos hold no logic** — a ~20-line caller stub owns triggers
   and the version pin; config lives in `.factory/profile.json` and
   `.github/factory-{models,approvers,release}.json`.
-- **The Factory Console** (`software-factory-view`) is a lens over GitHub:
+- **The Compass** (`software-factory-view`) is a lens over GitHub:
   it ingests GitHub App webhooks and projects issue/label/PR state. It
   reads nothing from Actions except run *links*. Anything that keeps GitHub
   authoritative keeps the Console working unmodified.
@@ -57,7 +57,7 @@ flowchart TB
     CFG["profile.json · models · approvers · release ·<br/><b>factory-orchestrator.json ← engine choice</b>"]
   end
 
-  GH -->|"webhooks (unchanged)"| CONSOLE["Factory Console<br/>software-factory-view"]
+  GH -->|"webhooks (unchanged)"| CONSOLE["Compass<br/>software-factory-view"]
 
   GH --> SEL{"engine per repo<br/>.github/factory-orchestrator.json<br/>absent ⇒ github-actions"}
 

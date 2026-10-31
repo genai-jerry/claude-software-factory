@@ -130,7 +130,7 @@ if $INIT_SECRETS; then
     echo "# Secret values for factory-orchestrator '${TARGET_ENV}' local deploys."
     echo "# GitHub never returns secret values, so mirror them here by hand."
     echo "# Keep this file OUT of git. chmod 600 is applied automatically."
-    echo "# Same SSH trio as Factory Console / lighthouse-backend."
+    echo "# Same SSH trio as Compass / lighthouse-backend."
     echo
     echo "DEPLOY_HOST="
     echo "DEPLOY_USER="
@@ -142,7 +142,7 @@ if $INIT_SECRETS; then
     echo "FACTORY_GH_APP_PRIVATE_KEY_B64="
     echo "FACTORY_GH_WEBHOOK_SECRET="
     echo
-    echo "# Must match Factory Console ORCHESTRATOR_DISPATCH_TOKEN."
+    echo "# Must match Compass ORCHESTRATOR_DISPATCH_TOKEN."
     echo "DISPATCH_TOKEN="
     echo
     echo "# Optional — omit if Console forwards the token on POST /events:"

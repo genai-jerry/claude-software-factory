@@ -1,4 +1,4 @@
-"""Agent credentials from the Factory Console's secret store.
+"""Agent credentials from the Compass's secret store.
 
 The Console (software-factory-view) retains the agent secrets set through
 its UI — ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, FACTORY_CROSS_REPO_TOKEN

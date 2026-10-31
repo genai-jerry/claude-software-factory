@@ -155,7 +155,7 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
 
     @app.get("/")
     async def root() -> dict[str, str]:
-        # This is not the Factory Console. Hitting /api/* or /auth/* here is a
+        # This is not the Compass. Hitting /api/* or /auth/* here is a
         # PUBLIC_ORIGIN / OAuth-callback mispoint — those belong on the Console.
         return {
             "service": "factory-orchestrator",
@@ -396,7 +396,7 @@ def _esc(value: Any) -> str:
 
 def _run_html(run: dict[str, Any]) -> str:
     """Human fallback for a browser opening the orchestrator's run link
-    directly. The Factory Console is the real page for this run; this one
+    directly. The Compass is the real page for this run; this one
     exists so a raw link is never a wall of JSON."""
     running = run.get("status") == "running"
     refresh = '<meta http-equiv="refresh" content="5">' if running else ""

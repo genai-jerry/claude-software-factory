@@ -312,7 +312,7 @@ the factory will treat as true from then on.
 
 | Trigger | What it does |
 |---|---|
-| An issue filed with `factory:profile` (the Factory Console's profile step files it for you), or the label re-applied | Draft the profile, or correct the one that is there |
+| An issue filed with `factory:profile` (the Compass's profile step files it for you), or the label re-applied | Draft the profile, or correct the one that is there |
 | A push to the default branch touching a manifest, lockfile, CI workflow or tool config — the `paths:` list in the caller stub | Re-verify it against the new commit |
 
 Both land on the same singleton issue, so what the factory believes about this
@@ -494,7 +494,7 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR → `factory:deployed` |
 | `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
 | `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
-| `factory:profile` | *Kind:* this issue is the home of `.factory/profile.json` (§2c) | Factory Console's profile step, or a human | Nobody: it stays, because it is how the one profile issue is found. Remove and re-apply it to re-run the Profiler |
+| `factory:profile` | *Kind:* this issue is the home of `.factory/profile.json` (§2c) | Compass's profile step, or a human | Nobody: it stays, because it is how the one profile issue is found. Remove and re-apply it to re-run the Profiler |
 | `factory:expedite` | *Marker:* this epic advances itself — every stage after the spec runs without waiting for a human, up to gate GS (§4a) | Human triage, authorised against the `expedite` approvers | Human removes it; the normal gates resume from the current state |
 | `factory:in-progress` | *Marker:* a factory agent run is live on this issue right now | Pipeline, when an agent job starts | Pipeline, when that job ends (always, including failure and timeout) |
 | `factory:blocked` | Needs human attention | Any agent | Human |
@@ -809,7 +809,7 @@ and the chain that would have written one is long finished. Comment exactly
 **`Plan tests`** on the epic and the Test Planner runs on the spot. It is
 unrestricted — writing a plan only adds documents and work — and
 `workflow_dispatch` with `role: testplanner` does the same, which is what an
-estate adopting many epics at once wants. The Factory Console offers the same
+estate adopting many epics at once wants. The Compass offers the same
 ask as a **Plan tests** button on the epic's Tests tab, which posts that
 comment as you; it draws the button only where the refusals below do not
 apply, so the click and the run are the same thing.
@@ -1365,7 +1365,7 @@ on and this section becomes defence-in-depth rather than the primary control.
    (needs Node 20.19+). This installs the `/opsx:*` commands and their skills;
    the factory depends on them but does not vendor them.
 5. **Profile** — `.factory/profile.json` (§2c). Easiest path: file an issue
-   labelled `factory:profile` (the Factory Console does this for you) and the
+   labelled `factory:profile` (the Compass does this for you) and the
    **Profiler** drafts it from the code in your own runner, then opens a PR for
    you to check and merge. To write it by hand instead, start from
    `templates/profile.example.json` and validate against

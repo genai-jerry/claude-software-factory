@@ -730,7 +730,7 @@ jobs:
                   'own. Nothing to approve.'
                 : 'Filed from a bug report. An implementer can start: comment `Approved` here, run the ' +
                   '"Factory pipeline" workflow with role=implementer and this issue number, or press ' +
-                  '**Approve** in the Factory Console.' +
+                  '**Approve** in the Compass.' +
                   (impl.length ? ' cc ' + impl.map(u => '@' + u).join(', ') : ''));
               await github.rest.issues.update({
                 owner, repo, issue_number: bug.number,
@@ -948,7 +948,7 @@ jobs:
             // By label, else by its exact title: the title heals a repo where
             // the label came off (the Profiler used to remove it after every
             // run), so it reuses that thread instead of filing another. The
-            // newest match wins, as the Factory Console picks it.
+            // newest match wins, as the Compass picks it.
             const profileIssue = async () => {
               const found = await github.paginate(github.rest.issues.listForRepo, {
                 owner, repo, labels: PROFILE_KIND, state: 'all', per_page: 100,
@@ -1348,7 +1348,7 @@ jobs:
                       'on its own. Nothing to approve.'
                     : 'Filed from a failed system test. An implementer can start: comment `Approved` here, ' +
                       'run the "Factory pipeline" workflow with role=implementer and this issue number, or ' +
-                      'press **Approve** in the Factory Console.' +
+                      'press **Approve** in the Compass.' +
                       (approverList('implementation').length
                         ? ' cc ' + approverList('implementation').map(u => '@' + u).join(', ')
                         : ''));
@@ -1609,7 +1609,7 @@ jobs:
                   await say(i.number,
                     `This issue is \`factory:blocked\` at **${stateOf(labels)}**, which has no automatic resume ` +
                     'step — your reply did not restart anything. Start the role you want on this issue from the ' +
-                    'Factory Console, or with Actions → "Factory pipeline" → Run workflow where the Actions ' +
+                    'Compass, or with Actions → "Factory pipeline" → Run workflow where the Actions ' +
                     'engine runs this repo.');
                   core.info('Blocked at a stage without an automatic resume mapping - use Run workflow');
                 }
@@ -1760,7 +1760,7 @@ jobs:
                       'and this pipeline has no cross-repo access (`FACTORY_CROSS_REPO_TOKEN` is not set), ' +
                       'so it cannot release the tasks this one unblocks.\n\n' +
                       `On **${elsewhere}**: Actions → "Factory pipeline" → Run workflow (role: \`dispatch\`, issue \`${epic}\`), ` +
-                      'or press **Start factory run** on that epic in the Factory Console.');
+                      'or press **Start factory run** on that epic in the Compass.');
                     core.info(`Epic ${elsewhere}#${epic} is in another repo and no cross-repo token is set`);
                   } else {
                     // Only while the epic is in its implementation phase. Once it has
@@ -1787,7 +1787,7 @@ jobs:
                           `This task belongs to epic **${elsewhere}#${epic}**, and starting its dispatcher ` +
                           `over there failed: ${e.message}.\n\n` +
                           `On **${elsewhere}**: Actions → "Factory pipeline" → Run workflow (role: \`dispatch\`, issue \`${epic}\`), ` +
-                          'or press **Start factory run** on that epic in the Factory Console.');
+                          'or press **Start factory run** on that epic in the Compass.');
                         core.info(`Cross-repo dispatch to ${elsewhere} failed: ${e.message}`);
                       });
                     } else {
@@ -2568,7 +2568,7 @@ jobs:
         run: python3 "$RUNNER_TEMP/factory/scripts/say_next_step.py"
       - name: Report the failure on the issue
         # A dead run is otherwise a red X on an Actions tab nobody watches: the
-        # issue thread is where the humans (and the Factory Console) already
+        # issue thread is where the humans (and the Compass) already
         # look, so a failure has to say so there. github.token on purpose — a
         # comment from the workflow token emits no events, so this can never
         # trigger another pipeline run; and continue-on-error because failing

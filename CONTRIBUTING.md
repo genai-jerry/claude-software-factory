@@ -13,7 +13,7 @@ broke is especially valuable.
 - **Features and behaviour changes:** open a
   [feature request](https://github.com/genai-jerry/claude-software-factory/issues/new?template=feature_request.yml)
   first. Anything that changes routing, labels or gates changes a contract that
-  consuming repos and the [Factory Console](https://github.com/genai-jerry/software-factory-view)
+  consuming repos and the [Compass](https://github.com/genai-jerry/software-factory-view)
   rely on, so agree on the approach before writing code.
 - **Security issues** (hook bypasses, ways an agent could reach `main`, token
   exposure, prompt injection that escalates access): do **not** open a public
