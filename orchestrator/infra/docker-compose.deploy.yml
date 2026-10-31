@@ -6,7 +6,7 @@
 # Do not point Hostinger Docker Manager at either file.
 #
 # Traefik on lighthouse-network routes Host(${ORCHESTRATOR_HOST}) to :8080.
-# The Factory Console api/worker reach this container as
+# The Compass api/worker reach this container as
 # http://factory-orchestrator:8080 on the same network (ORCHESTRATOR_URL).
 # GitHub App webhooks still go to the Console; the worker forwards to POST /events.
 

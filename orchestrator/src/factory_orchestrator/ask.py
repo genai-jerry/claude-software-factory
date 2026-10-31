@@ -35,7 +35,7 @@ MAX_CONTEXT = 24_000
 ASK_TIMEOUT = 300
 ASK_TURNS = 14
 
-INTRO = """You answer a question from a person using the Software Factory Console.
+INTRO = """You answer a question from a person using the Compass.
 
 Repository: {repo}. Your working directory is a read-only checkout of it{branch_note}.
 You can read files and run `git log`, `git show`, `git diff` and `git blame`.

@@ -69,7 +69,7 @@
     },
     "factory:planned": {
       "who": "the factory",
-      "how": "The Architect writes design.md and opens its PR — normally inside the Planner's own run. If this issue sits here with no run live, start it: the Factory Console's **Start the Architect** button on this issue, or Actions → \"Factory pipeline\" → Run workflow (role: `architect`, issue `{issue}`)."
+      "how": "The Architect writes design.md and opens its PR — normally inside the Planner's own run. If this issue sits here with no run live, start it: the Compass's **Start the Architect** button on this issue, or Actions → \"Factory pipeline\" → Run workflow (role: `architect`, issue `{issue}`)."
     },
     "factory:design-ready": {
       "who": "gate G2 — {approvers}",
@@ -89,7 +89,7 @@
     },
     "factory:ready": {
       "who": "the implementation approvers — {approvers}",
-      "how": "Comment exactly `Approved` on this task to start its Implementer, or press **Approve** on it in the Factory Console. Only one start per task: while a run is live the approval is declined, because a second one would put a second Implementer on the same branch.",
+      "how": "Comment exactly `Approved` on this task to start its Implementer, or press **Approve** on it in the Compass. Only one start per task: while a run is live the approval is declined, because a second one would put a second Implementer on the same branch.",
       "expedited": {
         "who": "the factory — this task's epic is expedited",
         "how": "Its Implementer starts on its own; no `Approved` is needed. If the Reviewer sends this task back here, the next Implementer starts automatically too — until the two-round rework cap, which stops at `factory:blocked` and asks for you."
@@ -97,7 +97,7 @@
     },
     "factory:in-review": {
       "who": "a human, then the Reviewer",
-      "how": "`factory:in-review` starts nothing on its own. Start the review — the Factory Console's **Start the Reviewer** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `reviewer`, issue `{issue}`). The Reviewer reads the draft PR this task links and moves it to `factory:in-test`, or back to `factory:ready` with changes requested. Reviewed it yourself instead? Comment exactly `Review Done` here to skip the Reviewer and move straight to `factory:in-test` — there is no changes-requested equivalent for that path; if you found problems, review the draft PR directly on GitHub. Do not merge the draft PR yourself either way: review and QA are what make it mergeable, and the Release Manager merges it.",
+      "how": "`factory:in-review` starts nothing on its own. Start the review — the Compass's **Start the Reviewer** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `reviewer`, issue `{issue}`). The Reviewer reads the draft PR this task links and moves it to `factory:in-test`, or back to `factory:ready` with changes requested. Reviewed it yourself instead? Comment exactly `Review Done` here to skip the Reviewer and move straight to `factory:in-test` — there is no changes-requested equivalent for that path; if you found problems, review the draft PR directly on GitHub. Do not merge the draft PR yourself either way: review and QA are what make it mergeable, and the Release Manager merges it.",
       "expedited": {
         "who": "the factory — this task's epic is expedited",
         "how": "The Reviewer starts on its own; nothing here needs you. Its verdict moves this task to `factory:in-test`, or back to `factory:ready` for another round. The draft PR is there to read if you want to review it yourself — `Review Done` still works and still skips the Reviewer."
@@ -105,7 +105,7 @@
     },
     "factory:in-test": {
       "who": "a human, then QA",
-      "how": "`factory:in-test` starts nothing on its own. Start QA — the Factory Console's **Start QA** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `qa`, issue `{issue}`). QA verifies the WHEN/THEN scenarios, posts the test report here and moves the task to `factory:ready-to-ship`.",
+      "how": "`factory:in-test` starts nothing on its own. Start QA — the Compass's **Start QA** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `qa`, issue `{issue}`). QA verifies the WHEN/THEN scenarios, posts the test report here and moves the task to `factory:ready-to-ship`.",
       "expedited": {
         "who": "the factory — this task's epic is expedited",
         "how": "QA starts on its own and posts its test report here. Nothing needs you unless it stops at `factory:blocked`."
@@ -113,7 +113,7 @@
     },
     "factory:ready-to-ship": {
       "who": "a human, then the Release Manager",
-      "how": "`factory:ready-to-ship` starts nothing on its own. Start the Release Manager — the Factory Console's **Start the Release Manager** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `release`, issue `{issue}`). It merges this task onto its epic branch and verifies it there. Where the epic has no epic branch there is nothing to merge onto yet: the task waits here, because its only next branch is the integration branch and that merge is the staging deploy, which happens behind gate GS once the whole epic is ready.",
+      "how": "`factory:ready-to-ship` starts nothing on its own. Start the Release Manager — the Compass's **Start the Release Manager** button on this task, or Actions → \"Factory pipeline\" → Run workflow (role: `release`, issue `{issue}`). It merges this task onto its epic branch and verifies it there. Where the epic has no epic branch there is nothing to merge onto yet: the task waits here, because its only next branch is the integration branch and that merge is the staging deploy, which happens behind gate GS once the whole epic is ready.",
       "expedited": {
         "who": "the factory, or you — it depends on this repo's branch policy",
         "how": "With epic branches on (`\"epics\": true`), the Release Manager starts on its own and merges this task onto the epic branch — nothing needs you. With epic branches off, the expedite chain deliberately stops here: the next merge would land on the integration branch and deploy staging, which is never automatic. Start the Release Manager yourself then — the Console's **Start the Release Manager** button, or Run workflow (role: `release`, issue `{issue}`)."
@@ -129,7 +129,7 @@
     },
     "factory:epic-ready": {
       "who": "gate GS — {approvers}",
-      "how": "Every task in this epic is implemented, reviewed, tested and assembled on the epic branch, and none of it has touched staging yet. Comment exactly `Approved` here (or press **Approve** in the Factory Console) and the Release Manager carries the whole epic to the integration branch and verifies it there. That is a staging release, not a production one — production is still gate G3, a human merging the promotion PR."
+      "how": "Every task in this epic is implemented, reviewed, tested and assembled on the epic branch, and none of it has touched staging yet. Comment exactly `Approved` here (or press **Approve** in the Compass) and the Release Manager carries the whole epic to the integration branch and verifies it there. That is a staging release, not a production one — production is still gate G3, a human merging the promotion PR."
     },
     "factory:manual-test": {
       "who": "the testers — {approvers}",
@@ -161,7 +161,7 @@
     },
     "factory:deployed": {
       "who": "Ops",
-      "how": "In production and soaking. Ops verifies health, archives the change folder and closes this issue — the Factory Console's **Start Ops** button, or Actions → \"Factory pipeline\" → Run workflow (role: `ops`, issue `{issue}`). File `factory:incident` instead if the deploy regressed."
+      "how": "In production and soaking. Ops verifies health, archives the change folder and closes this issue — the Compass's **Start Ops** button, or Actions → \"Factory pipeline\" → Run workflow (role: `ops`, issue `{issue}`). File `factory:incident` instead if the deploy regressed."
     },
     "factory:fast-track": {
       "who": "any owner, member or collaborator",

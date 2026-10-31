@@ -103,10 +103,10 @@ model in the chain is accessible.
 - **WHEN** the preferred model is inaccessible and the second is used
 - **THEN** the run telemetry records the fallback and the run proceeds
 
-### Requirement: Agent credentials may come from the Factory Console's secret store
+### Requirement: Agent credentials may come from the Compass's secret store
 The orchestrator SHALL be able to source its agent credentials
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `FACTORY_CROSS_REPO_TOKEN`)
-from the Factory Console's retained-secret store — values set through the
+from the Compass's retained-secret store — values set through the
 Console UI and stored encrypted in the Console's database — decrypting them
 with the shared Console master key. Environment-provided values SHALL always
 take precedence; the store fills only what the deployment left unset.

@@ -136,7 +136,7 @@ enforce conventions this repo does not follow. Everything below serves that.
    FACTORY.md §1a.
 
    Leave `factory:profile` on the issue. It is a kind marker: it is how every
-   engine and the Factory Console find this repo's one profile issue. Without
+   engine and the Compass find this repo's one profile issue. Without
    it they file a second one. A person re-runs you by removing the label and
    applying it again.
 

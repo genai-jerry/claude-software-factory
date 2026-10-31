@@ -1,7 +1,7 @@
 name: Deploy Factory Orchestrator
 
 # Deploys the LangGraph orchestrator to the Hostinger VPS the same way
-# Factory Console deploys: build the image on the runner, scp the tarball,
+# Compass deploys: build the image on the runner, scp the tarball,
 # docker load, compose up in ~/factory-orchestrator. Traefik on
 # lighthouse-network routes Host(ORCHESTRATOR_HOST) to :8080.
 #

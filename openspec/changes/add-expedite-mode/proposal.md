@@ -70,7 +70,7 @@ releasing to staging and promoting to production remain human decisions.
   expedite section), `handbook/next-step.json` (a `factory:epic-ready` entry
   plus expedited wording variants), `scripts/setup-labels.sh` (two new
   labels), `templates/factory-approvers.json` (`expedite`, `staging`), the
-  `release.md` / `dispatch.md` role prompts, and the Factory Console
+  `release.md` / `dispatch.md` role prompts, and the Compass
   (companion change `add-expedite-mode-console` in software-factory-view:
   expedite toggle, badges, attention-queue suppression, GS gate panel).
 

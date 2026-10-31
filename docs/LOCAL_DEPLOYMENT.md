@@ -17,7 +17,7 @@ so no GitHub Actions minutes are spent:
    uses: load image → upsert `.env` → `docker compose up` → wait until the
    `factory-orchestrator` container is healthy → prune.
 
-Factory Console has a sibling script: `software-factory-view/scripts/local-deploy.sh`.
+Compass has a sibling script: `software-factory-view/scripts/local-deploy.sh`.
 
 This is **not** `orchestrator/deploy.sh`, which drives `docker compose` on
 the machine you are already on (laptop or a shell already on the VPS).
@@ -26,7 +26,7 @@ the machine you are already on (laptop or a shell already on the VPS).
 
 - Docker (Apple Silicon works — the script builds for `linux/amd64`).
 - [GitHub CLI](https://cli.github.com) authenticated: `gh auth login`.
-- SSH private key for the Hostinger VPS (same trio as Factory Console).
+- SSH private key for the Hostinger VPS (same trio as Compass).
 
 ## One-time setup
 

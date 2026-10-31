@@ -41,7 +41,7 @@ def build_service():
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         force=False,
     )
-    # Agent secrets may live in the Factory Console's store (set through its
+    # Agent secrets may live in the Compass's store (set through its
     # UI, sealed in its database). Environment variables always win; the
     # store fills what the deployment left unset, and those values are
     # refreshed on the reconciler timer so a rotation in the Console reaches
@@ -57,7 +57,7 @@ def build_service():
     cfg = load_config(env)
     if not cfg.agent_credential_env():
         log.warning(
-            "no Anthropic credential at boot — role runs wait for Factory Console "
+            "no Anthropic credential at boot — role runs wait for Compass "
             "to send one on POST /events, or for CONSOLE_DATABASE_URL")
     ledger = Ledger(cfg.database_url)
     # Deployments on the placeholder App id cannot mint their own tokens; the
