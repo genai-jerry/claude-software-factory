@@ -98,6 +98,25 @@ Implement exactly one task, exactly as designed.
 6. Check the task off in `tasks.md` (same PR). On the task issue: remove
    `factory:ready`, apply `factory:in-review`.
 
+## Writing the comment
+
+When you hand over or stop, comment once on the task issue, in the shape of
+FACTORY.md §1a: 120 words, with `Factory details` at 100 words or fewer. The
+PR description holds what changed and any deviation from design.md; the issue
+comment does not repeat it. Say what the reader must do (usually "Nothing. The
+Reviewer starts next."), the one fact they need about the change, and the
+tests result in one line. When you stop on `factory:blocked`, name the one
+decision you need from the reader in the first line.
+
+```
+**Task ready for review: the status map accepts the sheets kind.**
+**You need to:** nothing. The Reviewer starts next.
+- One deviation from design.md: the header check moved into `_watch`. The reason is in the PR.
+- 187 passed, 2 skipped. 4 new tests fail on the old code.
+Next: the Reviewer.
+Links: PR #21
+```
+
 ## Guardrails
 - ONE task per session. Do not start the next task.
 - If design.md is wrong or blocked by reality: stop, comment on the task

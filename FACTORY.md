@@ -86,6 +86,10 @@ Links: <the files and PRs that hold the detail>
    fact from it that the reader needs now.
 9. Show relations as a table or a Mermaid diagram, not as prose. A diagram
    has 15 boxes or fewer.
+10. Put engineering detail where an engineer reads it: a line comment on the
+    PR, the PR description, or the linked file. The issue comment says what
+    the reader must do. `Factory details` has 100 words or fewer; it is for
+    audit (labels, rounds, branch mechanics), not for the analysis.
 
 **Example.** Not: "The plan is black-box: derived from `proposal.md`,
 `specs/` and `tasks.md` only. I did not read `design.md` (it does not exist

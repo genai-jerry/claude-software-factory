@@ -18,6 +18,9 @@
 const BUDGETS = { started: 25, ready: 120, blocked: 80, summary: 150 };
 const NEEDS_ACTION = new Set(['ready', 'blocked', 'summary']);
 const SENTENCE_LIMIT = 25;
+// The fold is for audit, not for the analysis. Without a cap it became the
+// place the explanation went (550 words under an 80-word notice).
+const DETAILS_LIMIT = 100;
 
 // Mechanics a reader should not need. Gate codes alone are allowed only beside
 // their plain name, which the rule below checks separately.
@@ -46,6 +49,14 @@ function visibleText(body) {
     .replace(/https?:\/\/\S+/g, 'link');
 }
 
+function detailsWords(body) {
+  let n = 0;
+  for (const m of String(body || '').matchAll(/<details>([\s\S]*?)<\/details>/gi)) {
+    n += words(m[1].replace(/<summary>[\s\S]*?<\/summary>/i, ' ').replace(/```[\s\S]*?```/g, m2 => m2)).length;
+  }
+  return n;
+}
+
 function words(text) {
   return text.split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w));
 }
@@ -64,6 +75,9 @@ function guessKind(body) {
   const text = visibleText(body).trim();
   if (/^▶/.test(text) || (/is running/i.test(text) && words(text).length <= 40)) return 'started';
   if (/\b(blocked|failed|could not|cannot)\b/i.test(text.split('\n')[0])) return 'blocked';
+  // "You need to: nothing" asks for no work, so it is a summary however many
+  // times the text says "approve" or "review".
+  if (/you need to:?\*{0,2}\s*nothing/i.test(text)) return 'summary';
   if (/\b(waiting on you|approve|review)\b/i.test(text)) return 'ready';
   return 'summary';
 }
@@ -83,13 +97,15 @@ function lint(body, kind) {
     if (re.test(text) && !text.toLowerCase().includes(name)) terms.add(`${code} without "${name}"`);
   }
   const hasAction = /\*{0,2}you need to:?\*{0,2}/i.test(text);
+  const folded = detailsWords(body);
   const problems = [];
   if (count > budget) problems.push(`over budget: ${count} words, ${kind} allows ${budget}`);
   if (long.length) problems.push(`${long.length} sentence(s) over ${SENTENCE_LIMIT} words`);
   if (NEEDS_ACTION.has(kind) && !hasAction) problems.push('no "You need to:" line');
   if (terms.size) problems.push(`internal terms: ${[...terms].join(', ')}`);
+  if (folded > DETAILS_LIMIT) problems.push(`Factory details is ${folded} words, over its ${DETAILS_LIMIT}-word cap`);
   return {
-    kind, words: count, budget, over_budget: count > budget,
+    kind, words: count, budget, over_budget: count > budget, details_words: folded,
     long_sentences: long, has_action: hasAction,
     internal_terms: [...terms], ok: problems.length === 0, problems,
   };

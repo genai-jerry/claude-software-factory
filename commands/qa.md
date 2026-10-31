@@ -47,6 +47,22 @@ Prove the spec's scenarios are actually covered — by tests, not by reading cod
      scenario, remove `factory:in-test`, apply `factory:ready` (back to the
      Implementer; max 2 rounds then `factory:blocked`).
 
+## Writing the comment
+
+The scenario → test table is the evidence, so it goes in the test report on
+the PR. The comment on the task issue is a notice in the shape of FACTORY.md
+§1a: 80 words when blocked, 120 when work is ready, `Factory details` at 100
+words or fewer.
+
+```
+**QA passed: all 6 scenarios have a passing test.**
+**You need to:** nothing. The factory continues.
+- 3 tests were missing. I added them; no code changed.
+- 195 passed, 2 skipped. The 2 skipped were skipped before this change.
+Next: the Release Manager merges the PR onto the epic branch.
+Links: test report on PR #21
+```
+
 ## Guardrails
 - An Actions job that never started (the annotation says payments failed or
   the spending limit needs raising) is an account billing hold, not a test
