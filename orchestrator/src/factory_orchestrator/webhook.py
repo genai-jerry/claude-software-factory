@@ -15,6 +15,7 @@ import json
 import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -365,7 +366,11 @@ def _public_run(run: dict[str, Any]) -> dict[str, Any]:
         if out.get(key) is not None:
             out[key] = str(out[key])
     out["events"] = read_events(out.get("transcript_path"))
-    out.pop("transcript_path", None)  # served via /transcript, path is internal
+    # Whether /transcript has anything to serve: the file lives in TRANSCRIPT_DIR,
+    # which a redeploy can clear, so a past run's list entry says so rather than
+    # linking to a log that is gone.
+    path = out.pop("transcript_path", None)  # served via /transcript, path is internal
+    out["has_log"] = bool(path) and Path(path).is_file()
     out["status"] = "completed" if out.get("finished_at") else "running"
     if not out.get("outcome"):
         out["outcome"] = "running"
