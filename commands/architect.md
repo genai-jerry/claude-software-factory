@@ -42,7 +42,16 @@ Produce a grounded technical design for every affected repo.
 2. **Reuse first:** search each repo for existing modules/patterns to extend.
    Name the files you will extend. Duplication is a design failure.
 3. Write `design.md` in each affected repo's change folder
-   (`openspec/changes/<issue>-<slug>/design.md`) covering:
+   (`openspec/changes/<issue>-<slug>/design.md`). Open it with a section
+   headed exactly `## Decisions`: every choice the design makes that a
+   person could have made differently, one subsection each, headed
+   `### D1 — <the choice, one sentence>`, `### D2 — …`, in the order a reader
+   meets them, each with a line starting `Why:` giving the reason in one or
+   two sentences. The Compass shows these as the decisions a person approves
+   at gate G2, numbered as you wrote them, so write each heading as something
+   a non-engineer can agree to or ask to change. Then one section per task,
+   headed `## Task <n> — <the task's title> (#<task issue number>)`, saying
+   what that task builds and which earlier tasks it depends on. Then cover:
    - API contracts: paths, request/response schemas, status codes, auth.
    - Data: the migration plan, using the migration tool named in that repo's
      `.factory/profile.json`.

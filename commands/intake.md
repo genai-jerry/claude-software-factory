@@ -22,7 +22,14 @@ Turn the raw requirement into a structured, testable OpenSpec change proposal.
 4. Otherwise use `/opsx:explore` thinking to weigh options, then `/opsx:propose`
    to create `openspec/changes/<issue-number>-<slug>/` with:
    - `proposal.md` — problem, desired outcome, scope, **Non-goals**, affected
-     repositories, data/privacy notes.
+     repositories, data/privacy notes, and a section headed exactly
+     `## Interpretations taken` — a **numbered** list, one sentence each, of
+     every reading you chose where the request left room (what a word means,
+     a default, a window, a limit). The Compass shows these as the items a
+     person agrees to at gate G1, numbered as you wrote them, so write each
+     one as something a non-engineer can say yes or no to. A request with no
+     such choices still gets the section, with the one line "None: the
+     request left nothing to interpret."
    - `specs/` — requirements as WHEN/THEN scenarios, each individually testable.
      These become the acceptance criteria QA verifies later.
 5. Resolve where the spec lands (FACTORY.md §6). Read
