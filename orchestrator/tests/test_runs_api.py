@@ -30,6 +30,8 @@ async def test_runs_surface(tmp_path):
         assert done["model_fallbacks"] == ["claude-opus-5"]
         assert "transcript_path" not in done  # internal path never leaves the service
         assert done["events"] == []
+        assert done["has_log"] is True  # the transcript file is there to serve
+        assert next(x for x in runs if x["id"] == active_id)["has_log"] is False  # none written yet
 
         r = await client.get("/runs", params={"repo": "o/r", "active": "true"})
         assert [x["id"] for x in r.json()] == [active_id]
