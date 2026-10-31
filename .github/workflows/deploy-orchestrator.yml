@@ -17,13 +17,11 @@ name: Deploy Factory Orchestrator
 #   Variables: PUBLIC_BASE_URL  — https://factory.genaipeople.com (DNS A → VPS)
 #              CLAIMED_REPOS, FACTORY_REPO, FACTORY_REF
 
+# Manual only. A push to main used to start this, and every run failed for want
+# of the DEPLOY_* secrets above (30 of 34); the orchestrator is deployed from a
+# laptop with orchestrator/scripts/local-deploy.sh. Run this by hand once the
+# secrets are set, or put the push trigger back then.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "orchestrator/**"
-      - ".github/workflows/deploy-orchestrator.yml"
   workflow_dispatch:
     inputs:
       environment:
