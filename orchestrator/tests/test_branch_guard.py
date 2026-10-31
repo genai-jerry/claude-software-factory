@@ -119,7 +119,7 @@ def test_a_real_run_passes_the_guard_to_claude(tmp_path):
                               claude_bin=str(make_fake_claude(tmp_path, out)),
                               origin=make_consuming_repo(tmp_path))
     (tmp_path / "ws").mkdir()
-    runner.run(owner="o", repo="r", role="qa", issue=5, model="m", github_token="t",
+    runner.run(owner="o", repo="r", role="intake", issue=5, model="m", github_token="t",
                integration_branch="develop")
     argv = next(out.glob("argv-*.txt")).read_text().split("\n")
     assert argv[argv.index("--settings") + 1].endswith("factory-guard-settings.json")
