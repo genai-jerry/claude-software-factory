@@ -292,6 +292,7 @@ between repos. A missing/unparseable profile hard-blocks the per-repo roles
 | `gotchas` | implementer, reviewer, qa | Pre-existing failures, judge-the-delta rules, things never to weaken |
 | `reuse_hotspots` | reviewer | Where duplicated code most likely already exists |
 | `deploy` | release, ops | `health_checks` (runnable commands, not descriptions) and `notes` (failures that halt a release train) |
+| `test_data` | testplanner, implementer, release | `load` / `unload` commands that put one epic's system test data sets into a running environment and take them out again, and the `format` of the record files (§4b). Absent means the repo has no loader yet; the first epic with system tests builds one |
 
 Schema: `templates/profile.schema.json`. Worked example:
 `templates/profile.example.json`.
@@ -487,10 +488,11 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:in-test` | QA verifying scenarios | Reviewer | QA → `factory:ready-to-ship` |
 | `factory:ready-to-ship` | Green; awaiting the merge onto the epic branch (§6b). With no epic branch it waits here for the whole epic instead — its only next branch is the integration branch, and that merge is behind gate GS | QA | Release → `factory:on-epic`; with no epic branch, gate GS → `factory:in-staging` |
 | `factory:on-epic` | Merged onto the epic branch and green there; awaiting the rest of the epic (§6b). Only with `epics: true` | Release | The epic's last task lands → the **epic** goes `factory:epic-ready` |
-| `factory:epic-ready` | *On the epic:* every task is assembled and green, and nothing has touched staging yet. Awaiting **gate GS** | Release, or Dispatch on a re-run that finds the epic complete | Human (GS) → Release carries the epic to integration → `factory:in-staging` |
-| `factory:manual-test` | *On a `test(<epic>)` case:* the code it exercises is assembled; a human runs it (§4b) | Dispatcher | `Test Passed` → `factory:test-passed`; `Test Failed` → `factory:test-failed` |
+| `factory:epic-ready` | *On the epic:* every task is assembled and green, and nothing has touched staging yet. Awaiting **gate GS**. Where cases run on the epic branch in `gate` mode, every case has passed too; where they run on staging, they have not run yet (§4b) | Release, or Dispatch on a re-run that finds the epic complete | Human (GS) → Release carries the epic to integration → `factory:in-staging` |
+| `factory:manual-test` | *On a `test(<epic>)` case:* the code it exercises is assembled — on the epic branch, or on staging where cases run there (§4b) — and a human runs it | Dispatcher | `Test Passed` → `factory:test-passed`; `Test Failed` → `factory:test-failed`; `Skip tests` → `factory:test-skipped` |
 | `factory:test-passed` | *On a case:* it passed. The sub-issue closes | The `Test Passed` router branch | — (terminal) |
 | `factory:test-failed` | *On a case:* it failed, and a fix task is in flight | The `Test Failed` router branch | The fix lands → Dispatcher → back to `factory:manual-test` |
+| `factory:test-skipped` | *On a case:* a staging approver skipped it (§4b). Not run; the sub-issue closes and the gate carries it as evidence | The `Skip tests` router branch | — (terminal) |
 | `factory:bug` | *Kind:* this issue is a bug report against an epic (§4c) | Human triage, or the router when it adopts one | — (never removed) |
 | `factory:bug-open` | *On a `bug(<epic>)` report:* raised, and its fix task is in flight | The `Bug` router branch | The fix lands → Dispatcher → `factory:bug-retest` |
 | `factory:bug-retest` | *On a bug:* the fix is assembled; a human confirms the repair | Dispatcher | `Test Passed` → `factory:bug-verified`; `Test Failed` → back to `factory:bug-open` |
@@ -521,9 +523,12 @@ Create them with `scripts/setup-labels.sh`.
   design PRs still need their own merge.
 - **GS — Release to staging:** the epic is at `factory:epic-ready` — every task
   implemented, reviewed, tested and assembled, and nothing of it on staging yet
-  (§6b). Where system tests are on in `gate` mode (§4b) the epic reaches this
-  state only once every system test case has passed too, and the notice
-  carries the test matrix as evidence. A `staging` approver (falling back to the `release` list) comments
+  (§6b). Where system tests are on in `gate` mode (§4b) and run on the epic
+  branch, the epic reaches this state only once every system test case has
+  passed or been skipped, and the notice carries the test matrix as evidence.
+  Where they run on staging (`run_on: staging`), the cases have not run yet:
+  approving here is what makes them runnable, and their verdicts are
+  evidence at G3 instead. A `staging` approver (falling back to the `release` list) comments
   exactly `Approved` on the epic, and the Release Manager carries the whole
   epic to the integration branch and verifies it there. This is the gate an
   expedited epic (§4a) stops at: the auto-advance map never opens it.
@@ -708,7 +713,8 @@ a comment that records the verdict.
 | Key | Values | Meaning |
 |---|---|---|
 | `system_tests` | `true` / `false` | Absent file ⇒ `false`: no Test Planner, no cases, every behaviour exactly as it was |
-| `mode` | `"gate"` / `"advisory"` | `"gate"` (the default when the file is present) holds an epic short of `factory:epic-ready` until every open case has passed; `"advisory"` flips it as today and lists the open cases as unverified |
+| `mode` | `"gate"` / `"advisory"` | `"gate"` (the default when the file is present) holds an epic short of `factory:epic-ready` until every open case has passed or been skipped; `"advisory"` flips it as today and lists the open cases as unverified. Read only where cases run on the epic branch |
+| `run_on` | `"epic"` / `"staging"` | Where a person runs the cases. `"epic"` (the default when absent): on the epic's preview environment, as the code assembles on the epic branch. `"staging"`: after gate GS, on staging — see *Running the cases on staging* below. `mode` has no effect under `"staging"` |
 
 ### The two artifacts
 
@@ -717,7 +723,9 @@ change folder beside `tasks.md` and `design.md`. The plan is numbered cases —
 `### ST-<n>`, each naming the spec scenarios it `Covers:`, the tasks it
 `Depends on:`, its `Data:`, `Preconditions:`, `Steps:` and `Expected:` — plus
 a traceability table over every scenario in `specs/`. The data file is named
-synthetic sets the cases reference, with how to load and remove each.
+synthetic sets the cases reference, each pointing at its records under
+`system-tests/data/`, with how they are loaded and removed (*Test data: built
+and loaded*, below).
 
 Both are **black-box**: derived from `proposal.md`, `specs/` and `tasks.md`,
 never from `design.md` or the code. If the implementation could change
@@ -752,16 +760,19 @@ epic's own repo, carrying the case's `Covers:` references and one machine-
 readable `Blocked by` line per code task it depends on — the same forms §7
 defines for task sub-issues. Test sub-issues do **not** count against the
 Planner's ~10-task cap, are not mirrored into `tasks.md`, and never carry a
-code state. Gate G2 then approves `tasks.md`, `system-tests/` and `design.md`
-as one PR.
+code state. The one task it does open is the test data loader (*Test data:
+built and loaded*, below), appended to `tasks.md` and exempt from the cap
+too. Gate G2 then approves `tasks.md`, `system-tests/` and `design.md` as
+one PR.
 
 ### Running a case
 
 The Dispatcher releases a case when its plan is merged on the epic's home
 branch **and** every task it depends on has reached its assembled state —
-`factory:on-epic` with an epic branch, `factory:in-staging` without one, or
-closed either way. It applies `factory:manual-test`, assigns the `testers`
-(§2b) and says which case, which plan, which environment.
+`factory:in-staging` where cases run on staging (no epic branch, or
+`run_on: staging`), `factory:on-epic` otherwise, or closed either way. It
+applies `factory:manual-test`, assigns the `testers` (§2b) and says which
+case, which plan, which environment, and which data sets are loaded there.
 
 A tester runs it and comments exactly one of two things:
 
@@ -785,9 +796,10 @@ and files its fix. `Test Failed` needs a case; a bug does not.
 
 ### What it does to gate GS
 
-Under `mode: gate` with an epic branch, "the epic is complete" gains a
-clause: every code task `factory:on-epic` **and** every open case
-`factory:test-passed`. An epic assembled with cases outstanding stays at
+Under `mode: gate` with an epic branch and cases running on it (`run_on:
+epic`), "the epic is complete" gains a clause: every code task
+`factory:on-epic` **and** every open case `factory:test-passed` or
+`factory:test-skipped`. An epic assembled with cases outstanding stays at
 `factory:design-approved`, its assembly report saying what it waits on, and
 the last `Test Passed` re-runs the Dispatcher, which makes the
 `factory:epic-ready` flip. Either way the GS notice carries the test matrix —
@@ -802,9 +814,108 @@ already been asked to post. Instead the Release Manager lists the matrix in
 every promotion PR body and in the merge-list comment, and says plainly when
 cases are unverified. `mode` makes no difference here.
 
-**Expedite (§4a) does not touch any of it.** None of the three states is in
+**Expedite (§4a) does not touch any of it.** None of the four states is in
 the auto-advance map. An expedited epic assembles itself, its cases are
 released, and then it waits for its testers exactly as it waits for gate GS.
+
+### Running the cases on staging
+
+Running cases on the epic branch needs somewhere to run them: a preview
+environment per epic, deployed from that branch. Many estates have one
+environment, staging, and nothing before it. For them `run_on: staging` in
+`.github/factory-testing.json` moves the testing to the one place the code
+can actually be exercised, and it gives every epic the posture a repo with no
+epic branch has always had:
+
+- The epic reaches `factory:epic-ready` on assembly alone: every task
+  `factory:on-epic` and the epic branch green. No case has run, and nothing
+  holds gate GS — not a case, not a bug. `mode` is not read.
+- Gate GS is what makes the cases runnable. The Release Manager merges the
+  epic onto the integration branch, deploys staging, loads the epic's test
+  data there (below), and moves the tasks to `factory:in-staging`; the
+  Dispatcher then releases each case whose tasks are there, naming staging
+  as the environment.
+- The verdicts are evidence at G3, not a hold. The promotion PR body and the
+  merge-list comment carry the matrix, and say in as many words when a case
+  is still open or failed. When the last case is passed or skipped and no
+  bug is open, the Dispatcher posts the matrix once more on the epic, cc'ing
+  the `release` approvers: the promotion is ready to merge.
+- A failure or a bug found on staging is fixed inside the epic, as always:
+  the fix task is built on the epic branch and assembled there. The epic is
+  already on staging under an approval, so the Release Manager re-integrates
+  the fix straight away — epic branch merged onto the integration branch,
+  deploy, health checks, data reloaded — without a fresh GS, and the
+  Dispatcher sends the case back for a re-run once the fix is
+  `factory:in-staging`.
+- The Dispatcher runs on an epic at `factory:in-staging` for exactly this:
+  releasing cases and re-tests. It never moves the epic from there.
+
+### Skipping the cases
+
+A team can decide that an epic's cases are not worth running: the change is
+small, the cases were adopted late, the release is a rehearsal. Comment
+exactly **`Skip tests`** on the epic and every open case closes at
+`factory:test-skipped` — released or not, failed or not — each saying who
+skipped it. On a single case, the same comment skips that case alone.
+
+It is a release decision, so the `staging` approvers own it (falling back to
+the `release` list, then to any collaborator). It is accepted from
+`factory:design-approved` through `factory:in-staging` — the window in which
+a case can exist — and refused earlier, saying so, because there is nothing
+yet to skip.
+
+What it never does:
+
+- It does not skip a bug. A defect somebody found stays found; the epic's
+  comment names the open bugs and they hold the gate, or ride as evidence,
+  exactly as before.
+- It does not withdraw a fix. A case at `factory:test-failed` closes as
+  skipped, but the fix task filed for it stays in flight.
+- It does not move the epic backwards, and it does not open a gate on its
+  own. On an epic at `factory:design-approved` it re-runs the Dispatcher,
+  which flips an assembled epic to `factory:epic-ready` now that nothing
+  holds it; at `factory:epic-ready` or on staging the gate notice and the
+  promotion PR carry the skipped cases as evidence.
+
+The Compass offers it as a **Skip the tests** button on the Test board,
+which posts the comment as you.
+
+### Test data: built and loaded
+
+A case that says "a lead with no CRM status" is only runnable if that lead
+exists where the tester is looking. Describing the data was the Test
+Planner's job; making it exist was nobody's. Now it is built, loaded and
+removed like everything else the factory does — as files, a task, and a
+step in the release.
+
+**The records are files.** For every set in `test-data.md` the Test Planner
+writes the records themselves at `system-tests/data/DS-<n>.<format>` in the
+change folder — synthetic, one file per set — and the data file's `Records:`
+points at it. `test-data.md` opens with a `## Loading` section naming the
+two commands that put every set into an environment and take them out.
+
+**The loader is a task.** Each repo records in its profile (§2c) a
+`test_data` block: `load` and `unload` commands that take one epic's data
+directory (`openspec/changes/<epic>-<slug>/system-tests/data`) as their last
+argument, and the `format` of the record files. For each epic the Test
+Planner opens one code task — `task(<epic>): test data — load DS-1..DS-k`,
+appended to `tasks.md` as `## Task <n> — Test data loader` — whose scope is
+to make those commands load this epic's sets and remove them again,
+idempotently. A repo with no loader yet gets one from this task, which adds
+the `test_data` block to `.factory/profile.json` in the same PR. The task
+is blocked by the schema and model tasks the data needs, is exempt from the
+Planner's ~10-task cap, and is otherwise ordinary: designed by the
+Architect, built, reviewed, QA'd and assembled with the rest.
+
+**The release loads it.** The Release Manager runs `load` after each
+environment the cases run on is green: the preview after phase-1 assembly
+where cases run on the epic branch, and staging after the integration
+deploy — before the tasks are marked `factory:in-staging`, so no case is
+released into an empty environment. The output goes in the integration
+report. A load that fails does not stop the release; the report says what to
+run by hand. A fix re-integrated onto staging reloads the data. When every
+repo is promoted, the Release Manager runs `unload` on staging, so sets do
+not pile up from one epic to the next.
 
 ### Adopting it on an epic already in flight
 
@@ -952,12 +1063,16 @@ bugs and their fixes, and works the moment the last one is verified. Either
 way the GS notice carries the bugs beside the test matrix, because that is the
 evidence the `staging` approver is being asked to weigh.
 
-Under `advisory`, and for a repo with no epic branch, bugs hold nothing and
-are listed as evidence instead — the same posture §4b takes with cases, for
-the same reason: without an epic branch the code first reaches a shared branch
-at gate GS itself, and G3 is a human's merge click the factory does not
-withhold. A bug raised in the staging window is fixed onto the integration
-branch and listed in the promotion PR.
+Under `advisory`, for a repo with no epic branch, and where cases run on
+staging (`run_on: staging`), bugs hold nothing and are listed as evidence
+instead — the same posture §4b takes with cases, for the same reason:
+without an epic branch the code first reaches a shared branch at gate GS
+itself, and G3 is a human's merge click the factory does not withhold. A bug
+raised in the staging window on a repo with no epic branch is fixed onto the
+integration branch and listed in the promotion PR; with an epic branch, the
+fix is built and assembled on the epic branch and the Release Manager
+re-integrates it onto staging without a fresh GS (§4b, *Running the cases on
+staging*). `Skip tests` (§4b) never closes a bug.
 
 **Expedite (§4a) does not touch any of it.** None of the three bug states is
 in the auto-advance map. An expedited epic files the fix, starts it, and

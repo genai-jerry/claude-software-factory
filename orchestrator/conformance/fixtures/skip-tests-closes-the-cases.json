@@ -1,0 +1,114 @@
+{
+  "name": "skip-tests-closes-the-cases",
+  "description": "a staging approver comments Skip tests on an epic under build: every open case closes as skipped, passed ones stay, and the epic is re-dispatched",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": [
+          "factory:manual-test"
+        ]
+      },
+      {
+        "number": 31,
+        "title": "test(9): ST-5 Reminder can be snoozed",
+        "labels": []
+      },
+      {
+        "number": 32,
+        "title": "test(9): ST-6 Expired card is refused",
+        "labels": [
+          "factory:test-passed"
+        ],
+        "state": "closed"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Skip tests",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "dispatch",
+    "issues": [
+      "9"
+    ],
+    "labels": {
+      "30": {
+        "has": [
+          "factory:test-skipped"
+        ],
+        "not": [
+          "factory:manual-test"
+        ]
+      },
+      "31": {
+        "has": [
+          "factory:test-skipped"
+        ]
+      },
+      "32": {
+        "has": [
+          "factory:test-passed"
+        ],
+        "not": [
+          "factory:test-skipped"
+        ]
+      }
+    },
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "Tests skipped",
+          "@boss",
+          "ST-4",
+          "ST-5"
+        ]
+      },
+      "30": {
+        "countAtLeast": 1,
+        "contains": [
+          "skipped"
+        ]
+      }
+    }
+  }
+}

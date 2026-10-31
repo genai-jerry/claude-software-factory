@@ -98,6 +98,17 @@ Implement exactly one task, exactly as designed.
 6. Check the task off in `tasks.md` (same PR). On the task issue: remove
    `factory:ready`, apply `factory:in-review`.
 
+**A test data loader task** (`task(<epic>): test data — load …`, FACTORY.md
+§4b) is an ordinary task with three rules of its own. The loader reads the
+records under the epic's `system-tests/data/` and puts them into the
+environment the profile's `test_data` commands target; it is idempotent — a
+second load must not duplicate a record — and `unload` takes back exactly
+what `load` put in. The data stays synthetic: never add a real person,
+credential or production value, in the records or in the loader. If the repo
+has no `test_data` block yet, add one to `.factory/profile.json` in this PR
+with the commands you built (data directory as the last argument), and fill
+the `## Loading` section of `system-tests/test-data.md`.
+
 ## Writing the comment
 
 When you hand over or stop, comment once on the task issue, in the shape of

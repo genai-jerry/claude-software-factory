@@ -50,8 +50,10 @@ flowchart TB
     E2 -. "system tests on:<br/>Dispatcher releases<br/>its cases" .-> MT["a case:<br/>factory:manual-test"]
     MT -- "Test Passed" --> TP["factory:test-passed"]
     MT -. "Test Failed" .-> TF["factory:test-failed<br/>fix task filed"]
+    MT -. "Skip tests" .-> TS["factory:test-skipped"]
     TF -. "fix lands" .-> MT
     TP -. "last case" .-> ER
+    TS -. "last case" .-> ER
     E2 -. "a tester comments<br/>Bug" .-> BO["a bug:<br/>factory:bug-open<br/>fix task filed"]
     BO -. "fix lands" .-> BR["factory:bug-retest"]
     BR -- "Test Passed" --> BV["factory:bug-verified"]
@@ -87,14 +89,24 @@ flowchart TB
 Rust-filled states wait on a human. Everything else advances on its own the
 moment the previous role finishes.
 
-The three test states hang off `factory:on-epic` and exist only where
+The four test states hang off `factory:on-epic` and exist only where
 `.github/factory-testing.json` turns system tests on (FACTORY.md §4b). They
 live on `test(<epic>)` sub-issues, never on an epic or a code task: the Test
-Planner writes a plan of human-run cases at stage 2a, the Dispatcher releases
-each one when the code it depends on is assembled, and a tester comments
-`Test Passed` or `Test Failed`. In `gate` mode the epic reaches
-`factory:epic-ready` only once every case has passed — the last pass is what
-flips it.
+Planner writes a plan of human-run cases at stage 2a — and the records they
+need, plus one loader task that puts them into the environment — the
+Dispatcher releases each one when the code it depends on is assembled, and a
+tester comments `Test Passed` or `Test Failed`. A `staging` approver can
+comment `Skip tests` on the epic (or on one case) to close every open case as
+`factory:test-skipped` without running it; bugs are never skipped. In `gate`
+mode the epic reaches `factory:epic-ready` only once every case has passed or
+been skipped — the last pass is what flips it.
+
+With `"run_on": "staging"` the cases hang off `factory:in-staging` instead:
+the epic reaches `factory:epic-ready` on assembly alone, gate GS puts it on
+staging, the Release Manager loads the test data there, and the Dispatcher
+releases the cases as the tasks reach `factory:in-staging`. Nothing holds GS;
+the verdicts are evidence on the promotion PR, and a fix for what testing
+finds is re-integrated onto staging without a fresh approval.
 
 The three `factory:bug-*` states hang off the same point and answer the other
 half of testing (FACTORY.md §4c): what a tester found that no case predicted.
@@ -119,7 +131,7 @@ pre-epic behaviour.
 | **G0** | `factory:release-ready` | Is this the right batch of work to start? | Owner comments `Approved` on the release tracker — or, in `"approval": "agent"` mode, the Scrum Master's own GO |
 | **G1** | `factory:spec-ready` | Is the spec concrete enough to plan against? | Owner comments `Approved` |
 | **G2** | `factory:design-ready` | Does the architecture actually solve it? | Owner comments `Approved` |
-| **GS** | `factory:epic-ready` | May this assembled epic go to staging? | A `staging` approver comments `Approved` (falls back to the `release` list). With system tests in `gate` mode the epic only arrives here once every case has passed, and the approval is refused while any bug report is open (§4c) |
+| **GS** | `factory:epic-ready` | May this assembled epic go to staging? | A `staging` approver comments `Approved` (falls back to the `release` list). With system tests in `gate` mode running on the epic branch, the epic only arrives here once every case has passed or been skipped, and the approval is refused while any bug report is open (§4c). With `run_on: staging` the cases have not run yet: approving is what makes them runnable |
 | **G3** | `factory:in-staging` | May this land on `main`? | A human presses Merge on the promotion PR |
 
 G0 only exists with release gating on, and is the one gate that can be handed to

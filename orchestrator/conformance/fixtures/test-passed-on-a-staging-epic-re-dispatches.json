@@ -1,0 +1,78 @@
+{
+  "name": "test-passed-on-a-staging-epic-re-dispatches",
+  "description": "with run_on staging a pass on a case of an epic already on staging re-dispatches it, so the Dispatcher can say when the last verdict is in",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate",
+      "run_on": "staging"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:in-staging"
+        ]
+      },
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": [
+          "factory:manual-test"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 30,
+    "comment": {
+      "body": "Test Passed",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "dispatch",
+    "issues": [
+      "9"
+    ],
+    "labels": {
+      "30": {
+        "has": [
+          "factory:test-passed"
+        ],
+        "not": [
+          "factory:manual-test"
+        ]
+      }
+    }
+  }
+}

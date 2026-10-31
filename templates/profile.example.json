@@ -45,5 +45,14 @@
     "notes": [
       "The container entrypoint runs `alembic upgrade head` and exits non-zero on failure — a red deploy means the schema did not migrate. Halt the train; do not merge downstream consumers."
     ]
+  },
+  "test_data": {
+    "load": "python -m scripts.testdata load --env $FACTORY_TEST_ENV",
+    "unload": "python -m scripts.testdata unload --env $FACTORY_TEST_ENV",
+    "format": "json",
+    "notes": [
+      "FACTORY_TEST_ENV is `staging` or a preview name; the script reads the matching DATABASE_URL from .env.<env>",
+      "Every record carries a `factory_set` field naming its DS id, which is what unload deletes by"
+    ]
   }
 }

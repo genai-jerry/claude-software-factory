@@ -84,6 +84,31 @@
           "items": { "type": "string" }
         }
       }
+    },
+    "test_data": {
+      "description": "How one epic's system test data sets get into a running environment and out again (FACTORY.md §4b). Both commands take the epic's data directory (openspec/changes/<epic>-<slug>/system-tests/data) as their last argument. The Test Planner names them in test-data.md, the Release Manager runs load after the staging (or preview) deploy and unload after promotion. Absent means the repo has no loader yet: the first epic with system tests builds one and adds this block.",
+      "type": "object",
+      "required": ["load", "unload"],
+      "properties": {
+        "load": {
+          "description": "Shell command, run from the repo root, that loads every record file in the given directory into the target environment. Idempotent: loading twice must not duplicate.",
+          "type": "string"
+        },
+        "unload": {
+          "description": "Shell command that removes exactly what load put in.",
+          "type": "string"
+        },
+        "format": {
+          "description": "The record file format the loader reads — what the Test Planner writes under system-tests/data/. Default json.",
+          "type": "string",
+          "default": "json"
+        },
+        "notes": {
+          "description": "How the commands find their target environment (an env var, a flag), and anything a tester must do by hand after a load.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
     }
   }
 }

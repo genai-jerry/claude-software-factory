@@ -214,6 +214,27 @@ class RepoConfig:
         return "advisory" if self.testing.get("mode") == "advisory" else "gate"
 
     @property
+    def run_on(self) -> str:
+        """Where a human runs the cases (§4b): `"epic"` (the default) or `"staging"`.
+
+        Only the exact string `"staging"` moves them: under it the epic
+        reaches `factory:epic-ready` on assembly alone, gate GS puts it on
+        staging, and the cases are released as the tasks they depend on reach
+        `factory:in-staging`. Their verdicts are then evidence at G3, never a
+        hold — the posture a repo with no epic branch has always had.
+        """
+        return "staging" if self.testing.get("run_on") == "staging" else "epic"
+
+    @property
+    def cases_run_on_staging(self) -> bool:
+        """True when a case's code first reaches a tester on staging.
+
+        Either there is no epic branch to run it on, or the policy says so.
+        The "assembled" state a case waits for is then `factory:in-staging`.
+        """
+        return not self.epics or self.run_on == "staging"
+
+    @property
     def exempt_labels(self) -> list[str]:
         v = self.release.get("exempt_labels")
         return v if isinstance(v, list) else ["factory:fast-track"]
@@ -281,6 +302,12 @@ def _names(labels: list[Any] | None) -> list[str]:
 MANUAL_TEST = "factory:manual-test"
 TEST_PASSED = "factory:test-passed"
 TEST_FAILED = "factory:test-failed"
+#: A case a staging approver chose not to run (`Skip tests`, §4b). Terminal,
+#: like a pass; the gate carries it as evidence rather than a verdict.
+TEST_SKIPPED = "factory:test-skipped"
+#: The epic states in which `Skip tests` is accepted: the plan is merged and
+#: the cases exist, from the first task landing through the staging window.
+SKIP_ACCEPT_STATES = ("factory:design-approved", EPIC_READY, "factory:in-staging")
 
 #: Code states, refused on a system test case: applying one would put an
 #: implementer, reviewer or QA run on a document.
@@ -812,10 +839,25 @@ class Router:
 
         The same three conditions §4b puts on a case: the policy is on, the
         mode is `gate`, and there is an epic branch to hold the epic on.
-        Without one the code first reaches a shared branch at GS itself, so
-        the bugs are evidence in the promotion PR, never a hold.
+        Without one — or with the policy running the cases on staging
+        (`run_on: staging`) — the code first reaches a tester at GS itself,
+        so the bugs are evidence in the promotion PR, never a hold.
         """
-        return self.cfg.bug_reports and self.cfg.test_mode == "gate" and self.cfg.epics
+        return (self.cfg.bug_reports and self.cfg.test_mode == "gate" and self.cfg.epics
+                and self.cfg.run_on == "epic")
+
+    def re_dispatchable(self, epic_labels: list[str]) -> bool:
+        """Whether the Dispatcher still has work on an epic in these labels.
+
+        Through the build it is the `factory:design-approved` phase. Where
+        cases run on staging (§4b) the Dispatcher also releases them — and
+        re-tests — while the epic sits at `factory:in-staging`, and says
+        when the last verdict is in.
+        """
+        if "factory:design-approved" in epic_labels:
+            return True
+        return ("factory:in-staging" in epic_labels and self.cfg.system_tests
+                and self.cfg.cases_run_on_staging)
 
     def bug_blocker(self, bugs: list[dict[str, Any]]) -> str:
         """The refusal body listing the open bugs that hold gate GS."""
@@ -837,6 +879,72 @@ class Router:
             '`"mode": "advisory"` in `.github/factory-testing.json`, which makes bugs evidence '
             "rather than a hold.",
         ])
+
+    def open_cases(self, epic: int) -> list[dict[str, Any]]:
+        """This epic's open system test cases, oldest first.
+
+        Cases live in the epic's own repo (§4b), like bugs. Whatever their
+        state — unreleased with no label, `factory:manual-test`,
+        `factory:test-failed` — an open case is one nobody has passed or
+        skipped yet. A repo that cannot be listed reports none.
+        """
+        try:
+            found = self.port.list_issues(state="open")
+        except Exception:  # noqa: BLE001
+            log.warning("Could not list the cases of epic #%s", epic)
+            return []
+        out = []
+        for it in found:
+            if it.get("pull_request") is not None:
+                continue
+            n, _case_id, _title = _case_of(it.get("title"))
+            if n == epic and not ({TEST_PASSED, TEST_SKIPPED} & set(_names(it.get("labels")))):
+                out.append(it)
+        return sorted(out, key=lambda x: x["number"])
+
+    def skip_case(self, case: dict[str, Any], sender: str) -> str:
+        """Close one case as skipped and return its identifier for the summary."""
+        _epic, case_id, _title = _case_of(case.get("title"))
+        for lbl in (MANUAL_TEST, TEST_FAILED):
+            if lbl in _names(case.get("labels")):
+                self.drop_label(case["number"], lbl)
+        self.port.add_labels(case["number"], [TEST_SKIPPED])
+        self.say(case["number"],
+                 f"**{case_id or 'This case'} skipped** — recorded by @{sender}. Not run; closing it.")
+        try:
+            self.port.update_issue_state(case["number"], "closed")  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - a stuck-open case is not a failed route
+            log.warning("Could not close system test #%s", case["number"])
+        log.info("System test #%s skipped by %s", case["number"], sender)
+        return case_id or f"#{case['number']}"
+
+    def skip_summary(self, epic: int, sender: str, skipped: list[str],
+                     fixes: list[str], epic_state: str | None) -> str:
+        """The epic comment after `Skip tests`: what closed, what stays, what next."""
+        bugs = self.open_bugs(epic) if self.cfg.bug_reports else []
+        lines = [f"**Tests skipped** by @{sender} — {len(skipped)} "
+                 f"{'case' if len(skipped) == 1 else 'cases'} closed as skipped: "
+                 + ", ".join(skipped) + "."]
+        if bugs:
+            lines.append("")
+            lines.append("Bug reports are not skipped — a defect somebody found stays found. Still open: "
+                         + ", ".join(f"#{b['number']}" for b in bugs)
+                         + ". Close one yourself if it is not a defect.")
+        if fixes:
+            lines.append("")
+            lines.append("Fix tasks already filed for failed cases are left in flight: "
+                         + ", ".join(f"#{f}" for f in fixes) + ". Close them if the fix is not wanted.")
+        lines.append("")
+        if epic_state == "factory:design-approved":
+            lines.append("The Dispatcher runs now; if every task is assembled the epic moves to "
+                         "`factory:epic-ready` and asks for gate GS. The skipped cases are listed "
+                         "there as evidence.")
+        elif epic_state == EPIC_READY:
+            lines.append("This epic is at gate GS; the skipped cases travel with it as evidence.")
+        else:
+            lines.append("This epic is on staging; the skipped cases are listed in its promotion PR "
+                         "as evidence at gate G3.")
+        return "\n".join(lines)
 
     def file_bug_fix(self, bug: dict[str, Any], bug_body: str, epic: int, title: str,
                      report: str, reporter: str, again: bool = False) -> dict[str, Any]:
@@ -1133,6 +1241,8 @@ class Router:
         is_plan_tests = bool(re.match(r"^\s*plan\s+tests\s*[.!]?\s*$", body, re.IGNORECASE))
         is_test_passed = bool(re.match(r"^\s*test\s+passed\s*[.!]?\s*$", body, re.IGNORECASE))
         is_test_failed = bool(re.match(r"^\s*test\s+failed\s*[.!]?\s*$", body, re.IGNORECASE))
+        # A staging approver's decision not to run the cases (§4b).
+        is_skip_tests = bool(re.match(r"^\s*skip\s+tests\s*[.!]?\s*$", body, re.IGNORECASE))
         # The bug control (§4c) is the one that reads past its first line: the
         # match is on that line, the report is everything under it.
         bug_ctl = _bug_control(body)
@@ -1250,6 +1360,79 @@ class Router:
                 r.role = "testplanner"
                 log.info("System test plan requested on #%s (%s) - starting the Test Planner",
                          i["number"], st)
+        elif is_skip_tests:
+            # Skipping the cases (§4b): a release decision, so the staging
+            # list owns it. On the epic it closes every open case; on a case,
+            # that one. Bugs are never skipped — a found defect stays found.
+            st = self.state_of(labels)
+            if not cfg.system_tests:
+                self.say(i["number"],
+                         "System tests are not enabled in this repository, so there is nothing to "
+                         "skip.\n\nSystem tests come from `.github/factory-testing.json` with "
+                         "`\"system_tests\": true` (FACTORY.md §4b); without it no case exists.")
+            elif is_test_case:
+                if not authorized("staging"):
+                    refuse("staging", "skipping a system test case")
+                elif TEST_PASSED in labels or TEST_SKIPPED in labels or i.get("state") == "closed":
+                    self.say(i["number"],
+                             "`Skip tests` has no effect — this case is already "
+                             + ("passed." if TEST_PASSED in labels else
+                                "skipped." if TEST_SKIPPED in labels else "closed."))
+                else:
+                    epic, _cid, _t = _case_of(i.get("title"))
+                    case_id = self.skip_case(i, sender)
+                    fix = _BLOCKED_BY_RE.search(i.get("body") or "")
+                    parent = self.port.get_issue(epic) if epic else None
+                    pstate = self.state_of(_names(parent.get("labels"))) if parent else None
+                    if parent:
+                        self.say(epic, self.skip_summary(epic, sender, [case_id],
+                                                         [fix.group(1)] if fix else [], pstate))
+                    if parent and "factory:design-approved" in _names(parent.get("labels")):
+                        r.role = "dispatch"
+                        r.issue = str(epic)
+                        log.info("Re-dispatching epic #%s - a skipped case may have completed it", epic)
+            elif (is_tracker or PROFILE_KIND in labels or FAST_TRACK in labels or is_bug
+                    or _is_task_title(i.get("title"))):
+                what = ("a release tracker" if is_tracker
+                        else "this repository's profile issue" if PROFILE_KIND in labels
+                        else "in the fast lane, which has no system test plan" if FAST_TRACK in labels
+                        else "a bug report — close it yourself if it is not a defect" if is_bug
+                        else "a task sub-issue")
+                self.say(i["number"],
+                         "`Skip tests` only works on an **epic** or on one of its `test(<epic>)` "
+                         f"cases. This issue is {what}, so nothing changed.")
+            elif i.get("state") == "closed" or "factory:deployed" in labels:
+                self.say(i["number"],
+                         "`Skip tests` has no effect here — this epic has shipped, and there is "
+                         "nothing left to hold.")
+            elif st not in SKIP_ACCEPT_STATES:
+                self.say(i["number"],
+                         f"`Skip tests` has no effect while this epic is at **{st}** — its cases are "
+                         "not runnable yet.\n\nSkipping is accepted from `factory:design-approved` "
+                         "onward, once the plan is merged and the cases exist; from there it closes "
+                         "every open case as `factory:test-skipped` and the epic stops waiting on them.")
+            elif not authorized("staging"):
+                refuse("staging", "skipping this epic's system tests")
+            else:
+                cases = self.open_cases(i["number"])
+                if not cases:
+                    self.say(i["number"],
+                             f"Nothing to skip — this epic has no open system test case. "
+                             f"@{sender}, nothing changed.")
+                else:
+                    skipped, fixes = [], []
+                    for c in cases:
+                        fix = _BLOCKED_BY_RE.search(c.get("body") or "")
+                        if fix and TEST_FAILED in _names(c.get("labels")):
+                            fixes.append(fix.group(1))
+                        skipped.append(self.skip_case(c, sender))
+                    self.say(i["number"], self.skip_summary(i["number"], sender, skipped, fixes, st))
+                    if st == "factory:design-approved":
+                        r.role = "dispatch"
+                        log.info("Tests skipped on epic #%s - re-dispatching to settle completeness",
+                                 i["number"])
+                    else:
+                        log.info("Tests skipped on epic #%s at %s", i["number"], st)
         elif bug_ctl is not None:
             # Raising a bug (§4c). Accepted on the epic itself or on any of its
             # children, because a tester who finds one is usually reading a
@@ -1348,7 +1531,7 @@ class Router:
                 # The last pass is what completes an epic (§4b), and the
                 # Dispatcher is the one place that decides completeness.
                 parent = self.port.get_issue(epic) if epic else None
-                if parent and "factory:design-approved" in _names(parent.get("labels")):
+                if parent and self.re_dispatchable(_names(parent.get("labels"))):
                     r.role = "dispatch"
                     r.issue = str(epic)
                     log.info("Re-dispatching epic #%s - a pass may have completed it", epic)
@@ -1585,6 +1768,10 @@ class Router:
                              "sub-issue the Test Planner opened. This is not one, so nothing changed.")
                 elif TEST_PASSED in labels:
                     self.say(i["number"], f"{what} has no effect — this case has already passed.")
+                elif TEST_SKIPPED in labels:
+                    self.say(i["number"],
+                             f"{what} has no effect — this case was skipped and is closed. To run it "
+                             "after all, reopen it and apply `factory:manual-test`.")
                 elif TEST_FAILED in labels:
                     fx = _BLOCKED_BY_RE.search(i.get("body") or "")
                     self.say(i["number"],
@@ -1778,8 +1965,8 @@ class Router:
                 parent = port.get_issue(int(epic))
                 parent_labels = _names(parent.get("labels")) if parent else []
                 where = epic_repo or f"{self.port.owner}/{self.port.repo}"
-                if "factory:design-approved" not in parent_labels:
-                    log.info("Epic %s#%s is not factory:design-approved - not re-dispatching",
+                if not self.re_dispatchable(parent_labels):
+                    log.info("Epic %s#%s is not in a dispatchable phase - not re-dispatching",
                              where, epic)
                 else:
                     r.role = "dispatch"

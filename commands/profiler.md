@@ -87,6 +87,14 @@ enforce conventions this repo does not follow. Everything below serves that.
    - `deploy.health_checks` — only checks you can point at something real for.
      An invented URL is worse than an empty list, because the Release Manager
      will run it and believe the result.
+   - `test_data` — only when the repo already has seed or fixture tooling
+     that can load a directory of records into a running environment and
+     remove them again: record its `load` and `unload` commands (taking the
+     data directory as the last argument) and the record `format` it reads.
+     Leave the block out otherwise. The Release Manager runs these against
+     staging (FACTORY.md §4b); a command you did not see work is worse than
+     none, because the first epic with system tests then builds a loader
+     instead of guessing at a broken one.
 6. **Validate.** Check your JSON against
    `$RUNNER_TEMP/factory/templates/profile.schema.json` (`required`: `repo`,
    `stack`, `branches`, `commands`; `branches.default` required within
