@@ -5,7 +5,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       actions:
         patterns: ["*"]
@@ -13,7 +13,7 @@ updates:
   - package-ecosystem: pip
     directory: /orchestrator
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     groups:
       minor-and-patch:
@@ -22,7 +22,7 @@ updates:
   - package-ecosystem: docker
     directory: /orchestrator
     schedule:
-      interval: weekly
+      interval: monthly
     # The image's Python is the one CI tests on (conformance.yml pins 3.11).
     # A minor bump is a runtime change, not a patch: it needs the CI matrix
     # moved with it, and new releases lag on binary wheels (3.15 broke the
