@@ -1304,11 +1304,20 @@ factory enforces gate G3 itself, in three layers:
    fails and opens a `factory:incident` issue if a commit lands on `main`
    without an associated pull request.
 
-The integration branch (§6a) and the epic branches (§6b) deliberately remain
-agent-pushable so the Release Manager can assemble epics and release trains
-autonomously; production (`main`) is human-only. That split is what makes the staging step work: the factory has a
-branch it may write to and prove things on, and exactly one way — a human
-merging a promotion PR — for anything to leave it.
+The epic branches (§6b) remain agent-pushable, so the Release Manager can
+assemble an epic autonomously. Production (`main`) is human-only.
+
+The integration branch (§6a) is writable only behind a person's approval. The
+orchestrator passes the hook to every run with `--settings`, because the image
+does not install the plugin, and tells it whether this run may touch the
+integration branch: only a Release Manager run on an epic at
+`factory:epic-ready` (gate GS), or one a person started on a repo with no epic
+branch. Any other write is refused, including `gh pr merge` and `gh api` merge
+calls, except creating the branch when it does not exist yet. The hook is a
+strong guard, not a wall, since an agent holds a token: the engine also reads
+the branch before and after each run, and says so on the issue if it moved
+without that approval. Under the Actions engine the integration branch stays
+agent-writable.
 
 Layer 3 also checks *where* a commit on `main` came from: a merge whose PR head
 was not the integration branch (and whose diff is not documents-only) is

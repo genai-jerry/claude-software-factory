@@ -23,6 +23,7 @@ class FakeRepo:
         self.merged_bases: dict[int, str] = {}
         self.open_prs: dict[str, list[dict[str, Any]]] = {}
         self.branches: list[str] = ["main"]
+        self.branch_shas: dict[str, str] = {}
         # Commit statuses posted: (sha, state, context, description, target_url).
         self.statuses: list[tuple[str, str, str, str, str | None]] = []
 
@@ -99,6 +100,9 @@ class FakeRepo:
 
     def branch_exists(self, name):
         return name in self.branches
+
+    def branch_sha(self, name):
+        return self.branch_shas.get(name)
 
     def create_branch(self, name, from_branch):
         if name not in self.branches:

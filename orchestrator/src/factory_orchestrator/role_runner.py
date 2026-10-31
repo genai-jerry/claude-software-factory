@@ -249,6 +249,28 @@ class RoleOutcome:
     usage: dict | None = field(default=None)
 
 
+def install_branch_guard(home: Path, factory: Path | None) -> Path | None:
+    """Write the settings file that wires hooks/protect-branches.py into a run.
+
+    The plugin that ships the hook is not installed in the orchestrator's
+    image, so without this nothing but the prompts stops an agent with a
+    GH_TOKEN and Bash from writing to `main` or `staging`. The file goes in the
+    run's private HOME and reaches Claude through `--settings`. A missing
+    script wires nothing: `python3 <missing>` exits 2, which would refuse every
+    call.
+    """
+    script = (factory / "hooks" / "protect-branches.py") if factory else None
+    if script is None or not script.is_file():
+        log.error("no branch guard at %s - this run is not protected", script)
+        return None
+    settings = home / "factory-guard-settings.json"
+    settings.write_text(json.dumps({"hooks": {"PreToolUse": [{
+        "matcher": "Bash|mcp__github__.*",
+        "hooks": [{"type": "command", "command": f'python3 "{script}"'}],
+    }]}}))
+    return settings
+
+
 class RoleRunner:
     def __init__(self, cfg: Config, source: FactorySource,
                  workspace_root: str | None = None,
@@ -272,9 +294,12 @@ class RoleRunner:
     def run(self, *, owner: str, repo: str, role: str, issue: int, model: str,
             github_token: str, on_phase: Callable[[str], None] | None = None,
             on_output: Callable[[str], None] | None = None,
-            workspace: IssueKey | None = None) -> RoleOutcome:
+            workspace: IssueKey | None = None,
+            staging_open: bool = False,
+            integration_branch: str | None = None) -> RoleOutcome:
         """One role session. `workspace` names the issue copy to work in; None
-        is a throwaway copy for this run alone."""
+        is a throwaway copy for this run alone. `staging_open` says a person
+        approved this run writing to the integration branch (gate GS)."""
         prompt = assemble_prompt(
             role=role, repository=f"{owner}/{repo}", owner=owner, issue=issue,
             handbook=self.source.handbook(),
@@ -291,7 +316,8 @@ class RoleRunner:
                         prompt, cwd=cwd, home=home, owner=owner, repo=repo,
                         role=role, issue=issue, model=model,
                         github_token=github_token, deadline=deadline,
-                        on_phase=on_phase, on_output=on_output)
+                        on_phase=on_phase, on_output=on_output,
+                        staging_open=staging_open, integration_branch=integration_branch)
             finally:
                 shutil.rmtree(home, ignore_errors=True)
 
@@ -308,7 +334,10 @@ class RoleRunner:
     def _session(self, prompt: str, *, cwd: Path, home: Path, owner: str, repo: str,
                  role: str, issue: int, model: str, github_token: str, deadline: float,
                  on_phase: Callable[[str], None] | None,
-                 on_output: Callable[[str], None] | None) -> RoleOutcome:
+                 on_output: Callable[[str], None] | None,
+                 staging_open: bool = False,
+                 integration_branch: str | None = None) -> RoleOutcome:
+        guard = install_branch_guard(home, self.source.path() if hasattr(self.source, "path") else None)
         gh_token = (self.cfg.cross_repo_token.reveal()
                     if self.cfg.cross_repo_token else github_token)
         env = {
@@ -318,6 +347,9 @@ class RoleRunner:
             "OPENSPEC_TELEMETRY": "0",
             "GIT_TERMINAL_PROMPT": "0",
             "PYTHONUNBUFFERED": "1",
+            "FACTORY_STAGING_GUARD": "open" if staging_open else "closed",
+            "FACTORY_INTEGRATION_BRANCH": integration_branch or "staging",
+            **({"FACTORY_GUARD_SETTINGS": str(guard)} if guard else {}),
             **self.cfg.agent_credential_env(),
         }
         readers: list[StreamReader] = []
@@ -349,6 +381,8 @@ class RoleRunner:
                 "--verbose",
                 "--permission-mode", "acceptEdits",
                 "--allowedTools", ALLOWED_TOOLS]
+        if env.get("FACTORY_GUARD_SETTINGS"):
+            argv += ["--settings", env["FACTORY_GUARD_SETTINGS"]]
         log.info(
             "claude start role cwd=%s model=%s max_turns=%s remaining=%.0fs",
             cwd, model, self.cfg.max_turns, _remaining(deadline))

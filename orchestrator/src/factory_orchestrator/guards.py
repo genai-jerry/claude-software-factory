@@ -117,6 +117,21 @@ def report_failure(port: RepoPort, issue: int, role: str, run_url: str,
         log.warning("could not report the failed %s run on #%s", role, issue, exc_info=True)
 
 
+def report_staging_moved(port: RepoPort, issue: int, role: str, branch: str, run_url: str) -> None:
+    """`branch` changed during a run with no release-to-staging approval."""
+    log.error("%s moved during the %s run on #%s", branch, role, issue)
+    try:
+        port.create_comment(issue, (
+            f"**`{branch}` changed during this {role} run, with no release to staging (GS) "
+            "behind it.**\n"
+            "**You need to:** check what landed. If a person merged it, nothing is wrong.\n"
+            f"- The run should not write to `{branch}`, and the guard did not stop this.\n"
+            f"Links: [the run]({run_url})\n\n"
+            f"{AGENT_MARK}"))
+    except Exception:  # noqa: BLE001 - the ledger already records it
+        log.warning("could not report the moved %s on #%s", branch, issue, exc_info=True)
+
+
 def report_next_step(port: RepoPort, issue: int, role: str, factory_checkout,
                      port_for: Callable[[str, str], RepoPort] | None = None) -> None:
     """Say what the next actor is expected to do, on the issue, after the run.
