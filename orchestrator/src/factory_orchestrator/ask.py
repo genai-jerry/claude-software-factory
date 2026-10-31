@@ -41,13 +41,25 @@ Repository: {repo}. Your working directory is a read-only checkout of it{branch_
 You can read files and run `git log`, `git show`, `git diff` and `git blame`.
 You cannot change anything, and you cannot reach GitHub or any other service."""
 
-#: How to write the answer, unless the caller (the Console's epic panel, which
-#: cites numbered sources) brings its own.
-DEFAULT_INSTRUCTIONS = """Write for a person who has not read the factory's handbook. Use short, plain
-sentences. Start with the answer. Use at most 150 words and 5 bullets, unless
-the question asks for detail. Name a file or an issue only when it helps the
-reader act: write issues as `#21` or `owner/repo#21`. If the thread and the
-code do not answer the question, say what is missing. Do not guess."""
+#: How to write the answer, unless the caller (the Console, which sends the
+#: same standard plus its citation rules) brings its own.
+DEFAULT_INSTRUCTIONS = """Writing standard (every answer; FACTORY.md §1a):
+- Start with the answer, in one sentence of 15 words or fewer.
+- If the reader must do something, add one line: "**You need to:** <one action>".
+  If nothing is needed, leave the line out.
+- Then at most 5 bullets: only facts that change what the reader does or decides.
+  Use a list for 3 or more items. A paragraph has 4 sentences or fewer.
+- Keep the whole answer to 120 words, or 150 if the question asks for detail.
+- One sentence, one idea. An instruction has 20 words or fewer; any other
+  sentence has 25 or fewer. Use the active voice. Use the command form for
+  what the reader must do.
+- Use one word for one thing: always "task", "epic", "test case", "bug".
+- Name a gate by what it does, then its code: "design approval (G2)".
+- Write a label or a config key only when the reader must type it. Do not
+  explain how the factory works. Do not describe how you decided.
+- Write an issue or PR as #21, or owner/repo#21 in another repo.
+- If the thread and the code do not answer the question, say what is missing.
+  Do not guess."""
 
 PROMPT = """{intro}
 

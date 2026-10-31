@@ -63,6 +63,14 @@ def test_a_question_is_answered_in_a_read_only_session(tmp_path):
     assert not list((tmp_path / "ws").iterdir())
 
 
+def test_the_default_answer_follows_the_writing_standard(tmp_path):
+    engine, out = engine_for(tmp_path)
+    answer_question(engine, owner="o", repo="r", question="why?", context="thread")
+    prompt = next(out.glob("prompt-*.txt")).read_text()
+    for rule in ("15 words or fewer", "You need to:", "at most 5 bullets", "120 words", "active voice"):
+        assert rule in prompt, rule
+
+
 def test_the_callers_instructions_replace_the_default_style(tmp_path):
     engine, out = engine_for(tmp_path)
     answer_question(engine, owner="o", repo="r", question="why?", context="[1] a source",
