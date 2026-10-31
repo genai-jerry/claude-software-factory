@@ -43,6 +43,7 @@ from .guards import (
     no_op_reason,
     report_failure,
     report_next_step,
+    report_staging_moved,
     report_start,
     snapshot,
     verify_no_op,
@@ -54,6 +55,7 @@ from .models import ModelResolutionError, Probe, load_models_config, resolve_mod
 from .reconcile import usage_limit_error
 from .role_runner import RoleRunner
 from .router import (
+    EPIC_READY,
     RepoConfig,
     Router,
     epic_ref_from_body,
@@ -410,6 +412,47 @@ def run_link_base(engine: Engine, owner: str, repo: str) -> str:
     return engine.cfg.public_base_url
 
 
+def staging_policy(engine: Engine, port: RepoPort, role: str, issue: int) -> tuple[str, bool]:
+    """The integration branch's name, and whether this run may write to it.
+
+    Only the Release Manager may, and only behind a person's approval: gate GS
+    on an epic at factory:epic-ready, or, where a repo has no epic branch, the
+    person who started the release. The auto-advance map never starts that
+    one (router.expedited_next).
+    """
+    cfg = engine.repo_config(port)
+    branch = cfg.staging_branch or "staging"
+    if role != "release":
+        return branch, False
+    labels = [(l if isinstance(l, str) else l.get("name"))
+              for l in (port.get_issue(issue) or {}).get("labels", [])]
+    return branch, EPIC_READY in labels or not cfg.epics
+
+
+def branch_head(port: RepoPort, branch: str) -> str | None:
+    try:
+        return port.branch_sha(branch)
+    except Exception:  # noqa: BLE001 - a check, not a reason to fail a run
+        log.warning("could not read %s on %s/%s", branch, port.owner, port.repo, exc_info=True)
+        return None
+
+
+def staging_moved(engine: Engine, port: RepoPort, branch: str, before: str | None,
+                  run_id: str) -> bool:
+    """Did the branch move during a run that may not write to it?
+
+    A branch that was missing may have been created, which is allowed, and a
+    Release Manager run live on the repo accounts for a move by itself.
+    """
+    if before is None:
+        return False
+    after = branch_head(port, branch)
+    if after is None or after == before:
+        return False
+    live = engine.ledger.list_runs(repo=f"{port.owner}/{port.repo}", active_only=True)
+    return not any(r["role"] == "release" and r["id"] != run_id for r in live)
+
+
 def factory_checkout(engine: Engine):
     """Where this engine's pinned factory checkout is, when it has one.
 
@@ -473,11 +516,14 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         report_start(port, issue, role, run_url)
         before = snapshot(port, issue)
         key = engine.workspace_for(port, issue)
+        staging, staging_open = staging_policy(engine, port, role, issue)
+        staging_before = branch_head(port, staging)
         outcome = engine.runner.run(
             owner=owner, repo=repo, role=role, issue=issue, model=resolved.model,
             github_token=engine.token_for_role(owner, repo),
             on_phase=lambda phase: note(phase, **extra),
             on_output=live.write,
+            staging_open=staging_open, integration_branch=staging,
             **({"workspace": key} if key else {}))
         # The role may have run for the better part of an hour; everything from
         # here on needs a token that is good now, not one that was good then.
@@ -507,6 +553,11 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         live.event("phase", "finished")
         guards = {"before": before.__dict__, "trace": traced, "phase": "finished",
                   "model": resolved.model, "fallbacks": resolved.fallbacks}
+        # The hook stops the usual ways onto the integration branch; this
+        # catches the rest, by looking at the branch itself.
+        if not staging_open and staging_moved(engine, port, staging, staging_before, run_id):
+            guards["staging_moved"] = True
+            report_staging_moved(port, issue, role, staging, run_url)
         usage = getattr(outcome, "usage", None)
         if usage:
             guards["usage"] = usage  # read back by GET /usage
