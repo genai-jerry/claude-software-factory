@@ -230,6 +230,12 @@ GitHub carries all of it.
   issues wait for it. The Console's header badge reads it. A subscription's
   remaining allowance has no documented headless source, so the percentage
   appears only if a run ever reports one.
+- **Questions**: `POST /ask` (operator token) answers a person's question
+  about a thread with the Claude CLI, using the stored agent credential. The
+  session is read-only: it reads a throwaway checkout and runs `git log`,
+  `show`, `diff` and `blame`, with no GitHub token, no writes and no network
+  tools. It shares the `MAX_PARALLEL` slots with role runs. The Console's
+  thread view calls it.
 - **Writing scores**: every run's new agent comments are scored against
   FACTORY.md §1a with `scripts/comment-lint.js` from the factory checkout,
   and stored under `guards.writing` on the run (`GET /runs/<id>`). Report
