@@ -1,0 +1,103 @@
+{
+  "name": "skip-tests-on-a-staging-epic-leaves-it",
+  "description": "Skip tests on an epic already on staging closes the cases and starts nothing: the verdicts were evidence at G3, and so is the skip",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate",
+      "run_on": "staging"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:in-staging"
+        ]
+      },
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": [
+          "factory:manual-test"
+        ]
+      },
+      {
+        "number": 31,
+        "title": "test(9): ST-5 Reminder can be snoozed",
+        "labels": []
+      },
+      {
+        "number": 32,
+        "title": "test(9): ST-6 Expired card is refused",
+        "labels": [
+          "factory:test-passed"
+        ],
+        "state": "closed"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Skip tests",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "9": {
+        "has": [
+          "factory:in-staging"
+        ]
+      },
+      "30": {
+        "has": [
+          "factory:test-skipped"
+        ]
+      },
+      "31": {
+        "has": [
+          "factory:test-skipped"
+        ]
+      }
+    },
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "Tests skipped"
+        ]
+      }
+    }
+  }
+}

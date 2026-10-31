@@ -300,11 +300,17 @@ def build_graph(engine: Engine, checkpointer=None):
             epic = c_port.get_issue(epic_no) or {}
             labels = [(l if isinstance(l, str) else l.get("name"))
                       for l in epic.get("labels", [])]
-            if "factory:design-approved" in labels:
+            # Through the build, and — where the cases run on staging (§4b)
+            # — while the epic is on staging too: the integration merge is
+            # what makes those cases runnable, and a fix re-integrated there
+            # is what returns a failed one to its tester.
+            router = Router(c_port, engine.repo_config(c_port), port_for=engine.port,
+                            estate=engine.cfg.claimed_repos)
+            if router.re_dispatchable(labels):
                 pending.append({"role": "dispatch", "issue": epic_no, "repo": c_repo})
                 log.info("Release run touched epic #%s - re-dispatching what it unblocked", epic_no)
             else:
-                log.info("Epic #%s is not factory:design-approved - nothing to re-dispatch", epic_no)
+                log.info("Epic #%s is not in a dispatchable phase - nothing to re-dispatch", epic_no)
 
         # Expedite (FACTORY.md §4a): the states that would have waited for a
         # human advance themselves. Read from the issue's state *after* the
@@ -424,9 +430,25 @@ def staging_policy(engine: Engine, port: RepoPort, role: str, issue: int) -> tup
     branch = cfg.staging_branch or "staging"
     if role != "release":
         return branch, False
-    labels = [(l if isinstance(l, str) else l.get("name"))
-              for l in (port.get_issue(issue) or {}).get("labels", [])]
-    return branch, EPIC_READY in labels or not cfg.epics
+    if not cfg.epics:
+        return branch, True
+    iss = port.get_issue(issue) or {}
+    labels = [(l if isinstance(l, str) else l.get("name")) for l in iss.get("labels", [])]
+    # A run handed a task reads its epic: a fix landing on an epic that is
+    # already on staging (§4b, cases run there) is re-integrated under the
+    # approval that put the epic there, with no fresh GS.
+    m = re.match(r"^task\((\d+)\)", iss.get("title") or "")
+    if m:
+        epic_no = int(m.group(1))
+        epic_repo, body_no = epic_ref_from_body(iss.get("body"))
+        epic_port = port
+        if epic_repo and epic_repo != f"{port.owner}/{port.repo}" and body_no in (None, epic_no):
+            owner, name = epic_repo.split("/", 1)
+            epic_port = engine.port(owner, name)
+        labels = [(l if isinstance(l, str) else l.get("name"))
+                  for l in (epic_port.get_issue(epic_no) or {}).get("labels", [])]
+        return branch, "factory:in-staging" in labels or EPIC_READY in labels
+    return branch, EPIC_READY in labels
 
 
 def branch_head(port: RepoPort, branch: str) -> str | None:

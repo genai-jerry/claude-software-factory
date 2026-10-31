@@ -42,7 +42,7 @@ STATES = [
     "factory:design-approved", "factory:ready", "factory:in-review",
     "factory:in-test", "factory:ready-to-ship", "factory:on-epic",
     "factory:manual-test", "factory:test-passed", "factory:test-failed",
-    "factory:bug-open", "factory:bug-retest", "factory:bug-verified",
+    "factory:test-skipped", "factory:bug-open", "factory:bug-retest", "factory:bug-verified",
     "factory:epic-ready", "factory:in-staging", "factory:deployed",
     "factory:fast-track", "factory:blocked", "factory:incident",
     "factory:profile",
@@ -251,6 +251,9 @@ def test_the_three_test_states_name_the_testers_and_the_two_comments():
     assert "test-plan.md" in manual["how"]
     # A failed case says what is happening for it, not what the reader must do.
     assert "fix" in TABLE["states"]["factory:test-failed"]["how"]
+    # A skipped case says it was not run, and how to run it after all.
+    assert "Skip tests" in TABLE["states"]["factory:test-skipped"]["how"]
+    assert "reopen" in TABLE["states"]["factory:test-skipped"]["how"]
 
 
 @pytest.mark.parametrize("state", TESTED_STATES)

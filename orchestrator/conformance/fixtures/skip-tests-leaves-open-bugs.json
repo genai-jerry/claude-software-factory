@@ -1,0 +1,100 @@
+{
+  "name": "skip-tests-leaves-open-bugs",
+  "description": "Skip tests closes the cases but never a bug report: a found defect stays found, and the epic comment names it",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": [
+          "factory:manual-test"
+        ]
+      },
+      {
+        "number": 41,
+        "title": "bug(9): Discount ignored at checkout",
+        "labels": [
+          "factory:bug",
+          "factory:bug-open"
+        ],
+        "body": "Part of #9\n\nBlocked by #42"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Skip tests",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "dispatch",
+    "issues": [
+      "9"
+    ],
+    "labels": {
+      "30": {
+        "has": [
+          "factory:test-skipped"
+        ]
+      },
+      "41": {
+        "has": [
+          "factory:bug-open"
+        ],
+        "not": [
+          "factory:test-skipped"
+        ]
+      }
+    },
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "Tests skipped",
+          "#41"
+        ]
+      }
+    }
+  }
+}

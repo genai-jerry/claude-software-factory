@@ -1,0 +1,66 @@
+{
+  "name": "skip-tests-not-an-epic-explained",
+  "description": "Skip tests on a task sub-issue explains that it only works on an epic or one of its cases",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:design-approved"
+        ]
+      },
+      {
+        "number": 12,
+        "title": "task(9): Renewal reminder",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 12,
+    "comment": {
+      "body": "Skip tests",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "12": {
+        "countAtLeast": 1,
+        "contains": [
+          "only works on an **epic**"
+        ]
+      }
+    }
+  }
+}

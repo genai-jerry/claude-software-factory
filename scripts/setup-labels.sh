@@ -25,7 +25,7 @@ OWNER="$1"; shift
 # run and takes it off again, alongside whatever state the issue is in.
 # factory:expedite is the same shape: a marker a human puts on an epic, which
 # keeps whatever state it is in while the factory advances it — see §4a.
-# The three factory:test-* / factory:manual-test states are ordinary states,
+# The four factory:test-* / factory:manual-test states are ordinary states,
 # but they only ever sit on a test(<epic>) sub-issue: a system test case a
 # human runs against the assembled epic — see §4b. factory:bug is a KIND
 # marker on a bug report, which also carries one of the three factory:bug-*
@@ -51,6 +51,7 @@ factory:epic-ready|41A08A|Epic fully assembled and green; awaiting gate GS (rele
 factory:manual-test|D96C1F|System test case ready for a human to run (test sub-issue)
 factory:test-passed|1F7A4D|System test case passed (test sub-issue; terminal)
 factory:test-failed|C0392B|System test case failed; a fix task is in flight (test sub-issue)
+factory:test-skipped|6C757D|System test case skipped by a staging approver (test sub-issue; terminal)
 factory:bug|B33A3A|Bug report raised against an epic during testing (kind, not a state)
 factory:bug-open|C0392B|Bug raised; its fix task is in flight (bug sub-issue)
 factory:bug-retest|D96C1F|Bug fix assembled; a human confirms the repair (bug sub-issue)

@@ -21,9 +21,15 @@ you are in is a property of the epic, never of the task you were handed.
 ## Step 0 — load the repo profiles
 
 For each repo the epic touched, read `.factory/profile.json` — specifically
-`branches`, `estate_role`, and the `deploy` block (`health_checks`, `notes`).
-`estate_role` tells you where that repo sits in the dependency chain;
-`deploy.notes` names the failure modes that must halt the train.
+`branches`, `estate_role`, the `deploy` block (`health_checks`, `notes`) and
+the `test_data` block (`load` / `unload`, FACTORY.md §4b). `estate_role`
+tells you where that repo sits in the dependency chain; `deploy.notes` names
+the failure modes that must halt the train; `test_data` is how this epic's
+system test data gets into the environment its cases run on. Read
+`.github/factory-testing.json` too: with `system_tests` true, its `run_on`
+says where the cases run — `"staging"` (or a repo with no epic branch) means
+on staging after gate GS; anything else means on the epic branch as it
+assembles.
 
 ## Step 0a — resolve each repo's integration and epic branches
 
@@ -77,13 +83,17 @@ label before anything else.
 |---|---|
 | anything short of `factory:epic-ready` (its tasks still arriving at `factory:ready-to-ship`) | Phase 1 |
 | `factory:epic-ready` | Phase 1b — a human has opened gate GS |
-| `factory:in-staging` | Nothing. It is at gate G3, which is a human's merge click (phase 2) |
+| `factory:in-staging` | Were you handed a task at `factory:ready-to-ship`? That is a fix landing on an epic already on staging (a failed case or a bug found there, §4b/§4c): run phase 1 for it onto the epic branch, then re-integrate it — steps 6 to 8 — without a fresh GS. Otherwise nothing: the epic is at gate G3, which is a human's merge click (phase 2) |
 | `factory:deployed` | Nothing. It has shipped; Ops owns it from here |
 
 Never run phase 1b on an epic that is not `factory:epic-ready`. That label is
 the gate: without it, no one has agreed to put this epic on staging. If you
 were started on an epic whose tasks are all assembled but which is not
-`factory:epic-ready`, finish phase 1 (which sets it) and stop there.
+`factory:epic-ready`, finish phase 1 (which sets it) and stop there. The one
+exception is the fix above: the approval that put the epic on staging covers
+the fixes to it, so a fix task's merge may write the integration branch (the
+orchestrator's staging guard allows a release run started from a task whose
+epic is `factory:in-staging`).
 
 ## Phase 1 — epic assembly (you do this)
 
@@ -103,6 +113,13 @@ were started on an epic whose tasks are all assembled but which is not
    for THIS epic — do not proceed down its train. Other epics are unaffected:
    a red epic branch blocks only its own epic.
 
+   Where cases run on the epic branch and the preview is green, load the
+   epic's test data there: the profile's `test_data.load` with the epic's
+   data directory (`openspec/changes/<epic>-<slug>/system-tests/data`) as its
+   last argument. Put the output in the assembly report. A profile with no
+   `test_data` block, or an epic whose loader task has not landed yet, has
+   nothing to load: say so.
+
    **With no epic branch:** merge nothing here. The only branch these task PRs
    could land on is the integration branch, and that merge is the staging
    deploy — it belongs behind gate GS. Verify the PRs (step 2) and go to
@@ -118,23 +135,27 @@ were started on an epic whose tasks are all assembled but which is not
    `factory:ready-to-ship`.
 
    **With system tests on in `gate` mode** (`.github/factory-testing.json`,
-   FACTORY.md §4b) and an epic branch, complete also means every open
-   `test(<epic>)` case whose plan is merged is `factory:test-passed`, **and
+   FACTORY.md §4b), an epic branch, and cases running on it (`run_on` not
+   `"staging"`), complete also means every open `test(<epic>)` case whose
+   plan is merged is `factory:test-passed` or `factory:test-skipped`, **and
    no `bug(<epic>)` report is open** (§4c) — a bug is a defect a tester found
    in this epic, and its fix is one of the tasks you are assembling. If the
    code is assembled but cases or bugs are open, do **not** flip the epic:
    post the assembly report, say it is assembled and waiting on those N cases
    and M bugs (name them, their fixes and their testers), and stop. The last
    `Test Passed` — on the last case or the last bug — re-runs the Dispatcher,
-   and that is what flips the epic. In `advisory` mode, and for
-   an epic with no epic branch, neither holds the flip — list any
-   open or failed case, and any open bug, in the report as unverified. On the **epic** issue, remove whatever state it
+   and that is what flips the epic; so does `Skip tests`. In `advisory`
+   mode, and wherever cases run on staging (no epic branch, or
+   `run_on: staging`), neither holds the flip — list any open or failed
+   case, and any open bug, in the report as unverified, and where cases run
+   on staging say that approving GS is what makes them runnable. On the **epic** issue, remove whatever state it
    carries and apply `factory:epic-ready`, then post an **assembly report**:
    which task PR merged onto which branch in which order, the suite result,
    and anything a human should weigh before this goes to staging. With system
-   tests on, that includes the **test matrix** — every case, its verdict and
-   who gave it — and every bug raised against this epic with its verdict
-   (§4c), since gate GS is where a human weighs it. A bug raised after the
+   tests on, that includes the **test matrix** — every case, its verdict
+   ("skipped by @who" for a skipped one) and who gave it — and every bug
+   raised against this epic with its verdict (§4c), since gate GS is where a
+   human weighs it. A bug raised after the
    epic reached `factory:epic-ready` does not send it backwards: the gate
    refuses the release while one is open, and re-posting the notice with the
    bug named is the whole of your part.
@@ -150,8 +171,10 @@ were started on an epic whose tasks are all assembled but which is not
 
 ## Phase 1b — the integration merge (you do this, once gate GS is open)
 
-**Precondition: the epic is `factory:epic-ready`.** If it is not, you are in
-phase 1 — go back.
+**Precondition: the epic is `factory:epic-ready`** — or `factory:in-staging`
+with a fix task you just assembled onto the epic branch in phase 1, which
+re-enters here at step 6 (the fix rides the approval that put the epic on
+staging). If it is neither, you are in phase 1 — go back.
 
 6. **With an epic branch:** reconcile — if the integration branch has moved
    since the epic branch was cut or last refreshed, merge the integration
@@ -169,23 +192,37 @@ phase 1 — go back.
    affected repo's epic branch is green (§7); then merge them yourself in the
    contract-first order from step 1, each with a **merge commit** (never
    squash — task history and the single-revert demotion path must survive).
-7a. **With system tests on and no epic branch** (§4b), the merges you just
-   made are the first time this epic's code has reached a shared branch, so
-   its cases can only run now. The Dispatcher releases them as the tasks
-   reach `factory:in-staging`; say in your integration report that the cases
-   are now runnable and who the testers are. The factory does not hold gate
-   G3 on them — that gate is a human's merge click — so their verdicts travel
-   as evidence instead: see step 10.
+7a. **With system tests on and cases running on staging** — no epic branch,
+   or `run_on: staging` (§4b) — the merges you just made are the first time
+   this epic's code has reached the environment its cases run on, so they can
+   only run now. The Dispatcher releases them as the tasks reach
+   `factory:in-staging` (the engine re-runs it after you); say in your
+   integration report that the cases are now runnable and who the testers
+   are. The factory does not hold gate G3 on them — that gate is a human's
+   merge click — so their verdicts travel as evidence instead: see step 10.
+   For a fix re-integrated onto an epic already on staging, the same
+   applies: the Dispatcher sends the case or bug back for its re-run once
+   the fix task is `factory:in-staging`.
 
 8. After each integration merge, watch that repo's staging deploy workflow and
-   run its `deploy.health_checks`. When green: on the epic and its task
-   issues, remove `factory:on-epic` (and `factory:epic-ready` from the epic),
-   apply `factory:in-staging`.
+   run its `deploy.health_checks`. When green, **load the test data** where
+   the profile has a `test_data` block and the epic has sets: run
+   `test_data.load` with the epic's data directory
+   (`openspec/changes/<epic>-<slug>/system-tests/data`) as its last
+   argument, against staging. Do it before the labels move, so no case is
+   released into an empty environment; on a re-integrated fix, run it again
+   (the loader is idempotent). A load that fails does **not** stop the
+   release — staging is green — but your report must say so under **You need
+   to:** with the exact command to run by hand. Then: on the epic and its
+   task issues, remove `factory:on-epic` (and `factory:epic-ready` from the
+   epic), apply `factory:in-staging`. For a fix on an epic already
+   `factory:in-staging`, move only the fix task.
 9. Post an **integration report** on the epic: which PR merged onto which
    branch in which order, the epic-branch verification, the staging deploy
-   run, and the health-check output that proves staging is good. That
-   evidence is what the human reads at gate G3 — without it there is nothing
-   to approve.
+   run, the health-check output that proves staging is good, and the test
+   data load — which sets, and the command's output. That evidence is what
+   the human reads at gate G3 — without it there is nothing to approve — and
+   the load output is what the Dispatcher points testers at.
 
 ## Phase 2 — promotion to the default branch (gate G3, the human does this)
 
@@ -195,13 +232,15 @@ phase 1 — go back.
     (name every epic riding this promotion), the position of this repo in the
     merge order, the staging evidence from step 9, and the rollback plan. With
     system tests on, add the **test matrix** — every case with its verdict
-    and tester, and every bug raised against this epic with its verdict
-    (§4c) — and, when any case is still open or failed, or any bug is still
-    open, say so in as
-    many words at the top of the body: this promotion carries unverified
-    system tests or unrepaired defects, and the human merging it is the one
-    deciding that is
-    acceptable. If
+    and tester ("skipped by @who" for a skipped one), and every bug raised
+    against this epic with its verdict (§4c) — and, when any case is still
+    open or failed, or any bug is still open, say so in as many words at the
+    top of the body: this promotion carries unverified system tests or
+    unrepaired defects, and the human merging it is the one deciding that is
+    acceptable. Where cases run on staging this is the normal state when you
+    open the PR — the cases are only now runnable — so say that too, and
+    that the Dispatcher re-posts the matrix on the epic when the last one is
+    done. If
     the promotion PR conflicts because the default branch moved, merge the
     default branch **into the integration branch** and re-verify staging —
     never rewrite the integration branch's history, and never resolve it on
@@ -218,7 +257,11 @@ phase 1 — go back.
 13. After each human merge, watch the corresponding production deploy workflow
     and report status on the epic. When every repo is promoted: on the epic
     and its task issues remove `factory:in-staging`, apply
-    `factory:deployed`. Then merge the default branch into every OTHER live
+    `factory:deployed`. Where the profile has a `test_data` block and you
+    loaded this epic's sets on staging, run `test_data.unload` there now,
+    with the same data directory, so sets do not pile up from one epic to
+    the next; report the output, and a failure as something to run by hand.
+    Then merge the default branch into every OTHER live
     epic branch in each repo (§6b freshness — a merge, never a rebase); a
     conflict marks that epic `factory:blocked` with the conflicting files
     named. Post release notes and hand off to `/factory:ops`.

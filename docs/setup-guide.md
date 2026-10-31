@@ -160,9 +160,18 @@ Notes:
   own GO verdict open G0 instead of a person.
 - `factory-testing.json` turns on system tests (FACTORY.md §4b): the Test
   Planner writes a plan of human-run cases into each epic's change folder and
-  opens one `test(<epic>)` sub-issue per case. `"mode": "gate"` holds an epic
-  short of staging until every case passes; `"advisory"` reports instead. To
-  let OpenSpec track the two new artifacts, also copy
+  opens one `test(<epic>)` sub-issue per case — plus the records each case
+  needs under `system-tests/data/` and one task that builds the loader for
+  them, which the Release Manager runs on the test environment. `"run_on"`
+  says where a person runs the cases: `"epic"` (the default) on the epic's
+  preview environment as the code assembles, `"staging"` on staging after
+  gate GS — the choice for an estate with no preview environments. Under
+  `"epic"`, `"mode": "gate"` holds an epic short of staging until every case
+  passes or is skipped; `"advisory"` reports instead; under `"staging"`
+  nothing holds and the verdicts are evidence on the promotion PR. A
+  `staging` approver can comment `Skip tests` on an epic to close its open
+  cases without running them. To let OpenSpec track the two new artifacts,
+  also copy
   `templates/openspec/schemas/factory/` to `openspec/schemas/factory/` and set
   `schema: factory` in `openspec/config.yaml` — optional and independent.
 - The same file turns on **bug reports** (FACTORY.md §4c): `bug_reports`

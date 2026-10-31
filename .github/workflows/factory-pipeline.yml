@@ -52,6 +52,11 @@ name: Factory pipeline (reusable)
 #   Reviewer agent: it flips factory:in-review -> factory:in-test directly, for
 #   a human who reviewed the draft PR themselves. Like starting the Reviewer,
 #   there is no approver list for this stage — any collaborator may say it.
+# - A comment of exactly "Skip tests" from a `staging` approver on an epic
+#   (factory:design-approved onward) closes its open system test cases as
+#   factory:test-skipped; on a test(<epic>) case it skips that one. Bugs are
+#   never skipped. With the testing policy's run_on: "staging" the cases run
+#   on staging after gate GS instead of on the epic branch, and never hold GS.
 # - While a role is actually running, its issue carries factory:in-progress.
 #   A role takes minutes, and until it finished the issue looked exactly like
 #   one nothing had started on; the marker makes "a GitHub Action is working on
@@ -241,6 +246,9 @@ jobs:
             const MANUAL_TEST = 'factory:manual-test';
             const TEST_PASSED = 'factory:test-passed';
             const TEST_FAILED = 'factory:test-failed';
+            // A case a staging approver chose not to run (`Skip tests`, §4b).
+            // Terminal, like test-passed; the gate carries it as evidence.
+            const TEST_SKIPPED = 'factory:test-skipped';
             // Bug reports (FACTORY.md §4c). factory:bug is a KIND marker: it
             // stays on the report for life and never reads as a state. The
             // three states below only ever sit on a bug(<epic>) sub-issue - a
@@ -328,6 +336,12 @@ jobs:
             // with bugs and no written plan.
             const bugReports = typeof testingCfg.bug_reports === 'boolean'
               ? testingCfg.bug_reports : systemTests;
+            // Where a human runs the cases (§4b `run_on`). "epic" (the default)
+            // releases them on the epic branch and lets them hold gate GS;
+            // "staging" releases them only once the epic is on staging, where
+            // they are evidence at G3 and never a hold - the posture a repo
+            // with no epic branch has always had.
+            const runOn = testingCfg.run_on === 'staging' ? 'staging' : 'epic';
             // Release gating is opt-in: no file (or "gating":"none") keeps the
             // original behaviour where a filed issue goes straight to intake.
             const releaseCfg = loadJson('.github/factory-release.json');
@@ -674,7 +688,13 @@ jobs:
             // gate, and there is an epic branch to hold the epic on. Without
             // one the code first reaches a shared branch at GS itself, so the
             // bugs are evidence in the promotion PR, never a hold.
-            const bugsHoldGS = () => bugReports && testMode === 'gate' && epicsPolicy();
+            const bugsHoldGS = () => bugReports && testMode === 'gate' && epicsPolicy() && runOn === 'epic';
+            // Whether this repo's cases run on staging rather than on the epic
+            // branch: no epic branch to run them on, or the policy says so.
+            // "Assembled" for a case's dependencies is then factory:in-staging,
+            // and the re-dispatches that release cases also fire while the
+            // epic is factory:in-staging.
+            const casesRunOnStaging = () => !epicsPolicy() || runOn === 'staging';
             const bugBlocker = (bugs) => [
               '`Approved` has no effect while this epic has an open bug — gate GS is held (FACTORY.md §4c).',
               '',
@@ -1071,6 +1091,9 @@ jobs:
               const isPlanTests = /^\s*plan\s+tests\s*[.!]?\s*$/i.test(body);
               const isTestPassed = /^\s*test\s+passed\s*[.!]?\s*$/i.test(body);
               const isTestFailed = /^\s*test\s+failed\s*[.!]?\s*$/i.test(body);
+              // `Skip tests` (§4b): a staging approver closes an epic's open
+              // cases as skipped - or, on a case, just that one.
+              const isSkipTests = /^\s*skip\s+tests\s*[.!]?\s*$/i.test(body);
               // The bug control (§4c) is the one that reads past its first
               // line: the match is on that line, the report is everything under it.
               const bugCtl = bugControl(body);
@@ -1297,10 +1320,139 @@ jobs:
                   const parent = c.epic ? await github.rest.issues.get({
                     owner, repo, issue_number: c.epic,
                   }).then(r => r.data).catch(() => null) : null;
-                  if (parent && namesOf(parent.labels).includes('factory:design-approved')) {
+                  // On an epic already on staging (cases running there, §4b
+                  // `run_on`) the last pass completes nothing, but the
+                  // Dispatcher is still the one that posts the finished matrix.
+                  const pl = parent ? namesOf(parent.labels) : [];
+                  if (pl.includes('factory:design-approved') ||
+                      (pl.includes('factory:in-staging') && casesRunOnStaging())) {
                     role = 'dispatch';
                     issue = String(c.epic);
                     core.info(`Re-dispatching epic #${c.epic} - a pass may have completed it`);
+                  }
+                }
+              } else if (isSkipTests) {
+                // Skipping is a release decision, so the `staging` list owns it
+                // (falling back to `release`, then to any collaborator). On an
+                // epic it closes every open case as skipped; on a case, that
+                // one. Bugs are never skipped: a found defect stays found.
+                const st = stateOf(labels);
+                const SKIP_STATES = ['factory:design-approved', EPIC_READY, 'factory:in-staging'];
+                const skipCase = async (cs) => {
+                  const c = caseOf(cs.title);
+                  for (const l of [MANUAL_TEST, TEST_FAILED]) {
+                    if (namesOf(cs.labels).includes(l)) await dropLabel(cs.number, l);
+                  }
+                  await addLabels(cs.number, [TEST_SKIPPED]);
+                  await say(cs.number,
+                    `**${c.id || 'This case'} skipped** — recorded by @${sender}. Not run; closing it.`);
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: cs.number, state: 'closed',
+                  }).catch(() => {});
+                  core.info(`System test #${cs.number} skipped by ${sender}`);
+                  return c.id || `#${cs.number}`;
+                };
+                // The epic's story after a skip: who is still owed what.
+                const afterSkip = async (epic, epicLabels, skipped, left) => {
+                  const bugs = bugReports ? await openBugs(epic) : [];
+                  const fixes = left.map(cs => {
+                    const fx = /(?:^|\n)\s*blocked by\s*#(\d+)/i.exec(cs.body || '');
+                    return fx ? `#${fx[1]} (${caseOf(cs.title).id || '#' + cs.number})` : null;
+                  }).filter(Boolean);
+                  const lines = [
+                    `**Tests skipped** by @${sender} — ${skipped.length} case${skipped.length === 1 ? '' : 's'} ` +
+                    `closed as skipped: ${skipped.join(', ')}.`,
+                    '',
+                  ];
+                  if (bugs.length) {
+                    lines.push('Open bugs are not skipped — a defect somebody found stays found: ' +
+                      bugs.map(b => `#${b.number}`).join(', ') + '. Each closes when its fix is confirmed, ' +
+                      'or when a person closes the report as not a defect.');
+                  }
+                  if (fixes.length) {
+                    lines.push('Fix tasks already filed for failed cases stay in flight: ' +
+                      fixes.join(', ') + '.');
+                  }
+                  if (epicLabels.includes('factory:design-approved')) {
+                    lines.push('The Dispatcher runs now: if every task is assembled the epic moves to ' +
+                      '`factory:epic-ready` and asks for gate GS, with the skipped cases listed as evidence.');
+                  } else if (epicLabels.includes(EPIC_READY)) {
+                    lines.push('The epic is at gate GS; the skipped cases travel with it as evidence.');
+                  } else {
+                    lines.push('The epic is on staging; the skipped cases are listed in the promotion PR ' +
+                      'as unverified, and gate G3 stays a human\'s merge click.');
+                  }
+                  return lines.join('\n');
+                };
+                if (!systemTests) {
+                  await say(i.number,
+                    'System tests are not enabled in this repository, so there is nothing to skip ' +
+                    '(`.github/factory-testing.json`, FACTORY.md §4b). Nothing changed.');
+                } else if (!authorized('staging')) {
+                  await refuse('staging', "skipping this epic's system tests");
+                } else if (isTestCase) {
+                  if (labels.includes(TEST_PASSED)) {
+                    await say(i.number, '`Skip tests` has no effect — this case has already passed.');
+                  } else if (labels.includes(TEST_SKIPPED) || i.state === 'closed') {
+                    await say(i.number, '`Skip tests` has no effect — this case is already skipped or closed.');
+                  } else {
+                    const c = caseOf(i.title);
+                    const id = await skipCase(i);
+                    const parent = c.epic ? await github.rest.issues.get({
+                      owner, repo, issue_number: c.epic,
+                    }).then(r => r.data).catch(() => null) : null;
+                    const pl = parent ? namesOf(parent.labels) : [];
+                    if (parent) {
+                      await say(c.epic, await afterSkip(c.epic, pl, [id], []));
+                      if (pl.includes('factory:design-approved')) {
+                        role = 'dispatch';
+                        issue = String(c.epic);
+                        core.info(`Re-dispatching epic #${c.epic} - a skip may have completed it`);
+                      }
+                    }
+                  }
+                } else if (isTracker || labels.includes(PROFILE_KIND) || labels.includes(FAST_TRACK) ||
+                           isTaskTitle(i.title) || isBug) {
+                  await say(i.number,
+                    '`Skip tests` only works on an **epic** or on one of its `test(<epic>)` cases. This issue is ' +
+                    (isTracker ? 'a release tracker'
+                      : labels.includes(PROFILE_KIND) ? "this repository's profile issue"
+                      : labels.includes(FAST_TRACK) ? 'in the fast lane, which has no system tests'
+                      : isBug ? 'a bug report — a found defect is never skipped' : 'a task sub-issue') +
+                    ', so nothing changed.');
+                } else if (i.state === 'closed' || labels.includes('factory:deployed')) {
+                  await say(i.number,
+                    '`Skip tests` has no effect here — this epic has shipped, and there is nothing left to skip.');
+                } else if (!SKIP_STATES.includes(st)) {
+                  await say(i.number,
+                    `\`Skip tests\` has no effect while this epic is at **${st}** — its cases are not runnable yet, ` +
+                    'so there is nothing to skip. It works from `factory:design-approved` onward, once the ' +
+                    'plan is merged and the cases exist.');
+                } else {
+                  let found = [];
+                  try {
+                    found = await github.paginate(github.rest.issues.listForRepo, {
+                      owner, repo, state: 'open', per_page: 100,
+                    });
+                  } catch (e) {
+                    core.warning(`Could not list the cases of epic #${i.number} (${e.message})`);
+                  }
+                  const cases = found
+                    .filter(cs => !cs.pull_request && caseOf(cs.title).epic === i.number &&
+                                  !namesOf(cs.labels).includes(TEST_PASSED) &&
+                                  !namesOf(cs.labels).includes(TEST_SKIPPED))
+                    .sort((a, b) => a.number - b.number);
+                  if (!cases.length) {
+                    await say(i.number,
+                      '`Skip tests` found no open case on this epic — nothing to skip.');
+                  } else {
+                    const skipped = [];
+                    for (const cs of cases) skipped.push(await skipCase(cs));
+                    await say(i.number, await afterSkip(i.number, labels, skipped, cases));
+                    if (labels.includes('factory:design-approved')) {
+                      role = 'dispatch';
+                      core.info(`Tests skipped on #${i.number} - re-dispatching, it may now be complete`);
+                    }
                   }
                 }
               } else if (isTestFailed && isTestCase && labels.includes(MANUAL_TEST)) {
@@ -1560,6 +1712,10 @@ jobs:
                       'Test Planner opened. This is not one, so nothing changed.');
                   } else if (labels.includes(TEST_PASSED)) {
                     await say(i.number, `${what} has no effect — this case has already passed.`);
+                  } else if (labels.includes(TEST_SKIPPED)) {
+                    await say(i.number,
+                      `${what} has no effect — this case was skipped by a staging approver and is closed. ` +
+                      'To run it after all, reopen it and apply `factory:manual-test`.');
                   } else if (labels.includes(TEST_FAILED)) {
                     const fx = /(?:^|\n)\s*blocked by\s*#(\d+)/i.exec(i.body || '');
                     await say(i.number,
@@ -1769,7 +1925,11 @@ jobs:
                       owner: epicOwner, repo: epicRepo, issue_number: Number(epic),
                     }).catch(() => ({ data: null })) || {};
                     const parentLabels = parent ? namesOf(parent.labels) : [];
-                    if (!parentLabels.includes('factory:design-approved')) {
+                    // An epic on staging whose cases run there (§4b `run_on`)
+                    // still has cases to release as fixes land.
+                    const onStagingTesting = parentLabels.includes('factory:in-staging') &&
+                      systemTests && casesRunOnStaging();
+                    if (!parentLabels.includes('factory:design-approved') && !onStagingTesting) {
                       core.info(`Epic ${epicOwner}/${epicRepo}#${epic} is not factory:design-approved - not re-dispatching`);
                     } else if (elsewhere) {
                       // The dispatcher has to run over there, in that repo's own
@@ -3165,9 +3325,26 @@ jobs:
           echo "epic=$EPIC" >> "$GITHUB_OUTPUT"
           # Only while the epic is in its implementation phase, exactly like
           # the task-closed re-dispatch: past it (or short of it) a dispatch
-          # has nothing to release.
-          if gh api "repos/$GITHUB_REPOSITORY/issues/$EPIC" --jq '.labels[].name' 2>/dev/null | grep -qx 'factory:design-approved'; then
+          # has nothing to release. One exception (FACTORY.md §4b `run_on`):
+          # an epic on staging whose cases run there still has cases and
+          # re-tests to release as the Release Manager lands things on it.
+          LABELS=$(gh api "repos/$GITHUB_REPOSITORY/issues/$EPIC" --jq '.labels[].name' 2>/dev/null || echo "")
+          # No checkout in this job: the two policy files are read over the API.
+          # Either one missing or unparseable reads as its defaults.
+          TESTING=$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/factory-testing.json" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "{}")
+          BRANCHES=$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/factory-branches.json" --jq '.content' 2>/dev/null | base64 -d 2>/dev/null || echo "{}")
+          STAGING_TESTS=$(TESTING="$TESTING" BRANCHES="$BRANCHES" python3 -c "
+          import json, os
+          def load(s):
+              try: return json.loads(s) or {}
+              except Exception: return {}
+          t = load(os.environ['TESTING']); epics = load(os.environ['BRANCHES']).get('epics') is True
+          print(t.get('system_tests') is True and (not epics or t.get('run_on') == 'staging'))" 2>/dev/null || echo False)
+          if printf '%s\n' "$LABELS" | grep -qx 'factory:design-approved'; then
             echo "Release run touched epic #$EPIC - re-dispatching to release what it unblocked."
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          elif [ "$STAGING_TESTS" = "True" ] && printf '%s\n' "$LABELS" | grep -qx 'factory:in-staging'; then
+            echo "Release run touched epic #$EPIC on staging, where its cases run - re-dispatching to release them."
             echo "proceed=true" >> "$GITHUB_OUTPUT"
           else
             echo "Epic #$EPIC is not factory:design-approved - nothing to re-dispatch."

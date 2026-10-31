@@ -15,11 +15,16 @@ Produce a grounded technical design for every affected repo.
    `system-tests/test-plan.md` and `test-data.md` to the shared design
    branch. **Read them before you design.** They say what a human will
    exercise and what data they will need, and two things in your design
-   answer to that: the seed path or fixtures the plan's `Setup:` lines
-   assume must exist, and the preview environment its Environment section
-   names must be deployable. Neither is a reason to change the plan — it is
-   black-box and derived from the approved spec — but a design that makes
-   its cases unrunnable is a design finding.
+   answer to that: the **test data loader task** the Test Planner appended
+   to `tasks.md` (`## Task <n> — Test data loader`) gets a `## Task` section
+   like every other — which module loads the records under
+   `system-tests/data/`, how it reaches the environment the plan's
+   Environment section names (staging under `run_on: staging`, else the
+   preview), how `test_data.unload` removes them, and how a second load
+   stays idempotent; and that environment must be deployable. Neither is a
+   reason to change the plan — it is black-box and derived from the approved
+   spec — but a design that makes its cases unrunnable, or its data
+   unloadable where the cases run, is a design finding.
 
 1. Resolve each affected repo's home branch for this epic (FACTORY.md
    §6/§6a): with `.github/factory-branches.json` `epics: true` it is

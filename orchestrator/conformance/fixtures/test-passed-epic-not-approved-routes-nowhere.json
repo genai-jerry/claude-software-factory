@@ -1,6 +1,6 @@
 {
   "name": "test-passed-epic-not-approved-routes-nowhere",
-  "description": "a pass on a case whose epic is past its build phase records the verdict but starts no dispatch",
+  "description": "a pass on a case whose epic is past its build phase records the verdict but starts no dispatch (cases run on the epic branch, so nothing is left for the Dispatcher on staging)",
   "config": {
     "testing": {
       "system_tests": true,
@@ -22,6 +22,12 @@
       "testers": [
         "tess"
       ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
     }
   },
   "repo": {

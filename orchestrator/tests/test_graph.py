@@ -512,3 +512,96 @@ def test_a_cross_repo_tasks_release_re_dispatches_its_epic(tmp_path):
         "repository": {"full_name": "o/conn"}})
     assert [(c["role"], c["repo"], c["issue"]) for c in runner.calls] == [
         ("release", "o/conn", 10), ("dispatch", "o/api", 34)]
+
+
+class StagingTestsRepo(ConfiguredRepo):
+    """A repo with epic branches whose cases run on staging (run_on: staging)."""
+
+    files = {**ConfiguredRepo.files,
+             ".github/factory-testing.json": json.dumps(
+                 {"system_tests": True, "mode": "gate", "run_on": "staging"}),
+             ".github/factory-branches.json": json.dumps(
+                 {"staging": "staging", "required": True, "auto_create": True, "epics": True})}
+
+
+class NoEpicBranchTestsRepo(ConfiguredRepo):
+    """System tests on, no epic branch: the cases first run on staging."""
+
+    files = {**ConfiguredRepo.files,
+             ".github/factory-testing.json": json.dumps({"system_tests": True, "mode": "gate"}),
+             ".github/factory-branches.json": json.dumps(
+                 {"staging": "staging", "required": True, "auto_create": True, "epics": False})}
+
+
+def test_release_onto_staging_re_dispatches_when_cases_run_there(tmp_path):
+    """With run_on staging the integration merge is what makes the cases
+    runnable, so a release that lands a task on staging re-dispatches the
+    epic that is already past its build (FACTORY.md §4b)."""
+    world = StagingTestsRepo({
+        9: issue(9, "Epic", ["factory:in-staging"]),
+        12: issue(12, "task(9) Renewals", ["factory:ready-to-ship"]),
+    })
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {
+        "release": lambda w, n: flip(w, n, "factory:ready-to-ship", "factory:in-staging"),
+        "dispatch": lambda w, n: w.create_comment(n, "released\n\n<!-- factory-agent -->"),
+    })
+    Processor(engine, graph)("workflow_dispatch", {
+        "inputs": {"role": "release", "issue_number": "12"},
+        "repository": {"full_name": "o/r"}})
+    assert [(c["role"], c["issue"]) for c in runner.calls] == [("release", 12), ("dispatch", 9)]
+
+
+def test_release_onto_staging_re_dispatches_without_an_epic_branch(tmp_path):
+    """The same under epics:false, where the cases have always run on staging."""
+    world = NoEpicBranchTestsRepo({
+        9: issue(9, "Epic", ["factory:in-staging"]),
+        12: issue(12, "task(9) Renewals", ["factory:ready-to-ship"]),
+    })
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {
+        "release": lambda w, n: flip(w, n, "factory:ready-to-ship", "factory:in-staging"),
+        "dispatch": lambda w, n: w.create_comment(n, "released\n\n<!-- factory-agent -->"),
+    })
+    Processor(engine, graph)("workflow_dispatch", {
+        "inputs": {"role": "release", "issue_number": "12"},
+        "repository": {"full_name": "o/r"}})
+    assert [(c["role"], c["issue"]) for c in runner.calls] == [("release", 12), ("dispatch", 9)]
+
+
+def test_release_past_the_build_does_not_re_dispatch_when_cases_run_on_the_epic(tmp_path):
+    """Without the policy an epic on staging has nothing left for a Dispatcher."""
+    world = SystemTestsRepo({
+        9: issue(9, "Epic", ["factory:in-staging"]),
+        12: issue(12, "task(9) Renewals", ["factory:ready-to-ship"]),
+    })
+    world.files = {**world.files, ".github/factory-branches.json": json.dumps(
+        {"staging": "staging", "required": True, "auto_create": True, "epics": True})}
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {
+        "release": lambda w, n: flip(w, n, "factory:ready-to-ship", "factory:on-epic"),
+        "dispatch": lambda w, n: None,
+    })
+    Processor(engine, graph)("workflow_dispatch", {
+        "inputs": {"role": "release", "issue_number": "12"},
+        "repository": {"full_name": "o/r"}})
+    assert [c["role"] for c in runner.calls] == ["release"]
+
+
+def test_a_fix_for_an_epic_on_staging_may_write_the_integration_branch(tmp_path):
+    """A release run handed a task whose epic is already on staging (a fix,
+    §4b run_on staging) re-integrates under the approval that put the epic
+    there; one handed a task of an epic still building may not."""
+    from factory_orchestrator.graph import staging_policy
+    world = StagingTestsRepo({
+        9: issue(9, "Epic", ["factory:in-staging"]),
+        8: issue(8, "Other epic", ["factory:design-approved"]),
+        12: issue(12, "task(9): fix ST-4", ["factory:ready-to-ship"]),
+        13: issue(13, "task(8): renewals", ["factory:ready-to-ship"]),
+        14: issue(14, "Epic ready", ["factory:epic-ready"]),
+    })
+    engine, _ledger, _runner = make_engine(tmp_path, world, {})
+    assert staging_policy(engine, world, "release", 12) == ("staging", True)
+    assert staging_policy(engine, world, "release", 13) == ("staging", False)
+    assert staging_policy(engine, world, "release", 14) == ("staging", True)
+    # The epic itself still opens the branch only at gate GS; on staging the
+    # Release Manager's work is the promotion PR, not another integration.
+    assert staging_policy(engine, world, "release", 9) == ("staging", False)
+    assert staging_policy(engine, world, "dispatch", 12) == ("staging", False)
