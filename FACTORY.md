@@ -1221,6 +1221,12 @@ to, and proved on, an integration branch first.** That branch is the org's —
 `staging`, `develop`, `qa`, `integration`, whatever the estate already calls
 it. The name is arbitrary; the step is not.
 
+**Level with the default branch first.** Before the Release Manager puts an
+epic on the integration branch (phase 1b, step 6), it merges the default
+branch into the integration branch, so anything a person merged straight to
+the default branch — a CI change, a hotfix — is on staging before the epic
+is, and the promotion PR carries only what the train brought.
+
 The policy lives in `.github/factory-branches.json`, copied from
 `templates/factory-branches.json` and **identical across the estate** — it is
 an org decision, not a per-repo one:
