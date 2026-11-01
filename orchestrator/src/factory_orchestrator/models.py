@@ -24,7 +24,11 @@ from .github_app import RepoPort, parse_json_or_empty
 
 log = logging.getLogger("factory-orchestrator.models")
 
-DEFAULT_CHAIN = ["claude-sonnet-5"]
+#: The chain for a role the repo's models file does not name. It has to end
+#: in something every credential can reach: `ask` (the Compass's Ask and
+#: Shape) had no entry anywhere, fell to a single model the subscription
+#: could not use, and every question failed with "no model accessible".
+DEFAULT_CHAIN = ["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5-20251001"]
 MODELS_PATH = ".github/factory-models.json"
 
 Probe = Callable[[str], bool]

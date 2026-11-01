@@ -33,7 +33,17 @@ def test_missing_role_uses_default_chain():
     probe = probe_allowing(*DEFAULT_CHAIN)
     r = resolve_model("reviewer", {}, probe)
     assert r.model == DEFAULT_CHAIN[0]
-    assert probe.calls == DEFAULT_CHAIN
+    assert probe.calls == [DEFAULT_CHAIN[0]]
+
+
+def test_missing_role_falls_through_the_default_chain():
+    # `ask` had no entry anywhere and the subscription could not use the one
+    # default model, so every question failed. The default must reach a
+    # model the credential has.
+    probe = probe_allowing("claude-opus-5")
+    r = resolve_model("ask", {"intake": ["claude-opus-5"]}, probe)
+    assert r.model == "claude-opus-5"
+    assert r.fallbacks == ["claude-sonnet-5"]
 
 
 def test_string_chain_and_junk_config():
