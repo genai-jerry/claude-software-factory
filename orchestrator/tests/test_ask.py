@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -206,3 +207,76 @@ async def test_the_endpoint_validates_images_and_passes_mode(tmp_path):
         worse = await c.post("/ask", json={**body, "mode": "draw"}, headers=h)
         assert worse.status_code == 400
     assert seen["mode"] == "shape" and seen["images"][0]["name"] == "s.png"
+
+
+def test_sibling_repositories_are_checked_out_beside_the_primary(tmp_path):
+    # The fake claude lists the home: the primary and each sibling sit side by side.
+    listing = tmp_path / "home.txt"
+    engine, out = engine_for(tmp_path)
+    (tmp_path / "claude-hook.sh").write_text(f"ls \"$HOME\" > {listing}\necho '{RESULT}'\n")
+    answer_question(engine, owner="o", repo="r", question="Where does the web read this?", context="",
+                    repos=[{"owner": "o", "repo": "web", "branch": "factory/epic-35"},
+                           {"owner": "o", "repo": "r", "branch": None},  # the primary: dropped
+                           {"owner": "o", "repo": "connectors", "branch": None}])
+    prompt = next(out.glob("prompt-*.txt")).read_text()
+    assert "Other repositories of this project are checked out beside it" in prompt
+    # The test origin has no factory/epic-35, so the sibling falls back to its default branch.
+    assert "`../web` (on `" in prompt and "`../connectors` (on `" in prompt
+    assert "factory/epic-35" not in prompt
+    argv = next(out.glob("argv-*.txt")).read_text().split("\n")
+    dirs = [argv[i + 1] for i, a in enumerate(argv) if a == "--add-dir"]
+    assert [Path(d).name for d in dirs] == ["web", "connectors"]
+    assert sorted(x for x in listing.read_text().split() if x != "attachments") == ["connectors", "r", "web"]
+    assert not list((tmp_path / "ws").iterdir())
+
+
+def test_a_sibling_that_cannot_be_reached_is_named_not_fatal(tmp_path):
+    engine, out = engine_for(tmp_path)
+
+    def token_for(owner, repo, **_):
+        if repo == "broken":
+            raise RuntimeError("no installation covers o/broken")
+        return "ghs_secret"
+    engine.app = SimpleNamespace(installation_token=token_for)
+    got = answer_question(engine, owner="o", repo="r", question="why?", context="",
+                          repos=[{"owner": "o", "repo": "broken", "branch": None},
+                                 {"owner": "o", "repo": "web", "branch": None}])
+    assert got["answer"].startswith("It stopped")
+    prompt = next(out.glob("prompt-*.txt")).read_text()
+    assert "Not available this time" in prompt and "`broken`" in prompt
+    assert "`../web` (on `" in prompt
+    argv = next(out.glob("argv-*.txt")).read_text().split("\n")
+    assert sum(1 for a in argv if a == "--add-dir") == 1
+
+
+def test_bad_sibling_lists_are_refused_before_anything_runs(tmp_path):
+    engine, out = engine_for(tmp_path)
+    with pytest.raises(AskError) as e:
+        answer_question(engine, owner="o", repo="r", question="x", context="",
+                        repos=[{"owner": "o", "repo": f"s{i}"} for i in range(9)])
+    assert e.value.status == 400 and "At most 8" in str(e.value)
+    with pytest.raises(AskError) as e:
+        answer_question(engine, owner="o", repo="r", question="x", context="", repos=[{"owner": "o"}])
+    assert e.value.status == 400
+    assert not list(out.glob("argv-*.txt"))
+
+
+async def test_the_endpoint_validates_repos(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db", "DISPATCH_TOKEN": "op-token"})
+    app = create_app(cfg, Ledger(cfg.database_url), lambda *_: None, poll_interval=0.05)
+    seen = {}
+
+    def asker(**kw):
+        seen.update(kw)
+        return {"answer": "ok", "model": "m", "usage": {}}
+    app.state.asker = asker
+    h = {"authorization": "Bearer op-token"}
+    body = {"owner": "o", "repo": "r", "question": "x", "repos": [{"owner": "o", "repo": "web", "branch": "main"}]}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        ok = await c.post("/ask", json=body, headers=h)
+        assert ok.status_code == 200, ok.text
+        bad = await c.post("/ask", json={**body, "repos": "web"}, headers=h)
+        assert bad.status_code == 400
+        many = await c.post("/ask", json={**body, "repos": [{"owner": "o", "repo": f"s{i}"} for i in range(9)]}, headers=h)
+        assert many.status_code == 400 and "At most 8" in many.json()["detail"]
+    assert seen["repos"] == [{"owner": "o", "repo": "web", "branch": "main"}]

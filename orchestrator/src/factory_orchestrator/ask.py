@@ -60,11 +60,14 @@ MAX_IMAGES = 6
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
+#: Sibling repositories a conversation may read beside the primary one.
+MAX_REPOS = 8
+
 INTRO = """You answer a question from a person using the Compass.
 
 Repository: {repo}. Your working directory is a read-only checkout of it{branch_note}.
 You can read files and run `git log`, `git show`, `git diff` and `git blame`.
-You cannot change anything, and you cannot reach GitHub or any other service."""
+You cannot change anything, and you cannot reach GitHub or any other service.{siblings}"""
 
 #: How to write the answer, unless the caller (the Console, which sends the
 #: same standard plus its citation rules) brings its own.
@@ -159,6 +162,89 @@ def check_images(images: Any) -> list[dict[str, Any]]:
     return out
 
 
+def check_repos(repos: Any, owner: str, repo: str) -> list[dict[str, Any]]:
+    """Validate the sibling `repos` a caller sent; the list to check out, or an AskError (400).
+
+    An entry naming the primary repository is dropped: it is already there.
+    """
+    if repos is None:
+        return []
+    if not isinstance(repos, list):
+        raise AskError("repos must be a list.", 400)
+    if len(repos) > MAX_REPOS:
+        raise AskError(f"At most {MAX_REPOS} repositories per question.", 400)
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for i, r in enumerate(repos, start=1):
+        if not isinstance(r, dict):
+            raise AskError(f"Repository {i} is not an object.", 400)
+        o, n = r.get("owner"), r.get("repo")
+        if not isinstance(o, str) or not o.strip() or not isinstance(n, str) or not n.strip():
+            raise AskError(f"Repository {i} needs owner and repo.", 400)
+        b = r.get("branch")
+        if b is not None and not isinstance(b, str):
+            raise AskError(f"Repository {i}: branch must be a string or null.", 400)
+        o, n = o.strip(), n.strip()
+        key = f"{o}/{n}".lower()
+        if key == f"{owner}/{repo}".lower() or key in seen or n == repo:
+            continue  # the primary, a duplicate, or a name that would collide with the primary's folder
+        seen.add(key)
+        out.append({"owner": o, "repo": n, "branch": (b or "").strip() or None})
+    return out
+
+
+def _checkout_on(dest: Path, branch: str | None) -> str:
+    """Detach `dest` on `branch` when the remote has it; the branch actually checked out."""
+    if branch and _git(["rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
+                       dest).returncode == 0:
+        if _git(["checkout", "-q", "--detach", f"origin/{branch}"], dest).returncode == 0:
+            return branch
+    head = _git(["rev-parse", "--abbrev-ref", "HEAD"], dest)
+    name = (head.stdout or "").strip()
+    return name if name and name != "HEAD" else "the default branch"
+
+
+def _checkout_siblings(engine, home: Path, siblings: list[dict[str, Any]],
+                       tokens: list[str]) -> list[dict[str, Any]]:
+    """Clone each sibling beside the primary; what landed and what did not.
+
+    A sibling the engine cannot reach — no installation, a failed clone — is
+    reported in the prompt as unavailable and never fails the question: the
+    primary repository still answers most of it.
+    """
+    out = []
+    for sib in siblings:
+        o, n = sib["owner"], sib["repo"]
+        dest = home / n
+        try:
+            token = engine.app.installation_token(o, n, min_remaining=600)
+            tokens.append(token)
+            engine.runner.repo_cache.checkout(o, n, token, dest)
+            on = _checkout_on(dest, sib.get("branch"))
+            _git(["remote", "remove", "origin"], dest)
+            out.append({"name": n, "path": dest, "branch": on, "ok": True})
+        except Exception as e:  # noqa: BLE001 - one sibling must not fail the ask
+            log.warning("ask: sibling %s/%s unavailable: %s", o, n, e)
+            import shutil
+            shutil.rmtree(dest, ignore_errors=True)
+            out.append({"name": n, "path": dest, "branch": None, "ok": False})
+    return out
+
+
+def _siblings_note(siblings: list[dict[str, Any]]) -> str:
+    if not siblings:
+        return ""
+    there = [f"`../{s['name']}` (on `{s['branch']}`)" for s in siblings if s["ok"]]
+    gone = [f"`{s['name']}`" for s in siblings if not s["ok"]]
+    lines = []
+    if there:
+        lines.append("\nOther repositories of this project are checked out beside it, read-only: "
+                     + ", ".join(there) + ". Read them when the question crosses repositories.")
+    if gone:
+        lines.append("\nNot available this time (say so if the question needs them): " + ", ".join(gone) + ".")
+    return "".join(lines)
+
+
 def _write_images(home: Path, images: list[dict[str, Any]]) -> list[Path]:
     """Put the attachments beside (never inside) the checkout; their paths."""
     folder = home / "attachments"
@@ -206,7 +292,8 @@ def _record_usage(engine, *, owner: str, repo: str, mode: str, model: str,
 def answer_question(engine, *, owner: str, repo: str, question: str, context: str,
                     branch: str | None = None, instructions: str | None = None,
                     images: list[dict[str, Any]] | None = None,
-                    mode: str = "ask") -> dict[str, Any]:
+                    mode: str = "ask",
+                    repos: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Run one read-only Claude session; the answer, model and usage."""
     if mode not in MODES:
         raise AskError(f"Unknown mode {mode!r}; use ask or shape.", 400)
@@ -217,6 +304,7 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
     if len(question) > max_question:
         raise AskError(f"The question is over {max_question} characters.", 400)
     files = check_images(images)
+    wanted = check_repos(repos, owner, repo)
     cfg, runner = engine.cfg, engine.runner
     if not cfg.agent_credential_env():
         raise AskError("The factory has no Claude credential to answer with. Store "
@@ -229,6 +317,7 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
         raise AskError(str(e), 503) from e
 
     token = engine.app.installation_token(owner, repo, min_remaining=600)
+    tokens = [token]  # every token that touched this home, for redaction
     context = (context or "")[-max_context:]
     with runner._slots:  # noqa: SLF001 - an ask is a run: it shares the slots
         home = Path(tempfile.mkdtemp(prefix="ask-", dir=runner.workspace_root))
@@ -243,15 +332,22 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
             # No token may outlive the clone: the session cannot push or call
             # GitHub. (After the checkout: removing the remote drops its branches.)
             _git(["remote", "remove", "origin"], dest)
+            siblings = _checkout_siblings(engine, home, wanted, tokens)
             prompt = PROMPT.format(
                 intro=INTRO.format(repo=f"{owner}/{repo}",
-                                   branch_note=f", on `{branch}`" if on_branch else ""),
+                                   branch_note=f", on `{branch}`" if on_branch else "",
+                                   siblings=_siblings_note(siblings)),
                 instructions=(instructions or "").strip()[:MAX_INSTRUCTIONS] or DEFAULT_INSTRUCTIONS,
                 attachments=_attachments_note(attached),
                 context=context or "(no comments yet)", question=question)
             argv = [runner.claude_bin, "-p", prompt, "--model", model,
                     "--max-turns", str(turns), "--output-format", "json",
                     "--allowedTools", ASK_TOOLS]
+            # The tools reach only the working directory unless told
+            # otherwise; each sibling is granted explicitly, nothing else.
+            for sib in siblings:
+                if sib["ok"]:
+                    argv += ["--add-dir", str(sib["path"])]
             env = {"PATH": agent_path(), "HOME": str(home), "OPENSPEC_TELEMETRY": "0",
                    "GIT_TERMINAL_PROMPT": "0", **cfg.agent_credential_env()}
             started = time.monotonic()
@@ -264,7 +360,9 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
             import shutil
             shutil.rmtree(home, ignore_errors=True)
 
-    raw = runner._redact((proc.stdout or "") + "\n" + (proc.stderr or ""), token)  # noqa: SLF001
+    raw = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    for t in tokens:
+        raw = runner._redact(raw, t)  # noqa: SLF001
     limit = usage_limit_error(raw)
     if limit:
         raise AskError(limit, 429)
@@ -272,12 +370,15 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
     if result is None:
         log.warning("ask: unreadable output exit=%s tail=%r", proc.returncode, raw[-300:])
         raise AskError("Claude did not return an answer.")
-    answer = runner._redact(str(result.get("result") or "").strip(), token)  # noqa: SLF001
+    answer = str(result.get("result") or "").strip()
+    for t in tokens:
+        answer = runner._redact(answer, t)  # noqa: SLF001
     if proc.returncode != 0 or result.get("is_error") or not answer:
         raise AskError(answer or "Claude did not return an answer.")
     usage = result.get("usage") or {}
-    log.info("ask repo=%s/%s mode=%s model=%s images=%s secs=%.0f turns=%s", owner, repo, mode,
-             model, len(files), time.monotonic() - started, result.get("num_turns"))
+    log.info("ask repo=%s/%s mode=%s model=%s images=%s siblings=%s secs=%.0f turns=%s", owner,
+             repo, mode, model, len(files), sum(1 for x in siblings if x["ok"]),
+             time.monotonic() - started, result.get("num_turns"))
     _record_usage(engine, owner=owner, repo=repo, mode=mode, model=model, result=result)
     return {"answer": answer, "model": model,
             "usage": {"input_tokens": usage.get("input_tokens", 0),
