@@ -234,8 +234,31 @@ GitHub carries all of it.
   about a thread with the Claude CLI, using the stored agent credential. The
   session is read-only: it reads a throwaway checkout and runs `git log`,
   `show`, `diff` and `blame`, with no GitHub token, no writes and no network
-  tools. It shares the `MAX_PARALLEL` slots with role runs. The Console's
-  thread view calls it.
+  tools. It shares the `MAX_PARALLEL` slots with role runs, and is entered in
+  the run ledger as a finished `ask` run so `GET /usage` counts it. The
+  Console's thread view calls it. The body takes `owner`, `repo`, `question`,
+  `context`, and optionally `branch`, `instructions`, `mode` (`ask`, the
+  default, or `shape` — the Compass's Shape page, with wider budgets: a 12 000
+  character question, 60 000 of context, 24 turns, 480 seconds) and `images`
+  (at most 6 of `{name, mime, data_b64}`, PNG/JPEG/GIF/WebP, 5 MB each,
+  written beside the checkout and named in the prompt for the Read tool) and
+  `repos` (at most 8 of `{owner, repo, branch}`: the project's other
+  repositories, checked out beside the primary one on `branch` when it
+  exists else on their default branch, each with its own installation token
+  that is removed with the remote before the session starts, and granted to
+  the tools with `--add-dir`; one that cannot be reached is named in the
+  prompt as unavailable rather than failing the question). A conversation
+  may keep its workspace between messages with `conversation` (a key matching
+  `[A-Za-z0-9_-]{1,64}`): the home lives under `<workspace root>/ask/<key>`,
+  and each message brings every copy level with GitHub — a fetch from the
+  mirror, detach on the wanted branch, hard reset, clean — instead of cloning
+  again, so a second message costs the fetch alone. With `session` (the
+  Claude session id the previous answer returned) the CLI resumes that
+  session and is sent only the new question and its attachments; the
+  response says `"resumed": true`, and a resume that fails falls back to a
+  fresh prompt with the `context` sent (`"resumed": false`). Every response
+  carries `"session"`. Two messages on one conversation serialise; idle
+  conversation homes are deleted after 24 hours.
 - **Writing scores**: every run's new agent comments are scored against
   FACTORY.md §1a with `scripts/comment-lint.js` from the factory checkout,
   and stored under `guards.writing` on the run (`GET /runs/<id>`). Report
