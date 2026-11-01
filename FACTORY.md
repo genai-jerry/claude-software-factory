@@ -261,7 +261,9 @@ Prerequisites (per repo):
 the workflow probes each model with a one-token ping and uses the first one
 the repo's credential can actually access, so a plan/tier gap degrades
 gracefully instead of failing the run. Missing roles fall back to
-`claude-sonnet-5`. Current profile:
+`claude-sonnet-5` → `claude-opus-5` → `claude-haiku-4-5-20251001`; `ask` (the
+Compass's Ask panel and Shape) is a role too and may be given its own chain.
+Current profile:
 
 | Stages | Preference chain | Why |
 |---|---|---|
