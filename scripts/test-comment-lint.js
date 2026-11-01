@@ -25,7 +25,7 @@ const cases = {
     assert.ok(r.words < 80, `counted ${r.words} words`);
   },
   'over budget is reported against the kind'() {
-    const body = '**You need to:** nothing. ' + 'word '.repeat(130);
+    const body = '**You need to:** nothing. ' + 'word '.repeat(170);
     assert.ok(lint(body, 'ready').over_budget);
     assert.ok(!lint(body, 'summary').over_budget);
   },
@@ -36,6 +36,25 @@ const cases = {
   'list items are separate sentences'() {
     const items = Array.from({ length: 6 }, (_, i) => `- item ${i} has a few short words`).join('\n');
     assert.strictEqual(lint(`**You need to:** nothing.\n${items}`, 'summary').long_sentences.length, 0);
+  },
+  'the frame lines and the headline are not content sentences'() {
+    const r = lint(GOOD, 'summary');
+    // GOOD has two bullets, a Next line, a Links line, a headline and a You need to line.
+    assert.strictEqual(r.sentences, 2, `counted ${r.sentences}`);
+  },
+  'too many sentences, a high grade and long sentences are each reported'() {
+    const many = '**You need to:** nothing.\n' + Array.from({ length: 10 }, (_, i) => `- The lead gets message number ${i} today.`).join('\n');
+    assert.ok(lint(many, 'summary').problems.some(p => p.includes('sentences in the visible part')));
+    const dense = '**You need to:** nothing.\nThe reconciliation infrastructure deduplicates asynchronous notification propagation. Idempotency guarantees eliminate duplicate conversational initialization.';
+    const d = lint(dense, 'summary');
+    assert.ok(d.grade > 8, `grade ${d.grade}`);
+    assert.ok(d.problems.some(p => p.includes('reads at grade')));
+    const plain = '**You need to:** nothing.\nThe lead moves the call. The calendar sends the new time. The CRM sends it again. The code sees one move.';
+    const p = lint(plain, 'summary');
+    assert.ok(p.grade !== null && p.grade <= 8, `grade ${p.grade}`);
+    assert.ok(!p.problems.some(x => x.includes('reads at grade')));
+    const long = '**You need to:** nothing.\n' + Array.from({ length: 3 }, () => 'the lead and the calendar and the crm and the code all take part in this one long sentence that goes on and on.').join('\n');
+    assert.ok(lint(long, 'summary').problems.some(x => x.includes('sentences average')));
   },
   'a block without its questions is reported; with them it passes'() {
     const head = '**Round 2 blocked: the loader deletes nothing.**\n**You need to:** decide below.\n';

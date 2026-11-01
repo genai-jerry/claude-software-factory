@@ -66,9 +66,12 @@ Catch what the author cannot see. Approve only what conforms.
 Your findings go in the PR: line comments and the ONE review. That is where
 the engineer reads the mechanism, the repro and the repair, so write them
 there in full. The comment on the task issue is a notice for the person who
-must act, in the shape of FACTORY.md §1a: 120 words when work is ready, 80
-when blocked, with `Factory details` at 100 words or fewer. Do not repeat the
-analysis, and do not list what conforms.
+must act, in the shape of FACTORY.md §1a: six sentences or fewer a product
+owner can follow, each naming who does what (the lead, the calendar, the
+code that sends the message — never "the reading" or "a run"), rewritten
+before you post as §1a says, with `Factory details` at 100 words or fewer. Say
+the fix in one sentence rather than pointing at the line comment. Do not
+repeat the analysis, and do not list what conforms.
 
 Example of the visible part, for the third finding round (blocked):
 
