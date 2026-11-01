@@ -1835,7 +1835,12 @@ class Router:
         i = payload["issue"]
         r.issue = str(i["number"])
         labels = _names(i.get("labels"))
-        states = [x for x in labels if x.startswith("factory:") and x != IN_PROGRESS]
+        # The orthogonal markers are not states: an issue filed expedited
+        # (the Compass's fast lane applies `factory:expedite` with
+        # `factory:intake` at creation) still has nothing but intake on it.
+        # Counting the marker as a second state skipped intake, and the
+        # issue sat at `factory:intake` with no run and no word.
+        states = [x for x in labels if x.startswith("factory:") and x not in ORTHOGONAL]
         action = payload.get("action")
 
         if action == "opened":

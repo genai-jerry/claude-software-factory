@@ -632,7 +632,9 @@ when the marker is already on at dispatch time, and otherwise need the
 - **Gate G0** (release scope) is upstream of the spec and unaffected: an
   expedited issue still waits for its milestone. Applied before a spec exists,
   the marker is simply dormant — it is not refused, and its first act is the
-  G1 approval whenever intake gets there.
+  G1 approval whenever intake gets there. An issue **filed** with the marker
+  already on it (the Compass's fast lane) enters intake exactly as one
+  without it: the marker is never read as a state.
 - **Gate GS** (release to staging) is where the chain stops, always.
 - **Gate G3** (production) is unchanged in every respect: a human merging a
   promotion PR in the GitHub UI, never comment-approvable, never an agent.

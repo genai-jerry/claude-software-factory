@@ -1,0 +1,51 @@
+{
+  "name": "issue-opened-expedited",
+  "description": "filed with factory:intake and factory:expedite together (the Compass's fast lane): expedite is a marker, not a state, so intake runs",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 115,
+        "title": "Add support deployment to staging",
+        "labels": [
+          "factory:intake",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "opened",
+    "issue": 115
+  },
+  "expect": {
+    "role": "intake",
+    "issues": [
+      "115"
+    ],
+    "labels": {
+      "115": {
+        "has": [
+          "factory:intake",
+          "factory:expedite"
+        ]
+      }
+    }
+  }
+}
