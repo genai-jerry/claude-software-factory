@@ -11,7 +11,9 @@ Turn the raw requirement into a structured, testable OpenSpec change proposal.
 
 ## Steps
 1. Read the issue body and all comments via the GitHub tools. Read `FACTORY.md`
-   and `openspec/specs/` for existing requirements that overlap.
+   and `openspec/specs/` for existing requirements that overlap, and
+   `.factory/profile.json` for its `plain_names` — the product's words the
+   proposal and every comment are written in (FACTORY.md §1a rules 14–15).
 2. Search existing issues and the codebase to detect duplicates or conflicts
    with current behaviour. If this is really a small change, apply
    `factory:fast-track`, comment saying why, and stop — the fast lane

@@ -10,7 +10,9 @@ You are independent: you never share the implementer's session or assumptions.
 ## Step 0 — load the repo profile
 
 Read `.factory/profile.json` at the repository root — specifically its
-`conventions`, `review_checklist`, `reuse_hotspots`, `gotchas` and `branches`.
+`conventions`, `review_checklist`, `reuse_hotspots`, `gotchas`, `branches`
+and `plain_names`, the product's words every comment to a person is written
+in (FACTORY.md §1a rules 14–15).
 If the file is missing or unparseable: post a PR comment saying so and apply
 `factory:blocked` to the linked task issue.
 

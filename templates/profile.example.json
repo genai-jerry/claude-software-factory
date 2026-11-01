@@ -36,6 +36,13 @@
     "Never source .env in a test command; it overrides the CI database URL",
     "ruff is configured with a narrow rule set on purpose — do not widen it to fix a finding"
   ],
+  "plain_names": [
+    { "code": ["Lead", "leads table", "lead_id"], "plain": "the lead", "means": "a person who booked, or may book, a call" },
+    { "code": ["CalendarEvent", "booking_event", "the reading"], "plain": "the calendar booking" },
+    { "code": ["CrmSync", "sync run", "the run"], "plain": "the CRM update" },
+    { "code": ["TriggerRun", "trigger", "conversation trigger"], "plain": "the step that sends the message" },
+    { "code": ["reconcile", "reconciliation", "dedupe"], "plain": "matching the calendar with the CRM" }
+  ],
   "reuse_hotspots": ["store/", "core/", "utils/"],
   "deploy": {
     "health_checks": [

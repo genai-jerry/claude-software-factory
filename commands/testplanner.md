@@ -17,8 +17,10 @@ chained after the Planner and before the Architect; also any epic from
    `"run_on"` — `"staging"` means the cases run on staging after gate GS;
    anything else means they run as the code assembles on the epic branch.
 2. Read `.factory/profile.json` — its `qa_notes` (how tests are written and
-   run here), its `test_data` block (the `load` / `unload` commands and the
-   record `format`, when the repo already has a loader — FACTORY.md §4b) and
+   run here), its `plain_names` (the product's words every case step and
+   every comment are written in — FACTORY.md §1a rules 14–15), its
+   `test_data` block (the `load` / `unload` commands and the record
+   `format`, when the repo already has a loader — FACTORY.md §4b) and
    its `deploy` block (a per-epic preview environment, health checks).
    Missing or unparseable: comment and apply `factory:blocked`, like every
    other per-repo role — the comment ends with `**Questions for you:**` and

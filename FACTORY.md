@@ -356,6 +356,7 @@ between repos. A missing/unparseable profile hard-blocks the per-repo roles
 | `review_checklist` | reviewer | Repo-specific review points beyond the generic security/conformance checks |
 | `qa_notes` | qa, implementer | How tests are written and run here (fixtures, mocks, e2e guidance) |
 | `gotchas` | implementer, reviewer, qa | Pre-existing failures, judge-the-delta rules, things never to weaken |
+| `plain_names` | every role, in every comment to a person | The product's own words for the things the code names (§1a rules 14–15): each entry maps the code's identifiers and the jargon around them to the one plain name a product owner uses, with a one-line meaning. Roles write the plain name, never the code's |
 | `reuse_hotspots` | reviewer | Where duplicated code most likely already exists |
 | `deploy` | release, ops | `health_checks` (runnable commands, not descriptions) and `notes` (failures that halt a release train) |
 | `test_data` | testplanner, implementer, release | `load` / `unload` commands that put one epic's system test data sets into a running environment and take them out again, and the `format` of the record files (§4b). Absent means the repo has no loader yet; the first epic with system tests builds one |

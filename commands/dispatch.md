@@ -115,7 +115,8 @@ step 4 exactly as it does the cases'.
    `.github/factory-approvers.json` — starting implementers is theirs. On an
    expedited epic, skip the cc: nobody is being asked for anything.
 
-   Name every task and bug by its title (FACTORY.md §1a rule 11): "ready:
+   Name every task and bug by its title (FACTORY.md §1a rule 11), in the
+   product's words from the profile's `plain_names` (rules 14–15): "ready:
    the aggregation task and the status column; waiting: the leads panel, on
    the endpoint". Cases keep their `ST-<n>`. The issue numbers go on the
    `Links:` line, nowhere else in the visible part.

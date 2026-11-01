@@ -38,7 +38,9 @@ Decompose the approved spec into an ordered, releasable task breakdown.
    - Order so every intermediate merge is releasable. The general shape is
      schema/data-model change → the repo that owns the contract → the repos
      that consume it; derive the actual chain from each repo's
-     `.factory/profile.json` `estate_role`.
+     `.factory/profile.json` `estate_role`. The same file's `plain_names` are
+     the words the task tree and every comment are written in (FACTORY.md
+     §1a rules 14–15).
    - Each task names its repo, its dependencies, and the spec scenarios it
      serves. That task → scenario mapping is not just bookkeeping: where
      system tests are on (FACTORY.md §4b) the Test Planner reads it to work
