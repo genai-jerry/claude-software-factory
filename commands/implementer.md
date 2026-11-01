@@ -130,6 +130,13 @@ Next: the Reviewer.
 Links: PR #21
 ```
 
+## Attachments
+
+When your prompt lists attachments, view each with the Read tool before you
+build. For a task about a screen, match the attached mock-up: its layout,
+labels, spacing and states. A screenshot of a failure is what to reproduce
+first. Say in the pull request which image the change follows.
+
 ## Guardrails
 - ONE task per session. Do not start the next task.
 - If design.md is wrong or blocked by reality: stop, comment on the task

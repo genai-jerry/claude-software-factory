@@ -461,3 +461,52 @@ def test_a_run_asks_for_the_json_stream_and_keeps_its_usage(tmp_path):
     assert "All done.\n" in shown and "All done." in outcome.transcript
     assert '"type": "result"' not in outcome.transcript  # people read text, not JSON
     assert outcome.usage["input_tokens"] == 40 and outcome.usage["cost_usd"] == 0.12
+
+
+def test_run_fetches_the_compass_images_and_names_them_in_the_prompt(tmp_path):
+    import httpx
+    from factory_orchestrator.attachments import ConsoleAttachments
+
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 8
+
+    def handler(r):
+        if r.url.path == "/api/orchestrator/attachments":
+            return httpx.Response(200, json={"attachments": [
+                {"id": "a", "source": "work", "name": "shot.png", "mime": "image/png", "size": len(png),
+                 "url": "/api/orchestrator/attachments/work/a"}]})
+        return httpx.Response(200, content=png)
+
+    cfg, runner, out = build_runner(tmp_path)
+    runner.attachments = ConsoleAttachments("tok", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    runner.console_origin = lambda o, r: "https://console.test"
+    outcome = runner.run(owner="o", repo="r", role="intake", issue=5,
+                         model="claude-sonnet-5", github_token="t",
+                         attachment_issues=[("o/r", 5)])
+    assert outcome.status == "success"
+    prompt = next(out.glob("prompt-*.txt")).read_text()
+    assert "===== ATTACHMENTS =====" in prompt
+    assert "The person attached 1 image to this issue." in prompt
+    line = next(l for l in prompt.splitlines() if l.startswith("- ") and l.endswith("(this issue)"))
+    path = Path(line[2:].rsplit("  (", 1)[0])
+    # Beside the checkout, never inside it: <home>/attachments/<issue>/<name>.
+    assert path.parts[-3:] == ("attachments", "5", "shot.png")
+    cwd = Path(next(out.glob("cwd-*.txt")).read_text().strip())
+    assert path.parent.parent.parent == cwd.parent
+    assert PROMPT_BODY.format(issue=5, owner="o") in prompt  # the engine-neutral body is untouched
+
+
+def test_run_goes_on_without_images_when_the_compass_is_down_or_unknown(tmp_path):
+    import httpx
+    from factory_orchestrator.attachments import ConsoleAttachments
+
+    def handler(r):
+        raise httpx.ConnectError("down")
+
+    cfg, runner, out = build_runner(tmp_path)
+    runner.attachments = ConsoleAttachments("tok", client=httpx.Client(transport=httpx.MockTransport(handler)))
+    runner.console_origin = lambda o, r: "https://console.test"
+    assert runner.run(owner="o", repo="r", role="intake", issue=5, model="m", github_token="t").status == "success"
+    runner.console_origin = lambda o, r: None
+    assert runner.run(owner="o", repo="r", role="intake", issue=6, model="m", github_token="t").status == "success"
+    for p in out.glob("prompt-*.txt"):
+        assert "===== ATTACHMENTS =====" not in p.read_text()

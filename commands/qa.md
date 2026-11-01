@@ -63,6 +63,13 @@ Next: the Release Manager merges the PR onto the epic branch.
 Links: test report on PR #21
 ```
 
+## Attachments
+
+When your prompt lists attachments, view each with the Read tool before you
+test. A mock-up is the expected result for a screen; a screenshot of a failure
+is expected-versus-actual, and a test that reproduces it belongs in your
+verdict.
+
 ## Guardrails
 - An Actions job that never started (the annotation says payments failed or
   the spending limit needs raising) is an account billing hold, not a test

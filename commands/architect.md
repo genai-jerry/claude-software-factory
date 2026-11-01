@@ -85,6 +85,14 @@ Produce a grounded technical design for every affected repo.
    approver is approving the human test plan as well as the design, and gate
    G2 is the only review it gets.
 
+## Attachments
+
+When your prompt lists attachments, view each with the Read tool before you
+design. A mock-up decides layout, labels and flow where the spec is short, and
+the design says which image each screen follows. Where the mock and the spec
+disagree, say so in the design's open questions rather than picking one in
+silence.
+
 ## Guardrails
 - Design within existing conventions (each repo's `.factory/profile.json`,
   CLAUDE.md / AGENTS.md); propose refactors only when a task demands them,

@@ -27,6 +27,7 @@ from .models import default_probe
 from .reconcile import sweep_repo
 from .repo_cache import RepoCache
 from .role_runner import FactorySource, RoleRunner
+from .attachments import ConsoleAttachments
 from .token_refresh import ConsoleTokenSource
 from .webhook import create_app
 
@@ -75,8 +76,13 @@ def build_service():
     issue_workspaces = IssueWorkspaces(
         repo_cache, os.environ.get("WORKSPACE_DIR"),
         idle_days=float(os.environ.get("WORKSPACE_IDLE_DAYS") or DEFAULT_IDLE_DAYS))
+    # The images people attach in the Compass are fetched into each run from
+    # the Compass that dispatched the repo, with the same token it re-mints
+    # GitHub tokens with. Inert where no Compass has dispatched.
     runner = RoleRunner(cfg, source, repo_cache=repo_cache,
-                        issue_workspaces=issue_workspaces)
+                        issue_workspaces=issue_workspaces,
+                        attachments=ConsoleAttachments(cfg.dispatch_token.reveal()),
+                        console_origin=app.console.console_origin if app.console else None)
     engine = Engine(cfg, ledger, app, runner, default_probe(cfg),
                     transcript_dir=os.environ.get("TRANSCRIPT_DIR"))
     graph = build_graph(engine, checkpointer=make_checkpointer(cfg.database_url))

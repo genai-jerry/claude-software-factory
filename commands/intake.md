@@ -65,6 +65,15 @@ Turn the raw requirement into a structured, testable OpenSpec change proposal.
    `.github/factory-approvers.json` lists `spec` approvers, cc them
    (`@username`) in the summary — gate G1 is theirs.
 
+## Attachments
+
+When your prompt lists attachments, view every one with the Read tool before
+you write a line. They are the screenshots and mock-ups the person attached
+in the Compass, and they carry what the words leave out: which screen, which
+field, the exact error, the layout wanted. In the proposal, say in one line
+per image what it shows and what you took from it, so the person can see the
+picture was read. Never ask a question the image already answers.
+
 ## Guardrails
 - Spec content lives ONLY in the change folder; the issue gets state + links.
 - Do not plan tasks or design solutions — that is stages 2 and 3.

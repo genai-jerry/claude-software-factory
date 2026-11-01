@@ -49,6 +49,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .attachments import ConsoleAttachments, Fetched, attachments_note
 from .claude_stream import StreamReader, run_usage
 from .config import Config, agent_path
 from .issue_workspaces import IssueKey, IssueWorkspaces
@@ -144,11 +145,17 @@ Tail of the test log:
 
 
 def assemble_prompt(*, role: str, repository: str, owner: str, issue: int | str,
-                    handbook: str, role_instructions: str) -> str:
+                    handbook: str, role_instructions: str,
+                    attachments: Fetched | None = None) -> str:
+    # The images fetched from the Compass sit between the engine-neutral body
+    # and the trigger note: the body stays byte-identical to the Actions
+    # engine's, which has no Compass to fetch from.
+    note = attachments_note(attachments, int(issue)) if attachments and str(issue).isdigit() else ""
     return (
         PROMPT_HEADER.format(role=role, repository=repository)
         + "\n"
         + PROMPT_BODY.format(issue=issue, owner=owner)
+        + (("\n" + note) if note else "")
         + PROMPT_TRIGGER_NOTE
         + "\n===== FACTORY HANDBOOK =====\n\n"
         + handbook
@@ -277,7 +284,9 @@ class RoleRunner:
                  claude_bin: str = "claude",
                  max_parallel: int | None = None,
                  repo_cache: RepoCache | None = None,
-                 issue_workspaces: IssueWorkspaces | None = None):
+                 issue_workspaces: IssueWorkspaces | None = None,
+                 attachments: ConsoleAttachments | None = None,
+                 console_origin: Callable[[str, str], str | None] | None = None):
         self.cfg = cfg
         self.source = source
         self.workspace_root = Path(workspace_root or tempfile.gettempdir())
@@ -285,6 +294,11 @@ class RoleRunner:
         self.issue_workspaces = issue_workspaces or IssueWorkspaces(self.repo_cache)
         self.claude_bin = claude_bin
         self._slots = threading.Semaphore(max_parallel or cfg.max_parallel_default)
+        # The Compass's images for the issue, fetched at run start. Both are
+        # None where no Compass dispatches this orchestrator; then nothing is
+        # fetched and the prompt carries no ATTACHMENTS block.
+        self.attachments = attachments
+        self.console_origin = console_origin
 
     def clone_workspace(self, owner: str, repo: str, token: str, dest: Path) -> None:
         log.info("clone start repo=%s/%s dest=%s", owner, repo, dest / repo)
@@ -296,14 +310,13 @@ class RoleRunner:
             on_output: Callable[[str], None] | None = None,
             workspace: IssueKey | None = None,
             staging_open: bool = False,
-            integration_branch: str | None = None) -> RoleOutcome:
+            integration_branch: str | None = None,
+            attachment_issues: list[tuple[str, int]] | None = None) -> RoleOutcome:
         """One role session. `workspace` names the issue copy to work in; None
         is a throwaway copy for this run alone. `staging_open` says a person
-        approved this run writing to the integration branch (gate GS)."""
-        prompt = assemble_prompt(
-            role=role, repository=f"{owner}/{repo}", owner=owner, issue=issue,
-            handbook=self.source.handbook(),
-            role_instructions=self.source.role_instructions(role))
+        approved this run writing to the integration branch (gate GS).
+        `attachment_issues` names the issues whose Compass images the run
+        reads (itself, and its epic for a sub-issue); None means its own."""
         with self._slots:
             home = Path(tempfile.mkdtemp(prefix=f"run-{role}-{issue}-",
                                          dir=self.workspace_root))
@@ -312,6 +325,14 @@ class RoleRunner:
                 if on_phase:
                     on_phase("cloning the repo")
                 with self._checkout(owner, repo, github_token, home, workspace) as cwd:
+                    fetched = self._fetch_attachments(
+                        owner, repo, attachment_issues or [(f"{owner}/{repo}", issue)],
+                        home, on_phase)
+                    prompt = assemble_prompt(
+                        role=role, repository=f"{owner}/{repo}", owner=owner, issue=issue,
+                        handbook=self.source.handbook(),
+                        role_instructions=self.source.role_instructions(role),
+                        attachments=fetched)
                     return self._session(
                         prompt, cwd=cwd, home=home, owner=owner, repo=repo,
                         role=role, issue=issue, model=model,
@@ -320,6 +341,24 @@ class RoleRunner:
                         staging_open=staging_open, integration_branch=integration_branch)
             finally:
                 shutil.rmtree(home, ignore_errors=True)
+
+    def _fetch_attachments(self, owner: str, repo: str, targets: list[tuple[str, int]],
+                           home: Path, on_phase: Callable[[str], None] | None) -> Fetched:
+        """The Compass's images for the run, under `home/attachments` — beside
+        the checkout, never inside it. Anything that goes wrong leaves the run
+        without pictures, which is what it had before."""
+        if self.attachments is None or self.console_origin is None:
+            return Fetched()
+        origin = self.console_origin(owner, repo)
+        if not origin:
+            return Fetched()
+        if on_phase:
+            on_phase("fetching attachments")
+        try:
+            return self.attachments.fetch(origin, targets, home / "attachments")
+        except Exception as e:  # noqa: BLE001
+            log.warning("attachments: fetch failed for %s/%s: %s", owner, repo, e)
+            return Fetched()
 
     @contextmanager
     def _checkout(self, owner: str, repo: str, token: str, home: Path,
