@@ -178,10 +178,21 @@ with a fix task you just assembled onto the epic branch in phase 1, which
 re-enters here at step 6 (the fix rides the approval that put the epic on
 staging). If it is neither, you are in phase 1 — go back.
 
-6. **With an epic branch:** reconcile — if the integration branch has moved
-   since the epic branch was cut or last refreshed, merge the integration
-   branch **into the epic branch** and re-verify (tests green again) — never
-   the other way around, and never by rewriting the epic branch's history.
+6. **First, bring the integration branch level with the default branch.**
+   People merge things straight to the default branch that never rode a
+   train — a CI change, a hotfix, a dependency bump — and an integration
+   branch that has not seen them puts an epic on staging against a stale
+   base, then surprises the promotion PR with their reverse. Merge the
+   default branch **into the integration branch** (a fast-forward when it
+   can be; a merge commit otherwise, never a rebase). A conflict here is not
+   yours to resolve on either side: comment on the epic naming the files,
+   apply `factory:blocked`, and stop.
+
+   **Then, with an epic branch:** reconcile — if the integration branch has
+   moved since the epic branch was cut or last refreshed (it just did, if
+   the step above merged anything), merge the integration branch **into the
+   epic branch** and re-verify (tests green again) — never the other way
+   around, and never by rewriting the epic branch's history.
 
    **With no epic branch:** there is nothing to reconcile. Merge the epic's
    task PRs onto the integration branch now, in the step-1 order, verifying
