@@ -82,6 +82,18 @@ enforce conventions this repo does not follow. Everything below serves that.
      for a schema change). Not the generic security pass; the Reviewer has that.
    - `qa_notes` — how tests are written and run here: framework, where they
      live, what is mocked, how integration tests get their fixtures.
+   - `plain_names` — the product's own words for the things the code names,
+     for every comment a role writes to a person (FACTORY.md §1a rules 14 and
+     15). Read the domain model (the main tables, classes or types), the
+     labels the UI shows and the README's nouns, and write one entry per
+     thing a product owner would talk about: its `code` names (class, table,
+     module, and the shorthand agents coin — "the run", "the reading"), its
+     one `plain` name as it sits in a sentence ("the lead", "the calendar
+     booking", "the step that sends the message"), and a one-line `means`
+     where the name alone would not tell a stranger what it is. Ten to
+     twenty entries; the things that appear in issues and comments, not
+     every class. Use the product's words, never the code's, and the same
+     word every time.
    - `reuse_hotspots` — the directories where a new helper most likely already
      exists.
    - `deploy.health_checks` — only checks you can point at something real for.

@@ -65,6 +65,8 @@ Produce a grounded technical design for every affected repo.
      `.factory/profile.json`.
    - Per repo: which existing modules to touch, following that repo's profile
      `conventions` (`.factory/profile.json`) and its CLAUDE.md / AGENTS.md.
+     The profile's `plain_names` are the words the design's prose and every
+     comment use for the product's things (FACTORY.md §1a rules 14–15).
    - Failure modes and edge cases per spec scenario.
    - Rollout order and rollback notes.
 4. **Cross-repo contract:** one shared contract snippet, byte-identical in every

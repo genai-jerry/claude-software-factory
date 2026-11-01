@@ -64,6 +64,29 @@
       "type": "array",
       "items": { "type": "string" }
     },
+    "plain_names": {
+      "description": "The product's own words for the things the code names, for every comment a role writes to a person (FACTORY.md §1a rules 14 and 15). Each entry maps the code's identifiers and the jargon that grows around them to the one plain name a product owner uses, with a one-line meaning where the name alone would not tell a stranger what it is. Roles write the plain name and never the code's; the Profiler keeps the list from the domain model, the UI's labels and the README.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "plain"],
+        "properties": {
+          "code": {
+            "description": "The identifiers and shorthand the code and the agents use for this thing: class and table names, module names, the words that creep into comments.",
+            "type": ["string", "array"],
+            "items": { "type": "string" }
+          },
+          "plain": {
+            "description": "The one name a product owner uses, written as it appears in a sentence: \"the lead\", \"the calendar booking\", \"the step that sends the message\".",
+            "type": "string"
+          },
+          "means": {
+            "description": "One line saying what it is, for a reader who does not know the product.",
+            "type": "string"
+          }
+        }
+      }
+    },
     "reuse_hotspots": {
       "description": "Paths the reviewer checks before accepting new code, to catch duplication of something that should have been extended.",
       "type": "array",

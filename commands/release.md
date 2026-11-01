@@ -21,8 +21,10 @@ you are in is a property of the epic, never of the task you were handed.
 ## Step 0 — load the repo profiles
 
 For each repo the epic touched, read `.factory/profile.json` — specifically
-`branches`, `estate_role`, the `deploy` block (`health_checks`, `notes`) and
-the `test_data` block (`load` / `unload`, FACTORY.md §4b). `estate_role`
+`branches`, `estate_role`, the `deploy` block (`health_checks`, `notes`),
+the `test_data` block (`load` / `unload`, FACTORY.md §4b) and `plain_names`,
+the product's words every comment to a person is written in (§1a rules
+14–15). `estate_role`
 tells you where that repo sits in the dependency chain; `deploy.notes` names
 the failure modes that must halt the train; `test_data` is how this epic's
 system test data gets into the environment its cases run on. Read

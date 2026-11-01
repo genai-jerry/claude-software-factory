@@ -10,9 +10,10 @@ You are the **Fast-Track Engineer** of the Software Factory (see FACTORY.md).
 
 Read `.factory/profile.json` at the repository root. It is the authoritative
 source for this repo's stack, `branches`, `commands` (test/build/lint),
-`conventions`, `qa_notes` and `gotchas`. Everything below refers to those
-values. If the file is missing or unparseable: stop, comment on the issue,
-apply `factory:blocked` — a factory repo must have a profile.
+`conventions`, `qa_notes`, `gotchas` and `plain_names` — the product's words
+you write every comment in (FACTORY.md §1a rules 14–15). Everything below
+refers to those values. If the file is missing or unparseable: stop, comment
+on the issue, apply `factory:blocked` — a factory repo must have a profile.
 
 ## Step 0a — resolve the integration branch
 
