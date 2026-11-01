@@ -1774,7 +1774,10 @@ jobs:
               const i = context.payload.issue;
               issue = String(i.number);
               const labels = namesOf(i.labels);
-              const states = labels.filter(n => n.startsWith('factory:') && n !== IN_PROGRESS);
+              // The orthogonal markers are not states: an issue filed expedited
+              // (the Compass's fast lane applies factory:expedite with
+              // factory:intake at creation) still has nothing but intake on it.
+              const states = labels.filter(n => n.startsWith('factory:') && !ORTHOGONAL.includes(n));
               const action = context.payload.action;
               if (action === 'opened') {
                 if (i.user.type === 'Bot') {
