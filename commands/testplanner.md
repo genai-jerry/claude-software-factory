@@ -237,6 +237,14 @@ screens, the data shapes, the error paths as a user meets them.
 8. **Leave the epic's state alone** and stop. On the chained run the Architect
    goes next; on an adopted run, nothing does.
 
+## Attachments
+
+When your prompt lists attachments, view each with the Read tool before you
+write the plan. A mock-up is what `Expected` looks like: name its visible
+parts in the case's steps so a tester can check them. A screenshot of a
+failure is a case of its own — the steps that reach it and the result that
+must differ.
+
 ## Guardrails
 
 - Black-box only: `proposal.md`, `specs/` and `tasks.md` in, a plan out.

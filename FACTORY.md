@@ -99,6 +99,12 @@ Links: <the files and PRs that hold the detail>
     line when the epic spans repos (`[aggregation · beacon-api]`); it never
     carries a `<br/>` second line of numbers. A test case keeps its `ST-<n>`
     identifier, because testers type it in verdicts.
+12. Images attached to an issue in the Compass (from Add work or Shape) are
+    for you too. The orchestrator fetches them into every run under
+    `attachments/` beside the checkout and lists them in your prompt; view
+    each with the Read tool before you start. The links in the issue body
+    are for people — they need a Compass sign-in — so never say an image
+    could not be opened when your prompt names its file.
 
 **Example.** Not: "The plan is black-box: derived from `proposal.md`,
 `specs/` and `tasks.md` only. I did not read `design.md` (it does not exist

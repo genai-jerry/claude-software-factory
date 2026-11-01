@@ -61,7 +61,8 @@ class ScriptedRunner:
         self.calls = []
 
     def run(self, *, owner, repo, role, issue, model, github_token, **_):
-        self.calls.append({"role": role, "issue": issue, "model": model})
+        self.calls.append({"role": role, "issue": issue, "model": model,
+                           "attachments": _.get("attachment_issues")})
         behave = self.behaviours.get(role)
         if behave:
             behave(self.world, issue)
@@ -605,3 +606,18 @@ def test_a_fix_for_an_epic_on_staging_may_write_the_integration_branch(tmp_path)
     # Release Manager's work is the promotion PR, not another integration.
     assert staging_policy(engine, world, "release", 9) == ("staging", False)
     assert staging_policy(engine, world, "dispatch", 12) == ("staging", False)
+
+
+def test_a_run_is_told_whose_images_to_fetch(tmp_path):
+    """The run's own issue, and its epic for a task — the runner fetches those."""
+    world = ConfiguredRepo({
+        5: issue(5, "Add renewals", ["factory:design-approved"]),
+        62: {**issue(62, "task(5): compute counts", ["factory:ready"]), "body": "Part of #5"},
+    })
+    graph, engine, ledger, runner = graph_with(
+        tmp_path, world, {"implementer": lambda w, n: flip(w, n, "factory:ready", "factory:in-review")})
+    payload = {"action": "dispatch", "repository": {"full_name": "o/r"},
+               "inputs": {"role": "implementer", "issue_number": "62"}}
+    Processor(engine, graph)("workflow_dispatch", payload)
+    assert [c["role"] for c in runner.calls] == ["implementer"]
+    assert runner.calls[0]["attachments"] == [("o/r", 62), ("o/r", 5)]

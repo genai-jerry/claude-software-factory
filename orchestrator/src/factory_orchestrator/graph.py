@@ -34,6 +34,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from . import claim
+from .attachments import attachment_targets
 from .config import Config
 from .factory_ci import post_qa_status
 from .github_app import GitHubApp, RepoPort, parse_json_or_empty
@@ -546,6 +547,7 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             on_phase=lambda phase: note(phase, **extra),
             on_output=live.write,
             staging_open=staging_open, integration_branch=staging,
+            attachment_issues=attachment_targets(port, f"{owner}/{repo}", issue),
             **({"workspace": key} if key else {}))
         # The role may have run for the better part of an hour; everything from
         # here on needs a token that is good now, not one that was good then.

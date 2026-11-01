@@ -84,6 +84,13 @@ Decompose the approved spec into an ordered, releasable task breakdown.
    ready — one PR, one G2 approval. Remove `factory:spec-approved`, apply
    `factory:planned`.
 
+## Attachments
+
+When your prompt lists attachments, view each with the Read tool before you
+plan. A mock-up is the source for screens, labels and flows where the spec is
+short; a screenshot of today's behaviour is the baseline a task changes. Name
+the image a task follows in that task's description, in words.
+
 ## Guardrails
 - Do not design or implement; tasks say WHAT, design.md will say HOW.
 - Do not plan the human test pass. Where system tests are on (§4b) the Test
