@@ -38,7 +38,7 @@ const INTERNAL_TERMS = [
 ];
 // A number where a name belongs: `#62`, `beacon-api#62`, a Mermaid `T1[`
 // box id. Case ids (`ST-4`) carry no `#` and are allowed.
-const NUMBER_REFS = /(?:\b[\w.-]+\/[\w.-]+)?#\d+\b|\bT\d+\[/g;
+const NUMBER_REFS = /(?:\b[\w.-]+(?:\/[\w.-]+)?)?#\d+\b|\bT\d+\[/g;
 
 const GATES = {
   G0: 'release approval', G1: 'spec approval', G2: 'design approval',
