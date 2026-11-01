@@ -211,6 +211,9 @@ screens, the data shapes, the error paths as a user meets them.
      up first — an environment, a real call, an account.
    - A Mermaid `flowchart LR` from each case group to the tasks it waits on,
      when that has 15 boxes or fewer. Otherwise, a table of case → tasks.
+     Cases keep their `ST-<n>` identifiers; a task box is the task's title
+     (`[aggregation · beacon-api]` for a cross-repo epic), never a task
+     number or `owner/repo#N` (FACTORY.md §1a rule 11).
    - Next: the Architect (chained run) or the Dispatcher (adopted run).
    - Links: `test-plan.md`, `test-data.md`, and the range of `test(<epic>)`
      sub-issues.
@@ -220,12 +223,12 @@ screens, the data shapes, the error paths as a user meets them.
    Example of the visible part:
 
    ```
-   **Test plan ready for #34: 14 test cases.**
+   **Test plan ready: 14 test cases.**
    **You need to:** nothing now. You approve the plan with the design at design approval (G2).
    - ST-1 to ST-9: status words from a real Google Sheet reach Beacon, and Beacon's writes land in the right columns.
    - ST-10: an opt-out word in the sheet stops the dialing.
    - ST-14 is the riskiest: Beacon's own write must not come back as a second outcome.
-   - Four data sets (DS-1 to DS-4). Task #58 builds the loader; the Release Manager loads them on staging before any case is released.
+   - Four data sets (DS-1 to DS-4). The test data task builds the loader; the Release Manager loads them on staging before any case is released.
    - Five cases make a real AI call to the tester's phone. Make one test call first.
    Next: the Architect writes the design on the same branch.
    Links: test-plan.md · test-data.md · #44–#57 · #58

@@ -44,6 +44,12 @@ Decompose the approved spec into an ordered, releasable task breakdown.
      system tests are on (FACTORY.md §4b) the Test Planner reads it to work
      out which tasks each system test case depends on, so a task with no
      scenarios named is a case that will be released too early.
+   - Where you draw the dependency order as a Mermaid diagram or a table,
+     every box is the task's **title** — and the repo name in words on the
+     same line for a cross-repo epic, `[aggregation · beacon-api]` — never
+     `T1`, a task number, or `owner/repo#N` (FACTORY.md §1a rule 11). The
+     Compass shows this document to people who do not read issue numbers.
+     The issue numbers live in the task's own section and the sub-issue.
 3. Mirror `tasks.md` 1:1 into GitHub sub-issues (in each task's target repo,
    for cross-repo epics): title `task(<epic>): <task name>`, body links the
    change folder and lists dependencies — machine-readable, one marker per
@@ -53,7 +59,22 @@ Decompose the approved spec into an ordered, releasable task breakdown.
    epic's own repo) so tooling can find its parent. No spec content in the
    body.
 4. Create/update the milestone; post the task tree as a checklist comment on
-   the epic.
+   the epic, in the shape of FACTORY.md §1a. Each line of the tree is a task
+   title in words with the repo it lands in, in dependency order; the
+   diagram, if you draw one, follows the same rule as `tasks.md` above.
+   Sub-issue numbers go on the `Links:` line only, as a range (`#62–#66`).
+
+   Example of the visible part:
+
+   ```
+   **Plan ready: 5 tasks across beacon-api and beacon-web.**
+   **You need to:** nothing now. You approve the tasks with the design at design approval (G2).
+   - beacon-api first: the aggregation task, then the endpoint it serves.
+   - beacon-web then: the status column and the leads panel, which waits on the endpoint.
+   - The call-status pin can land in any order.
+   Next: the Test Planner writes the test plan, then the Architect writes the design.
+   Links: tasks.md · #62–#66
+   ```
 5. Commit `tasks.md` to the change folder on branch
    `factory/<issue-number>-design` — create it, if it doesn't exist, from the
    branch you found the change folder on in step 1 — and open a **draft PR**

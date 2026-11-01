@@ -90,6 +90,15 @@ Links: <the files and PRs that hold the detail>
     PR, the PR description, or the linked file. The issue comment says what
     the reader must do. `Factory details` has 100 words or fewer; it is for
     audit (labels, rounds, branch mechanics), not for the analysis.
+11. Name a task, a bug or an epic by its title, never by a number. In the
+    visible part of a comment and in every diagram write "the aggregation
+    task", "the leads panel", "the sheets status epic" — not `#62`,
+    `beacon-api#62`, `T1` or "task 3". Issue and PR numbers go on the
+    `Links:` line, or in `Factory details`, where a link needs them. A
+    diagram box carries the title, and the repo name in words on the same
+    line when the epic spans repos (`[aggregation · beacon-api]`); it never
+    carries a `<br/>` second line of numbers. A test case keeps its `ST-<n>`
+    identifier, because testers type it in verdicts.
 
 **Example.** Not: "The plan is black-box: derived from `proposal.md`,
 `specs/` and `tasks.md` only. I did not read `design.md` (it does not exist

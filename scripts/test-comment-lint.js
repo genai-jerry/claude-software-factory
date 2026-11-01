@@ -4,7 +4,7 @@
 const assert = require('assert');
 const { lint, summarize, guessKind } = require('./comment-lint');
 
-const GOOD = `**Test plan ready for #34: 14 test cases.**
+const GOOD = `**Test plan ready: 14 test cases.**
 **You need to:** nothing now. You approve the plan with the design at design approval (G2).
 - ST-1 to ST-9: status words from a real Google Sheet reach Beacon.
 - ST-14 is the riskiest: Beacon's own write must not come back.
@@ -48,6 +48,12 @@ const cases = {
     assert.ok(r.internal_terms.some(t => t.startsWith('G2 without')));
     assert.ok(!lint('**You need to:** approve at design approval (G2).', 'ready')
       .internal_terms.some(t => t.startsWith('G2')));
+  },
+  'numbers where a name belongs are reported; the Links line is exempt'() {
+    const r = lint('**You need to:** nothing.\n- The aggregation task (#62) waits on beacon-api#61.\n```mermaid\nT1[x]\n```\nLinks: #62 · #61', 'summary');
+    assert.deepStrictEqual(r.number_refs, ['#62', 'beacon-api#61']);
+    assert.ok(r.problems.some(p => p.includes('numbers where a name belongs')));
+    assert.deepStrictEqual(lint('**You need to:** nothing.\n- ST-4 waits on the aggregation task.\nLinks: #62', 'summary').number_refs, []);
   },
   'code blocks and link targets do not count'() {
     const r = lint('**You need to:** run it.\n```\n' + 'x '.repeat(200) + '\n```\n[a](https://example.com/' + 'y'.repeat(300) + ')', 'ready');

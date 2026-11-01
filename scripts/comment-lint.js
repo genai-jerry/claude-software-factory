@@ -13,6 +13,8 @@
 //   - sentences longer than 25 words
 //   - a "You need to:" line, where the kind calls for one
 //   - factory-internal terms in the prose (they belong in Factory details)
+//   - issue, PR or task numbers in the prose (§1a rule 11: name the task; the
+//     numbers go on the Links line, which is exempt)
 'use strict';
 
 const BUDGETS = { started: 25, ready: 120, blocked: 80, summary: 150 };
@@ -34,6 +36,10 @@ const INTERNAL_TERMS = [
   /\bre-?dispatch\w*/gi,
   /\bchain(?:ed)? run\b/gi,
 ];
+// A number where a name belongs: `#62`, `beacon-api#62`, a Mermaid `T1[`
+// box id. Case ids (`ST-4`) carry no `#` and are allowed.
+const NUMBER_REFS = /(?:\b[\w.-]+\/[\w.-]+)?#\d+\b|\bT\d+\[/g;
+
 const GATES = {
   G0: 'release approval', G1: 'spec approval', G2: 'design approval',
   GS: 'release to staging', G3: 'production release',
@@ -96,6 +102,11 @@ function lint(body, kind) {
     const re = new RegExp(`\\b${code}\\b`);
     if (re.test(text) && !text.toLowerCase().includes(name)) terms.add(`${code} without "${name}"`);
   }
+  const numbers = new Set();
+  for (const line of text.split('\n')) {
+    if (/^\s*\*{0,2}links:?\*{0,2}/i.test(line)) continue;
+    for (const m of line.matchAll(NUMBER_REFS)) numbers.add(m[0]);
+  }
   const hasAction = /\*{0,2}you need to:?\*{0,2}/i.test(text);
   const folded = detailsWords(body);
   const problems = [];
@@ -103,11 +114,12 @@ function lint(body, kind) {
   if (long.length) problems.push(`${long.length} sentence(s) over ${SENTENCE_LIMIT} words`);
   if (NEEDS_ACTION.has(kind) && !hasAction) problems.push('no "You need to:" line');
   if (terms.size) problems.push(`internal terms: ${[...terms].join(', ')}`);
+  if (numbers.size) problems.push(`numbers where a name belongs: ${[...numbers].join(', ')} (name the task; numbers go on the Links line)`);
   if (folded > DETAILS_LIMIT) problems.push(`Factory details is ${folded} words, over its ${DETAILS_LIMIT}-word cap`);
   return {
     kind, words: count, budget, over_budget: count > budget, details_words: folded,
     long_sentences: long, has_action: hasAction,
-    internal_terms: [...terms], ok: problems.length === 0, problems,
+    internal_terms: [...terms], number_refs: [...numbers], ok: problems.length === 0, problems,
   };
 }
 
