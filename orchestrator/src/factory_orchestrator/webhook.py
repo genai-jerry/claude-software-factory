@@ -258,13 +258,24 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         if app.state.asker is None:
             raise HTTPException(status_code=501, detail="this orchestrator cannot answer questions")
         apply_runtime_agent_secrets(cfg, body)
-        from .ask import AskError
+        from .ask import MODES, AskError, check_images
+        mode = body.get("mode") or "ask"
+        if mode not in MODES:
+            raise HTTPException(status_code=400, detail="mode must be ask or shape")
+        images = body.get("images")
+        if images is not None:
+            # Checked here, before a slot or a clone is spent on a bad upload.
+            try:
+                check_images(images)
+            except AskError as e:
+                raise HTTPException(status_code=e.status, detail=str(e)) from e
         try:
             return await asyncio.to_thread(
                 app.state.asker, owner=body["owner"], repo=body["repo"],
                 question=body["question"], context=str(body.get("context") or ""),
                 branch=body.get("branch") if isinstance(body.get("branch"), str) else None,
-                instructions=body.get("instructions") if isinstance(body.get("instructions"), str) else None)
+                instructions=body.get("instructions") if isinstance(body.get("instructions"), str) else None,
+                images=images if isinstance(images, list) else None, mode=mode)
         except AskError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
 

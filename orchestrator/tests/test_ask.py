@@ -8,7 +8,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from factory_orchestrator.ask import ASK_TOOLS, AskError, answer_question
+import base64
+
+from factory_orchestrator.ask import ASK_TOOLS, MODES, AskError, answer_question, check_images
 from factory_orchestrator.config import load_config
 from factory_orchestrator.ledger import Ledger
 from factory_orchestrator.repo_cache import RepoCache
@@ -117,3 +119,90 @@ async def test_the_endpoint_needs_the_operator_token_and_returns_the_answer(tmp_
         assert bad.status_code == 400
     assert seen["branch"] == "factory/epic-34" and seen["question"] == "why?"
     assert seen["instructions"] == "Cite sources as [n]."
+
+
+PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 40).decode()
+
+
+def test_images_land_beside_the_checkout_and_are_named_in_the_prompt(tmp_path):
+    # The fake claude lists what it finds where the prompt says to look.
+    listing = tmp_path / "attachments.txt"
+    engine, out = engine_for(tmp_path)
+    (tmp_path / "claude-hook.sh").write_text(f"ls \"$HOME/attachments\" > {listing}\necho '{RESULT}'\n")
+    answer_question(engine, owner="o", repo="r", question="What is on this screen?", context="",
+                    images=[{"name": "leads page.png", "mime": "image/png", "data_b64": PNG},
+                            {"name": "../../etc/passwd", "mime": "image/jpeg", "data_b64": PNG}])
+    prompt = next(out.glob("prompt-*.txt")).read_text()
+    assert "attached 2 images" in prompt and "Read each one with the Read tool" in prompt
+    assert "/attachments/1-leads-page.png" in prompt and "/attachments/2-passwd.jpg" in prompt
+    assert sorted(listing.read_text().split()) == ["1-leads-page.png", "2-passwd.jpg"]
+    # The checkout itself carries no attachment, and everything is gone afterwards.
+    assert "r/attachments" not in prompt
+    assert not list((tmp_path / "ws").iterdir())
+
+
+def test_shape_mode_has_wider_budgets_and_the_same_read_only_tools(tmp_path):
+    engine, out = engine_for(tmp_path)
+    long_question = "Shape this. " * 400  # ~4 800 chars: over ask's 2 000, under shape's 12 000
+    with pytest.raises(AskError) as e:
+        answer_question(engine, owner="o", repo="r", question=long_question, context="")
+    assert e.value.status == 400 and "2000" in str(e.value)
+    answer_question(engine, owner="o", repo="r", question=long_question, context="", mode="shape")
+    argv = next(out.glob("argv-*.txt")).read_text().split("\n")
+    assert argv[argv.index("--max-turns") + 1] == str(MODES["shape"][2])
+    assert argv[argv.index("--allowedTools") + 1] == ASK_TOOLS
+    with pytest.raises(AskError) as e:
+        answer_question(engine, owner="o", repo="r", question="x", context="", mode="paint")
+    assert e.value.status == 400
+
+
+def test_a_bad_image_is_refused_before_anything_runs(tmp_path):
+    engine, out = engine_for(tmp_path)
+    for images, said in (
+        ([{"name": "a.svg", "mime": "image/svg+xml", "data_b64": PNG}], "not supported"),
+        ([{"name": "a.png", "mime": "image/png", "data_b64": "not base64!"}], "not valid base64"),
+        ([{"name": "a.png", "mime": "image/png", "data_b64": PNG}] * 7, "At most 6"),
+    ):
+        with pytest.raises(AskError) as e:
+            answer_question(engine, owner="o", repo="r", question="x", context="", images=images)
+        assert e.value.status == 400 and said in str(e.value), said
+    big = base64.b64encode(b"\x00" * (5 * 1024 * 1024 + 1)).decode()
+    with pytest.raises(AskError) as e:
+        check_images([{"name": "a.png", "mime": "image/png", "data_b64": big}])
+    assert e.value.status == 400 and "over 5 MB" in str(e.value)
+    assert not list(out.glob("prompt-*.txt"))
+
+
+def test_an_ask_is_entered_in_the_ledger_as_a_finished_run(tmp_path):
+    engine, _ = engine_for(tmp_path)
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db"})
+    engine.ledger = Ledger(cfg.database_url)
+    answer_question(engine, owner="o", repo="r", question="why?", context="", mode="shape")
+    runs = engine.ledger.list_runs(repo="o/r")
+    assert len(runs) == 1 and runs[0]["role"] == "ask" and runs[0]["outcome"] == "success"
+    assert runs[0]["finished_at"] is not None
+    assert not engine.ledger.list_runs(repo="o/r", active_only=True)
+    import json
+    assert json.loads(runs[0]["guards"])["usage"]["input_tokens"] == 120
+
+
+async def test_the_endpoint_validates_images_and_passes_mode(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db", "DISPATCH_TOKEN": "op-token"})
+    app = create_app(cfg, Ledger(cfg.database_url), lambda *_: None, poll_interval=0.05)
+    seen = {}
+
+    def asker(**kw):
+        seen.update(kw)
+        return {"answer": "A leads table.", "model": "m", "usage": {}}
+    app.state.asker = asker
+    h = {"authorization": "Bearer op-token"}
+    body = {"owner": "o", "repo": "r", "question": "what is this?", "mode": "shape",
+            "images": [{"name": "s.png", "mime": "image/png", "data_b64": PNG}]}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        ok = await c.post("/ask", json=body, headers=h)
+        assert ok.status_code == 200, ok.text
+        bad = await c.post("/ask", json={**body, "images": [{"name": "s.svg", "mime": "image/svg+xml", "data_b64": PNG}]}, headers=h)
+        assert bad.status_code == 400 and "not supported" in bad.json()["detail"]
+        worse = await c.post("/ask", json={**body, "mode": "draw"}, headers=h)
+        assert worse.status_code == 400
+    assert seen["mode"] == "shape" and seen["images"][0]["name"] == "s.png"
