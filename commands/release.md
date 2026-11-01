@@ -186,7 +186,8 @@ staging). If it is neither, you are in phase 1 — go back.
    default branch **into the integration branch** (a fast-forward when it
    can be; a merge commit otherwise, never a rebase). A conflict here is not
    yours to resolve on either side: comment on the epic naming the files,
-   apply `factory:blocked`, and stop.
+   end it with `**Questions for you:**` and what you need decided (FACTORY.md
+   §1a rule 13), apply `factory:blocked`, and stop.
 
    **Then, with an epic branch:** reconcile — if the integration branch has
    moved since the epic branch was cut or last refreshed (it just did, if

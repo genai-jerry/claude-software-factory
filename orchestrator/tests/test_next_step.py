@@ -273,3 +273,64 @@ def test_without_the_policy_the_plain_wording_stands(state):
     plain = ns.render(TABLE, "dispatch", 198, state, ["boss"], False, False)
     assert plain != ns.render(TABLE, "dispatch", 198, state, ["boss"], False, True)
     assert TABLE["states"][state]["how"] in plain
+
+
+BLOCKED_COMMENT = """**Round 2 blocked: `unload` deletes nothing on staging.**
+**You need to:** decide below.
+- The round-1 guard stops on a table that is not a tenant table.
+Next: you. The two-round cap is spent.
+Links: PR #166
+**Questions for you:**
+1. Allow one more implementer round on this task, or take the fix yourself?
+2. Should `judge_alerts` count as a tenant table?
+
+<details><summary>Factory details</summary>
+
+Is this folded text a question? It must not count.
+</details>
+
+<!-- factory-agent -->"""
+
+
+def test_the_questions_list_is_read_off_a_blocking_comment():
+    assert ns.extract_questions(BLOCKED_COMMENT) == [
+        "Allow one more implementer round on this task, or take the fix yourself?",
+        "Should `judge_alerts` count as a tenant table?",
+    ]
+    # Before the rule: the lines that end in a question mark, fold excluded.
+    old = "**Blocked: two readings.**\nDoes the sheet own the phone column?\n- Or does Beacon?\n\n<details>Why not both?</details>\n<!-- factory-agent -->"
+    assert ns.extract_questions(old) == ["Does the sheet own the phone column?", "Or does Beacon?"]
+    assert ns.extract_questions("**Blocked.** Read the PR.\n<!-- factory-agent -->") == []
+    assert ns.extract_questions("Questions for you: Keep the loader, or retire it?") == ["Keep the loader, or retire it?"]
+    assert ACTIONS.extract_questions(BLOCKED_COMMENT) == ns.extract_questions(BLOCKED_COMMENT)
+
+
+def test_the_questions_come_from_the_roles_own_comment_not_the_notices():
+    comments = [
+        {"body": "Is this the person's question?"},
+        {"body": BLOCKED_COMMENT},
+        {"body": "▶ The **reviewer** is running — watch the run.\n\n<!-- factory-agent -->"},
+        {"body": "**Reviewer** finished — #5 is now at `factory:blocked`.\n\n<!-- factory-next:factory:blocked -->\n<!-- factory-agent -->"},
+    ]
+    assert ns.newest_agent_question_body(comments) == BLOCKED_COMMENT
+    assert ACTIONS.newest_agent_question_body(comments) == BLOCKED_COMMENT
+    assert ns.newest_agent_question_body([comments[0]]) == ""
+
+
+def test_a_blocked_notice_repeats_the_questions_in_both_engines():
+    qs = ns.extract_questions(BLOCKED_COMMENT)
+    ours = ns.render(TABLE, "reviewer", 5, "factory:blocked", [], questions=qs)
+    theirs = ACTIONS.render(TABLE, "reviewer", 5, "factory:blocked", [], questions=qs)
+    assert ours + "\n<!-- factory-agent -->" == theirs
+    assert "**Questions for you:**\n1. Allow one more implementer round" in ours
+    assert "2. Should `judge_alerts` count as a tenant table?\n\n<!-- factory-next:factory:blocked -->" in ours
+    assert "Its questions are listed below" in ours
+    assert "Questions for you" not in ns.render(TABLE, "reviewer", 5, "factory:blocked", [])
+
+
+def test_the_guard_repeats_the_questions_on_a_blocked_issue():
+    world = _repo(["factory:ready", "factory:blocked"], comments=[{"body": BLOCKED_COMMENT}])
+    report_next_step(world, 5, "reviewer", ROOT)
+    notice = world.comments[5][-1]["body"]
+    assert "**Questions for you:**\n1. Allow one more implementer round" in notice
+    assert "<!-- factory-next:factory:blocked -->" in notice

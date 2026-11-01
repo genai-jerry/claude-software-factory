@@ -21,7 +21,8 @@ chained after the Planner and before the Architect; also any epic from
    record `format`, when the repo already has a loader — FACTORY.md §4b) and
    its `deploy` block (a per-epic preview environment, health checks).
    Missing or unparseable: comment and apply `factory:blocked`, like every
-   other per-repo role.
+   other per-repo role — the comment ends with `**Questions for you:**` and
+   what you need answered (FACTORY.md §1a rule 13).
 3. Read the issue. Refuse, with a comment naming the reason, and stop when:
    - it is **earlier than `factory:planned`** — there is no `tasks.md` to
      derive `Depends on:` from. Name the Planner as what to wait for;

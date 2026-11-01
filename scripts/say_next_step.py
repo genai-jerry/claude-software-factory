@@ -142,13 +142,77 @@ def system_tests_on(path: str = ".github/factory-testing.json") -> bool:
         return False
 
 
+# The list a blocking comment ends with (FACTORY.md §1a rule 13). The notice
+# repeats it, so the questions are the last thing on the thread. Byte-for-byte
+# the orchestrator's (factory_orchestrator.next_step), which the tests check.
+QUESTIONS_HEAD_RE = re.compile(r"^\s*\**questions? for you:?\**\s*(.*)$", re.IGNORECASE)
+_ITEM_RE = re.compile(r"^\s*(?:\d+[.)]|[-*])\s+(.*\S)\s*$")
+MAX_QUESTIONS = 8
+
+
+def visible_part(body: str | None) -> str:
+    text = body or ""
+    text = re.sub(r"<details>[\s\S]*?</details>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"```[\s\S]*?```", " ", text)
+    text = re.sub(r"<!--[\s\S]*?-->", " ", text)
+    return text
+
+
+def extract_questions(body: str | None, limit: int = MAX_QUESTIONS) -> list[str]:
+    lines = visible_part(body).splitlines()
+    for i, line in enumerate(lines):
+        m = QUESTIONS_HEAD_RE.match(line)
+        if not m:
+            continue
+        out: list[str] = []
+        first = m.group(1).strip().strip("*").strip()
+        if first:
+            out.append(re.sub(r"^(?:\d+[.)]|[-*])\s+", "", first))
+        for rest in lines[i + 1:]:
+            item = _ITEM_RE.match(rest)
+            if item:
+                out.append(item.group(1).strip())
+            elif rest.strip() == "":
+                if out:
+                    break
+            else:
+                break
+        if out:
+            return out[:limit]
+    out = []
+    for line in lines:
+        s = re.sub(r"^\s*(?:\d+[.)]|[-*])\s+", "", line).strip().strip("*").strip()
+        if s.endswith("?") and 8 <= len(s) <= 300 and s not in out:
+            out.append(s)
+    return out[:limit]
+
+
+def newest_agent_question_body(comments: list[dict]) -> str:
+    for c in reversed(comments):
+        body = c.get("body") or ""
+        if AGENT_MARK not in body or NEXT_MARK in body:
+            continue
+        if visible_part(body).strip().startswith("▶"):
+            continue
+        return body
+    return ""
+
+
+def questions_block(questions: list[str] | None) -> str:
+    if not questions:
+        return ""
+    return "**Questions for you:**\n" + "\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1)) + "\n\n"
+
+
 def render(table: dict, role: str, issue: int, state: str | None,
-           approvers: list[str], expedited: bool = False, tested: bool = False) -> str:
+           approvers: list[str], expedited: bool = False, tested: bool = False,
+           questions: list[str] | None = None) -> str:
     who, how = render_who_how(table, state, issue, approvers, expedited, tested)
     where = f"now at `{state}`" if state else "carrying no `factory:*` state"
     return (
         f"**{role.capitalize()}** finished — #{issue} is {where}.\n\n"
         f"**Next: {who}.** {how}\n\n"
+        f"{questions_block(questions)}"
         f"<!-- {NEXT_MARK}{state or 'none'} -->\n"
         f"{AGENT_MARK}"
     )
@@ -184,8 +248,10 @@ def main() -> int:
         return 0
 
     gate = GATE_OF_STATE.get(state or "")
+    questions = extract_questions(newest_agent_question_body(comments)) \
+        if state == "factory:blocked" else []
     body = render(table, role, issue, state, approver_list(gate) if gate else [],
-                  expedited_for(repo, data), system_tests_on())
+                  expedited_for(repo, data), system_tests_on(), questions)
     gh("api", f"repos/{repo}/issues/{issue}/comments", "-f", f"body={body}")
     print(f"Said what happens next on #{issue} ({state or 'no state'}).")
     return 0

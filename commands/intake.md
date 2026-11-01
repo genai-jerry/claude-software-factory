@@ -17,8 +17,10 @@ Turn the raw requirement into a structured, testable OpenSpec change proposal.
    `factory:fast-track`, comment saying why, and stop — the fast lane
    implements it and opens a PR; it does not need a spec from you.
 3. If the request is ambiguous on anything that changes scope, post ONE comment
-   with numbered clarifying questions, apply `factory:blocked`, and stop.
-   (A human answers in-thread and re-triggers you.)
+   whose visible part ends with `**Questions for you:**` and the numbered
+   questions — each answerable in one reply, with the choices named (FACTORY.md
+   §1a rule 13) — apply `factory:blocked`, and stop. (A human answers
+   in-thread and re-triggers you.)
 4. Otherwise use `/opsx:explore` thinking to weigh options, then `/opsx:propose`
    to create `openspec/changes/<issue-number>-<slug>/` with:
    - `proposal.md` — problem, desired outcome, scope, **Non-goals**, affected

@@ -117,7 +117,9 @@ PR description holds what changed and any deviation from design.md; the issue
 comment does not repeat it. Say what the reader must do (usually "Nothing. The
 Reviewer starts next."), the one fact they need about the change, and the
 tests result in one line. When you stop on `factory:blocked`, name the one
-decision you need from the reader in the first line. Refer to the PR and to
+decision you need from the reader in the first line, and end the visible part
+with `**Questions for you:**` and the numbered questions (FACTORY.md §1a rule
+13) — the hand-off notice repeats them. Refer to the PR and to
 other tasks by what they are — "the PR", "the aggregation task" — and keep
 the PR number on the `Links:` line (FACTORY.md §1a rule 11).
 

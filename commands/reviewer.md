@@ -79,7 +79,13 @@ Example of the visible part, for the third finding round (blocked):
 - `98450 12345` then becomes `Won by AI`. The number is in no other store.
 Next: you. The two-round cap is spent.
 Links: #21
+**Questions for you:**
+1. Allow one more implementer round on this task, or take the fix yourself?
 ```
+
+Every blocked comment ends with that `**Questions for you:**` list (FACTORY.md
+§1a rule 13): the hand-off notice repeats it, so the questions are the last
+thing the person reads.
 
 `Factory details` for it, in 45 words: the label change, the rounds counted
 from the newest human reply, and one line saying everything else conforms

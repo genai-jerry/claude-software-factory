@@ -108,17 +108,20 @@ function lint(body, kind) {
     for (const m of line.matchAll(NUMBER_REFS)) numbers.add(m[0]);
   }
   const hasAction = /\*{0,2}you need to:?\*{0,2}/i.test(text);
+  // A block ends with the questions a person answers (§1a rule 13).
+  const hasQuestions = /^\s*\*{0,2}questions? for you:?\*{0,2}/im.test(text);
   const folded = detailsWords(body);
   const problems = [];
   if (count > budget) problems.push(`over budget: ${count} words, ${kind} allows ${budget}`);
   if (long.length) problems.push(`${long.length} sentence(s) over ${SENTENCE_LIMIT} words`);
   if (NEEDS_ACTION.has(kind) && !hasAction) problems.push('no "You need to:" line');
+  if (kind === 'blocked' && !hasQuestions) problems.push('blocked without a "Questions for you:" list');
   if (terms.size) problems.push(`internal terms: ${[...terms].join(', ')}`);
   if (numbers.size) problems.push(`numbers where a name belongs: ${[...numbers].join(', ')} (name the task; numbers go on the Links line)`);
   if (folded > DETAILS_LIMIT) problems.push(`Factory details is ${folded} words, over its ${DETAILS_LIMIT}-word cap`);
   return {
     kind, words: count, budget, over_budget: count > budget, details_words: folded,
-    long_sentences: long, has_action: hasAction,
+    long_sentences: long, has_action: hasAction, has_questions: hasQuestions,
     internal_terms: [...terms], number_refs: [...numbers], ok: problems.length === 0, problems,
   };
 }

@@ -37,6 +37,13 @@ const cases = {
     const items = Array.from({ length: 6 }, (_, i) => `- item ${i} has a few short words`).join('\n');
     assert.strictEqual(lint(`**You need to:** nothing.\n${items}`, 'summary').long_sentences.length, 0);
   },
+  'a block without its questions is reported; with them it passes'() {
+    const head = '**Round 2 blocked: the loader deletes nothing.**\n**You need to:** decide below.\n';
+    assert.ok(lint(head, 'blocked').problems.some(p => p.includes('Questions for you')));
+    const withQ = head + '**Questions for you:**\n1. Allow one more round on this task?\n';
+    assert.ok(!lint(withQ, 'blocked').problems.some(p => p.includes('Questions for you')));
+    assert.ok(!lint('**You need to:** nothing.', 'summary').problems.some(p => p.includes('Questions for you')));
+  },
   'a missing action line is reported where the kind needs one'() {
     assert.ok(lint('Tests pass.', 'ready').problems.some(p => p.includes('You need to')));
     assert.ok(!lint('▶ The intake is running.', 'started').problems.some(p => p.includes('You need to')));
