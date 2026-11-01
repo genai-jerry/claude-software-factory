@@ -105,6 +105,14 @@ Links: <the files and PRs that hold the detail>
     each with the Read tool before you start. The links in the issue body
     are for people — they need a Compass sign-in — so never say an image
     could not be opened when your prompt names its file.
+13. A comment that applies `factory:blocked` ends its visible part with
+    `**Questions for you:**` and a numbered list — one question per line,
+    each one a person can answer in a single reply, with the choices named
+    when there are choices ("Keep the manual loader as the fallback, or
+    retire it?"). A rework cap is a question too ("Allow one more round on
+    this task?"). The hand-off notice repeats the list, so the questions are
+    the last thing on the thread; the Compass shows them beside the reply
+    box. A block with no question is a block the person cannot clear.
 
 **Example.** Not: "The plan is black-box: derived from `proposal.md`,
 `specs/` and `tasks.md` only. I did not read `design.md` (it does not exist

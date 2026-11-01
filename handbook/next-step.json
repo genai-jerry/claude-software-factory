@@ -173,7 +173,7 @@
     },
     "factory:blocked": {
       "who": "any owner, member or collaborator",
-      "how": "An agent stopped and asked a question — it is the newest agent comment on this thread. Reply here with the answer: the factory clears `factory:blocked` and re-runs the stage that halted, re-reading the whole thread."
+      "how": "An agent stopped and needs an answer from you. Its questions are listed below, and in full in the newest agent comment on this thread. Reply here with the answers: the factory clears `factory:blocked` and re-runs the stage that halted, re-reading the whole thread."
     },
     "factory:incident": {
       "who": "a human, with the Release Manager",

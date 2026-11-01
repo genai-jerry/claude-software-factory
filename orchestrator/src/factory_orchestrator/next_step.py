@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from .router import BUG_KIND, EXPEDITE, IN_PROGRESS, RELEASE_KIND
@@ -22,6 +23,73 @@ from .router import BUG_KIND, EXPEDITE, IN_PROGRESS, RELEASE_KIND
 log = logging.getLogger("factory-orchestrator.next-step")
 
 NEXT_MARK = "factory-next:"
+AGENT_MARK = "<!-- factory-agent -->"
+
+#: The list a blocking comment ends with (FACTORY.md §1a rule 13). The notice
+#: repeats it, so the questions are the last thing on the thread.
+QUESTIONS_HEAD_RE = re.compile(r"^\s*\**questions? for you:?\**\s*(.*)$", re.IGNORECASE)
+_ITEM_RE = re.compile(r"^\s*(?:\d+[.)]|[-*])\s+(.*\S)\s*$")
+MAX_QUESTIONS = 8
+
+
+def visible_part(body: str | None) -> str:
+    """A comment without its fold, its markers and its code: what a person reads."""
+    text = body or ""
+    text = re.sub(r"<details>[\s\S]*?</details>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"```[\s\S]*?```", " ", text)
+    text = re.sub(r"<!--[\s\S]*?-->", " ", text)
+    return text
+
+
+def extract_questions(body: str | None, limit: int = MAX_QUESTIONS) -> list[str]:
+    """The questions a blocking comment asks: its `Questions for you:` list,
+    or — for a comment written before that rule — its lines that end in a
+    question mark. Empty when it asks nothing a list can carry."""
+    lines = visible_part(body).splitlines()
+    for i, line in enumerate(lines):
+        m = QUESTIONS_HEAD_RE.match(line)
+        if not m:
+            continue
+        out: list[str] = []
+        first = m.group(1).strip().strip("*").strip()
+        if first:
+            out.append(re.sub(r"^(?:\d+[.)]|[-*])\s+", "", first))
+        for rest in lines[i + 1:]:
+            item = _ITEM_RE.match(rest)
+            if item:
+                out.append(item.group(1).strip())
+            elif rest.strip() == "":
+                if out:
+                    break
+            else:
+                break
+        if out:
+            return out[:limit]
+    out = []
+    for line in lines:
+        s = re.sub(r"^\s*(?:\d+[.)]|[-*])\s+", "", line).strip().strip("*").strip()
+        if s.endswith("?") and 8 <= len(s) <= 300 and s not in out:
+            out.append(s)
+    return out[:limit]
+
+
+def newest_agent_question_body(comments: list[dict]) -> str:
+    """The newest agent comment that is a role's own word — not a hand-off
+    notice, not a run-started line — which is where the questions are."""
+    for c in reversed(comments):
+        body = c.get("body") or ""
+        if AGENT_MARK not in body or NEXT_MARK in body:
+            continue
+        if visible_part(body).strip().startswith("▶"):
+            continue
+        return body
+    return ""
+
+
+def questions_block(questions: list[str] | None) -> str:
+    if not questions:
+        return ""
+    return "**Questions for you:**\n" + "\n".join(f"{i}. {q}" for i, q in enumerate(questions, 1)) + "\n\n"
 TABLE_PATH = Path("handbook") / "next-step.json"
 #: Kind markers sit alongside the state label and are never the state itself.
 NOT_A_STATE = {IN_PROGRESS, EXPEDITE, RELEASE_KIND, BUG_KIND}
@@ -74,7 +142,8 @@ def approvers_for(state: str | None, config: dict) -> list[str]:
 
 
 def render(table: dict, role: str, issue: int, state: str | None,
-           approvers: list[str], expedited: bool = False, tested: bool = False) -> str:
+           approvers: list[str], expedited: bool = False, tested: bool = False,
+           questions: list[str] | None = None) -> str:
     entry = table["states"].get(state) if state else None
     if entry is None:
         entry = table["none"]
@@ -99,6 +168,7 @@ def render(table: dict, role: str, issue: int, state: str | None,
     return (
         f"**{role.capitalize()}** finished — #{issue} is {where}.\n\n"
         f"**Next: {fill(entry['who'])}.** {fill(entry['how'])}\n\n"
+        f"{questions_block(questions)}"
         f"<!-- {NEXT_MARK}{state or 'none'} -->"
     )
 

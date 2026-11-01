@@ -18,6 +18,8 @@ from .next_step import (
     GATE_OF_STATE,
     already_said,
     approvers_for,
+    extract_questions,
+    newest_agent_question_body,
     load_table,
     render,
     state_of,
@@ -155,9 +157,14 @@ def report_next_step(port: RepoPort, issue: int, role: str, factory_checkout,
         labels = [(l if isinstance(l, str) else l.get("name"))
                   for l in iss.get("labels", [])]
         state = state_of(labels)
-        if already_said(port.list_comments(issue), state):
+        comments = port.list_comments(issue)
+        if already_said(comments, state):
             log.info("#%s already carries the hand-off notice for %s", issue, state)
             return
+        # A blocked issue's notice repeats the role's questions, so the last
+        # thing on the thread is what the person has to answer.
+        questions = extract_questions(newest_agent_question_body(comments)) \
+            if state == "factory:blocked" else []
         approvers = []
         if GATE_OF_STATE.get(state or ""):
             cfg = parse_json_or_empty(port.get_file(".github/factory-approvers.json"))
@@ -170,7 +177,7 @@ def report_next_step(port: RepoPort, issue: int, role: str, factory_checkout,
             port.get_file(".github/factory-testing.json")).get("system_tests") is True
         port.create_comment(
             issue,
-            f"{render(table, role, issue, state, approvers, expedited, tested)}\n{AGENT_MARK}")
+            f"{render(table, role, issue, state, approvers, expedited, tested, questions)}\n{AGENT_MARK}")
         log.info("said what happens next on #%s (%s)", issue, state or "no state")
     except Exception:  # noqa: BLE001 - a missing notice must not fail a good run
         log.warning("could not post the hand-off notice on #%s", issue, exc_info=True)
