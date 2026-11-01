@@ -12,7 +12,7 @@ from .fake_repo import FakeRepo
 FACTORY = Path(__file__).resolve().parents[2]
 needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 
-GOOD = ("**Spec ready for #5.**\n**You need to:** review the PR, then comment `Approved`.\n"
+GOOD = ("**Spec ready: the renewals proposal.**\n**You need to:** review the PR, then comment `Approved`.\n"
         "Next: the Planner.\n\n<!-- factory-agent -->")
 LONG = ("This comment explains at great length how the factory decided what to do and why "
         "it works the way it does, without ever saying what the reader must do now.\n\n"

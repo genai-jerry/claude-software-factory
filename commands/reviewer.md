@@ -74,7 +74,7 @@ Example of the visible part, for the third finding round (blocked):
 
 ```
 **Round 2 blocked: a status word can still overwrite a lead's phone number.**
-**You need to:** read the blocking comment on #21, then reply here to allow one more round.
+**You need to:** read the blocking comment on the PR, then reply here to allow one more round.
 - When the chosen column is also the status column, the guard drops the phone column.
 - `98450 12345` then becomes `Won by AI`. The number is in no other store.
 Next: you. The two-round cap is spent.

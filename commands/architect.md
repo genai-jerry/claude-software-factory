@@ -56,7 +56,10 @@ Produce a grounded technical design for every affected repo.
    at gate G2, numbered as you wrote them, so write each heading as something
    a non-engineer can agree to or ask to change. Then one section per task,
    headed `## Task <n> — <the task's title> (#<task issue number>)`, saying
-   what that task builds and which earlier tasks it depends on. Then cover:
+   what that task builds and which earlier tasks it depends on. That heading
+   is a document convention the Compass parses; inside the section, and in
+   every comment you write, refer to other tasks by title ("depends on the
+   aggregation task"), never by number (FACTORY.md §1a rule 11). Then cover:
    - API contracts: paths, request/response schemas, status codes, auth.
    - Data: the migration plan, using the migration tool named in that repo's
      `.factory/profile.json`.

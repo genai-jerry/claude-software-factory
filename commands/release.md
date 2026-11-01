@@ -151,7 +151,9 @@ epic is `factory:in-staging`).
    on staging say that approving GS is what makes them runnable. On the **epic** issue, remove whatever state it
    carries and apply `factory:epic-ready`, then post an **assembly report**:
    which task PR merged onto which branch in which order, the suite result,
-   and anything a human should weigh before this goes to staging. With system
+   and anything a human should weigh before this goes to staging. Name each
+   PR by its task's title ("the aggregation task, then the endpoint"), and
+   put the PR links on the `Links:` line (FACTORY.md §1a rule 11). With system
    tests on, that includes the **test matrix** — every case, its verdict
    ("skipped by @who" for a skipped one) and who gave it — and every bug
    raised against this epic with its verdict (§4c), since gate GS is where a
@@ -222,7 +224,9 @@ staging). If it is neither, you are in phase 1 — go back.
    run, the health-check output that proves staging is good, and the test
    data load — which sets, and the command's output. That evidence is what
    the human reads at gate G3 — without it there is nothing to approve — and
-   the load output is what the Dispatcher points testers at.
+   the load output is what the Dispatcher points testers at. As in the
+   assembly report, name the PRs by their tasks' titles in the visible part
+   and keep the PR numbers on the `Links:` line.
 
 ## Phase 2 — promotion to the default branch (gate G3, the human does this)
 
@@ -247,7 +251,11 @@ staging). If it is neither, you are in phase 1 — go back.
     the default branch side.
 11. On the epic, post the release summary with a **numbered merge list**: the
     exact promotion PRs for the human to merge via the GitHub UI, in order
-    (**gate G3**). Repeat the test matrix here, and repeat the unverified
+    (**gate G3**). Each entry is the repo name in words with the PR as a
+    link — `1. beacon-api — [promote staging to main](url)` — and the number
+    may sit beside the link, since the human clicks it; this list is the one
+    place in the visible part where a number belongs (FACTORY.md §1a rule
+    11). Repeat the test matrix here, and repeat the unverified
     warning if there is one — the merge list is what the approver acts on, so
     that is where the warning has to be. Assign and @-mention the `release`
     approver list from `.github/factory-approvers.json`.

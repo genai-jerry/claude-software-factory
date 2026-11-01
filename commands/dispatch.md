@@ -115,6 +115,22 @@ step 4 exactly as it does the cases'.
    `.github/factory-approvers.json` — starting implementers is theirs. On an
    expedited epic, skip the cc: nobody is being asked for anything.
 
+   Name every task and bug by its title (FACTORY.md §1a rule 11): "ready:
+   the aggregation task and the status column; waiting: the leads panel, on
+   the endpoint". Cases keep their `ST-<n>`. The issue numbers go on the
+   `Links:` line, nowhere else in the visible part.
+
+   Example of the visible part:
+
+   ```
+   **2 tasks can start; 3 wait on them.**
+   **You need to:** approve the start of the aggregation task and the status column — comment `Approved` on each, or press Approve in the Compass.
+   - Waiting: the endpoint (on the aggregation task), the leads panel (on the endpoint), the call-status pin (on the aggregation task).
+   - No test case can run yet: none of the code is assembled.
+   Next: the implementers, once you approve.
+   Links: ready #62, #65 · waiting #63, #64, #66
+   ```
+
    **On an epic at `factory:in-staging`** (cases run on staging), that
    summary is your last act — except once: when every open case is
    `factory:test-passed` or `factory:test-skipped` and no bug is open, post
