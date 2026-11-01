@@ -52,8 +52,8 @@ Prove the spec's scenarios are actually covered — by tests, not by reading cod
 
 The scenario → test table is the evidence, so it goes in the test report on
 the PR. The comment on the task issue is a notice in the shape of FACTORY.md
-§1a: 80 words when blocked, 120 when work is ready, `Factory details` at 100
-words or fewer.
+§1a: six sentences or fewer a product owner can follow, rewritten before you
+post as §1a says, `Factory details` at 100 words or fewer.
 
 ```
 **QA passed: all 6 scenarios have a passing test.**

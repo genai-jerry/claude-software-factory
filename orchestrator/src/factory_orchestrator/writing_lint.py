@@ -51,5 +51,6 @@ def score_new_comments(port, issue: int, before_count: int,
     return {
         "summary": report.get("summary", {}),
         "comments": [{"kind": r.get("kind"), "words": r.get("words"),
+                      "grade": r.get("grade"), "sentences": r.get("sentences"),
                       "problems": r.get("problems", [])} for r in results],
     }

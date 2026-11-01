@@ -9,7 +9,11 @@
 //
 // What it checks, on the visible part only (`<details>`, code blocks, HTML
 // comments and link targets are removed first):
-//   - words against the budget for the comment's kind (§1a table)
+//   - the visible sentences: more than eight is over §1a's "six or fewer"
+//   - readability: Flesch-Kincaid grade over 8, or sentences averaging over
+//     20 words (§1a Length) — a measure of word and sentence length only; it
+//     cannot see a stand-in noun, which rule 14 is for
+//   - words against a backstop cap for the comment's kind
 //   - sentences longer than 25 words
 //   - a "You need to:" line, where the kind calls for one
 //   - factory-internal terms in the prose (they belong in Factory details)
@@ -17,9 +21,16 @@
 //     numbers go on the Links line, which is exempt)
 'use strict';
 
-const BUDGETS = { started: 25, ready: 120, blocked: 80, summary: 150 };
+// Backstop caps, not targets: §1a measures length in sentences and grade.
+const BUDGETS = { started: 25, ready: 160, blocked: 160, summary: 220 };
 const NEEDS_ACTION = new Set(['ready', 'blocked', 'summary']);
 const SENTENCE_LIMIT = 25;
+// §1a Length: six sentences or fewer; the lint allows eight before it says so.
+const SENTENCES_LIMIT = 8;
+const GRADE_LIMIT = 8;
+const AVG_WORDS_LIMIT = 20;
+// The lines §1a does not count as sentences: the frame around the content.
+const FRAME_LINE = /^\s*\*{0,2}(?:you need to|next|links|questions? for you):?/i;
 // The fold is for audit, not for the analysis. Without a cap it became the
 // place the explanation went (550 words under an 80-word notice).
 const DETAILS_LIMIT = 100;
@@ -77,6 +88,31 @@ function sentences(text) {
     .filter(Boolean);
 }
 
+// The sentences a person reads as content: not the frame lines, not the
+// headline, not a bare fragment.
+function contentSentences(text) {
+  const lines = text.split('\n').filter(l => !FRAME_LINE.test(l));
+  const first = lines.findIndex(l => l.trim());
+  // The headline is the first bold line; it frames the comment and is not counted.
+  if (first >= 0 && /^\s*\*\*.*\*\*\s*$/.test(lines[first])) lines.splice(first, 1);
+  return sentences(lines.join('\n')).filter(s => words(s).length >= 3);
+}
+function syllables(word) {
+  const w = word.toLowerCase().replace(/[^a-z]/g, '');
+  if (!w) return 0;
+  let n = (w.match(/[aeiouy]+/g) || []).length;
+  if (w.endsWith('e') && !w.endsWith('le') && n > 1) n -= 1;
+  return Math.max(1, n);
+}
+// Flesch-Kincaid grade over the content sentences; null when there is too
+// little text to measure (under two sentences).
+function readingGrade(ss) {
+  if (ss.length < 2) return null;
+  const ws = ss.flatMap(s => words(s));
+  if (!ws.length) return null;
+  const syl = ws.reduce((n, w) => n + syllables(w), 0);
+  return Math.round((0.39 * ws.length / ss.length + 11.8 * syl / ws.length - 15.59) * 10) / 10;
+}
 function guessKind(body) {
   const text = visibleText(body).trim();
   if (/^▶/.test(text) || (/is running/i.test(text) && words(text).length <= 40)) return 'started';
@@ -107,12 +143,18 @@ function lint(body, kind) {
     if (/^\s*\*{0,2}links:?\*{0,2}/i.test(line)) continue;
     for (const m of line.matchAll(NUMBER_REFS)) numbers.add(m[0]);
   }
+  const content = contentSentences(text);
+  const grade = readingGrade(content);
+  const avgWords = content.length ? Math.round(content.reduce((n, s) => n + words(s).length, 0) / content.length * 10) / 10 : 0;
   const hasAction = /\*{0,2}you need to:?\*{0,2}/i.test(text);
   // A block ends with the questions a person answers (§1a rule 13).
   const hasQuestions = /^\s*\*{0,2}questions? for you:?\*{0,2}/im.test(text);
   const folded = detailsWords(body);
   const problems = [];
   if (count > budget) problems.push(`over budget: ${count} words, ${kind} allows ${budget}`);
+  if (kind !== 'started' && content.length > SENTENCES_LIMIT) problems.push(`${content.length} sentences in the visible part; aim for six`);
+  if (grade !== null && grade > GRADE_LIMIT) problems.push(`reads at grade ${grade}; aim for ${GRADE_LIMIT} or lower (shorter words, shorter sentences)`);
+  if (content.length >= 2 && avgWords > AVG_WORDS_LIMIT) problems.push(`sentences average ${avgWords} words; aim for ${AVG_WORDS_LIMIT} or fewer`);
   if (long.length) problems.push(`${long.length} sentence(s) over ${SENTENCE_LIMIT} words`);
   if (NEEDS_ACTION.has(kind) && !hasAction) problems.push('no "You need to:" line');
   if (kind === 'blocked' && !hasQuestions) problems.push('blocked without a "Questions for you:" list');
@@ -121,6 +163,7 @@ function lint(body, kind) {
   if (folded > DETAILS_LIMIT) problems.push(`Factory details is ${folded} words, over its ${DETAILS_LIMIT}-word cap`);
   return {
     kind, words: count, budget, over_budget: count > budget, details_words: folded,
+    sentences: content.length, grade, avg_sentence_words: avgWords,
     long_sentences: long, has_action: hasAction, has_questions: hasQuestions,
     internal_terms: [...terms], number_refs: [...numbers], ok: problems.length === 0, problems,
   };
@@ -128,12 +171,16 @@ function lint(body, kind) {
 
 function summarize(results) {
   const ws = results.map(r => r.words).sort((a, b) => a - b);
-  const at = p => (ws.length ? ws[Math.min(ws.length - 1, Math.floor(ws.length * p))] : 0);
+  const gs = results.map(r => r.grade).filter(g => g !== null).sort((a, b) => a - b);
+  const at = (arr, p) => (arr.length ? arr[Math.min(arr.length - 1, Math.floor(arr.length * p))] : 0);
   return {
     comments: results.length,
     ok: results.filter(r => r.ok).length,
-    words_p50: at(0.5), words_p90: at(0.9), words_max: ws[ws.length - 1] || 0,
+    words_p50: at(ws, 0.5), words_p90: at(ws, 0.9), words_max: ws[ws.length - 1] || 0,
     over_budget: results.filter(r => r.over_budget).length,
+    grade_p50: at(gs, 0.5), grade_p90: at(gs, 0.9),
+    over_grade: results.filter(r => r.grade !== null && r.grade > GRADE_LIMIT).length,
+    over_sentences: results.filter(r => r.kind !== 'started' && r.sentences > SENTENCES_LIMIT).length,
   };
 }
 

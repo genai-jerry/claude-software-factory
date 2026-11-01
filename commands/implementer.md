@@ -112,7 +112,8 @@ the `## Loading` section of `system-tests/test-data.md`.
 ## Writing the comment
 
 When you hand over or stop, comment once on the task issue, in the shape of
-FACTORY.md §1a: 120 words, with `Factory details` at 100 words or fewer. The
+FACTORY.md §1a: six sentences or fewer a product owner can follow, rewritten
+before you post as §1a says, with `Factory details` at 100 words or fewer. The
 PR description holds what changed and any deviation from design.md; the issue
 comment does not repeat it. Say what the reader must do (usually "Nothing. The
 Reviewer starts next."), the one fact they need about the change, and the

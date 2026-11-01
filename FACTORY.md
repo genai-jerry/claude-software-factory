@@ -39,9 +39,11 @@ body.** This prevents the two-sources-of-truth drift.
 ## 1a. Writing for people
 
 Every comment and issue body you write is read by a person who has not read
-this handbook. Write for that person. This section applies to every role and
-overrides any longer wording in a role's instructions. The style is a light
-form of ASD-STE100 (Simplified Technical English).
+this handbook. Write for **a product owner who has never seen the code,
+reading on a phone**. They know the product's words — the lead, the call,
+the calendar, the CRM — and none of the code's. This section applies to
+every role and overrides any longer wording in a role's instructions. The
+style is a light form of ASD-STE100 (Simplified Technical English).
 
 **Shape of every comment:**
 
@@ -57,19 +59,21 @@ Links: <the files and PRs that hold the detail>
 </details>
 ```
 
-**Word budgets** (the visible part, without `Factory details`):
-
-| Comment | Budget |
-|---|---|
-| A run started | 1 line |
-| Work is ready for a person (a gate, a test, a review) | 120 words |
-| Blocked or failed | 80 words |
-| A summary (release plan, test plan, task tree) | 150 words |
+**Length** (the visible part, without `Factory details`): a run-started
+notice is one line. Everything else is **six sentences or fewer** — a
+bullet is a sentence; the headline, the `You need to:`, `Next:`, `Links:`
+and `Questions for you:` lines do not count. Sentences average 20 words or
+fewer, and the whole reads at school grade 8 or lower (the comment lint
+measures it and reports it on the run). Short is what plain writing
+produces; it is not a target to pack for. A comment that needs more than
+six sentences to be clear is a comment with too much in it: move the rest
+to the PR, the linked file or `Factory details`.
 
 **Rules:**
 
-1. One sentence, one instruction. An instruction has 20 words or fewer; a
-   description has 25 or fewer.
+1. One sentence, one idea. An instruction has 20 words or fewer; a
+   description has 25 or fewer. A sentence with a dash, a bracket or an
+   aside in the middle is two sentences: split it.
 2. Use the active voice. Use the command form for what the reader must do.
 3. A paragraph has 4 sentences or fewer, about one topic. Use a list for 3 or
    more items.
@@ -113,6 +117,43 @@ Links: <the files and PRs that hold the detail>
     this task?"). The hand-off notice repeats the list, so the questions are
     the last thing on the thread; the Compass shows them beside the reply
     box. A block with no question is a block the person cannot clear.
+14. Every sentence names who or what does the thing, by its plain name: the
+    lead, the calendar, the CRM, the code that sends the message. Never a
+    stand-in for a thing — "the reading", "the run", "a move", "the guard" —
+    unless the sentence before has said what it is. If you cannot name the
+    actor, you have not understood the sentence yet.
+15. One name for one thing, every time. The plain name the product uses,
+    never a synonym for variety, and never a word you coined for the
+    comment. When the repo profile carries a `plain_names` list, those are
+    the names.
+16. Say the fix; do not point at it. "The fix: treat a report that carries
+    the same time as a move we already handled as that move." Where the
+    detail lives (the PR, the line comment) goes on the `Links:` line.
+
+**Before you post, rewrite.** Draft the comment, then read the visible part
+as the product owner would and rewrite it: replace each stand-in noun with
+who does what; split every sentence that carries two ideas; swap any word
+the product does not use for the one it does; state the fix if the comment
+only points at it. Post the rewrite, not the draft.
+
+**Example.** Not:
+
+> When a second system tells of the booking a move created — Beacon's
+> calendar and then the CRM, minutes apart — the reading calls it a first
+> booking. The booked-only conversation then messages the lead their new
+> time. The repair is in the line comment: a run whose mark names that very
+> time is a move already told, not a new booking.
+
+Write:
+
+> - A lead moves their call. Beacon's calendar reports the new time first.
+>   The CRM reports it a few minutes later.
+> - The code treats the second report as a brand-new booking.
+> - So the lead gets two messages: "your call moved" and "your call is
+>   booked".
+>
+> The fix: when the second report carries the same time as a move we already
+> handled, treat it as that move. Details are on the pull request.
 
 **Example.** Not: "The plan is black-box: derived from `proposal.md`,
 `specs/` and `tasks.md` only. I did not read `design.md` (it does not exist
