@@ -258,12 +258,20 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         if app.state.asker is None:
             raise HTTPException(status_code=501, detail="this orchestrator cannot answer questions")
         apply_runtime_agent_secrets(cfg, body)
-        from .ask import MODES, AskError, check_images, check_repos
+        from .ask import CONVERSATION_KEY, MODES, AskError, check_images, check_repos
         mode = body.get("mode") or "ask"
         if mode not in MODES:
             raise HTTPException(status_code=400, detail="mode must be ask or shape")
         images = body.get("images")
         repos = body.get("repos")
+        conversation = body.get("conversation")
+        if conversation is not None and (not isinstance(conversation, str)
+                                         or not CONVERSATION_KEY.match(conversation)):
+            raise HTTPException(status_code=400,
+                                detail="conversation must match [A-Za-z0-9_-]{1,64}")
+        session = body.get("session")
+        if session is not None and (not isinstance(session, str) or not session.strip() or len(session) > 128):
+            raise HTTPException(status_code=400, detail="session must be a short string")
         # Checked here, before a slot or a clone is spent on a bad upload.
         try:
             if images is not None:
@@ -279,7 +287,8 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
                 branch=body.get("branch") if isinstance(body.get("branch"), str) else None,
                 instructions=body.get("instructions") if isinstance(body.get("instructions"), str) else None,
                 images=images if isinstance(images, list) else None, mode=mode,
-                repos=repos if isinstance(repos, list) else None)
+                repos=repos if isinstance(repos, list) else None,
+                conversation=conversation, session=session)
         except AskError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
 

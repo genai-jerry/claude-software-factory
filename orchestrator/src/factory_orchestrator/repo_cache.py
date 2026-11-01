@@ -68,6 +68,21 @@ class RepoCache:
         self._git("-C", str(dest), "remote", "set-url", "origin", url)
         return dest
 
+    def refresh_master(self, owner: str, repo: str, token: str) -> Path:
+        """Bring the master level with GitHub and return its path.
+
+        For a copy that already exists (ask.py's conversation workspaces): the
+        caller fetches from this path with an explicit refspec, so the copy
+        never carries a tokenised remote.
+        """
+        with self._lock(owner, repo):
+            return self._refresh(owner, repo, self.url_for(owner, repo, token))
+
+    def default_branch(self, owner: str, repo: str) -> str:
+        """The remote's default branch, as the master's HEAD tracks it."""
+        out = self._git("-C", str(self.master(owner, repo)), "symbolic-ref", "--short", "HEAD").stdout
+        return out.strip() or "main"
+
     def _lock(self, owner: str, repo: str) -> threading.Lock:
         with self._guard:
             return self._locks.setdefault(f"{owner}/{repo}", threading.Lock())

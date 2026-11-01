@@ -280,3 +280,130 @@ async def test_the_endpoint_validates_repos(tmp_path):
         many = await c.post("/ask", json={**body, "repos": [{"owner": "o", "repo": f"s{i}"} for i in range(9)]}, headers=h)
         assert many.status_code == 400 and "At most 8" in many.json()["detail"]
     assert seen["repos"] == [{"owner": "o", "repo": "web", "branch": "main"}]
+
+
+SESSION_RESULT = RESULT[:-1] + ',"session_id":"sess-1"}'
+
+
+def test_a_conversation_keeps_its_workspace_and_brings_it_level(tmp_path):
+    engine, out = engine_for(tmp_path, on_run=SESSION_RESULT)
+    cache = engine.runner.repo_cache
+    clones = []
+    real_checkout = cache.checkout
+    cache.checkout = lambda *a, **k: (clones.append(a[1]), real_checkout(*a, **k))[1]
+    first = answer_question(engine, owner="o", repo="r", question="Where is the dialer?", context="",
+                            conversation="idea-1", repos=[{"owner": "o", "repo": "web", "branch": None}])
+    home = tmp_path / "ws" / "ask" / "idea-1"
+    assert first["session"] == "sess-1" and first["resumed"] is False
+    assert (home / "r" / ".git").exists() and (home / "web" / ".git").exists()
+    assert clones == ["r", "web"]
+    # GitHub moves on between messages: a new commit on the origin.
+    work = tmp_path / "origin" / "r"
+    (work / "NEW.md").write_text("new\n")
+    env = {"PATH": os.environ["PATH"], "GIT_TERMINAL_PROMPT": "0", "HOME": str(tmp_path)}
+    import subprocess
+    subprocess.run(["git", "add", "NEW.md"], cwd=work, check=True, env=env)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "new"],
+                   cwd=work, check=True, env=env)
+    subprocess.run(["git", "push", "-q", str(tmp_path / "r.git"), "HEAD"], cwd=work, check=True, env=env)
+    # A stray local change in the copy must not survive either.
+    (home / "r" / "scratch.txt").write_text("x")
+    second = answer_question(engine, owner="o", repo="r", question="And the web?", context="",
+                             conversation="idea-1", repos=[{"owner": "o", "repo": "web", "branch": None}])
+    assert clones == ["r", "web"], "the second message reuses the copies instead of cloning"
+    assert (home / "r" / "NEW.md").exists() and not (home / "r" / "scratch.txt").exists()
+    assert second["answer"].startswith("It stopped")
+    # No remote, so no token, survives in either copy.
+    for name in ("r", "web"):
+        remotes = subprocess.run(["git", "remote"], cwd=home / name, capture_output=True, text=True).stdout
+        assert remotes.strip() == ""
+    # A throwaway ask still leaves nothing behind beside the conversation homes.
+    answer_question(engine, owner="o", repo="r", question="once more", context="")
+    assert sorted(p.name for p in (tmp_path / "ws").iterdir()) == ["ask"]
+
+
+def test_a_session_is_resumed_with_only_the_new_question(tmp_path):
+    engine, out = engine_for(tmp_path, on_run=SESSION_RESULT)
+    answer_question(engine, owner="o", repo="r", question="first", context="long transcript",
+                    conversation="idea-2")
+    got = answer_question(engine, owner="o", repo="r", question="second question", context="ignored",
+                          conversation="idea-2", session="sess-1",
+                          images=[{"name": "shot.png", "mime": "image/png", "data_b64": PNG}])
+    assert got["resumed"] is True and got["session"] == "sess-1"
+    argvs = sorted(out.glob("argv-*.txt"))
+    prompts = sorted(out.glob("prompt-*.txt"))
+    assert len(argvs) == 2
+    last = argvs[-1].read_text().split("\n")
+    assert last[last.index("--resume") + 1] == "sess-1"
+    short = prompts[-1].read_text()
+    assert "second question" in short and "attached 1 image" in short
+    assert "ignored" not in short and "You answer a question" not in short
+    assert "--resume" not in argvs[0].read_text()
+
+
+def test_a_failed_resume_falls_back_to_a_fresh_prompt(tmp_path):
+    engine, out = engine_for(tmp_path, on_run=SESSION_RESULT)
+    answer_question(engine, owner="o", repo="r", question="first", context="", conversation="idea-3")
+    # The fake refuses a resume the way the CLI does for an unknown session.
+    (tmp_path / "claude-hook.sh").write_text(
+        f"if grep -qx -- '--resume' \"$(ls -t {tmp_path / 'captured'}/argv-*.txt | head -1)\"; then\n"
+        "  echo '{\"type\":\"result\",\"is_error\":true,\"result\":\"No conversation found with session ID: sess-1\"}'\n"
+        "else\n"
+        f"  echo '{SESSION_RESULT}'\n"
+        "fi\n")
+    got = answer_question(engine, owner="o", repo="r", question="second", context="the transcript",
+                          conversation="idea-3", session="sess-1")
+    assert got["resumed"] is False and got["answer"].startswith("It stopped")
+    prompts = sorted(out.glob("prompt-*.txt"))
+    assert len(prompts) == 3  # first, the refused resume, the fresh fallback
+    assert "the transcript" in prompts[-1].read_text() and "You answer a question" in prompts[-1].read_text()
+
+
+def test_idle_conversation_homes_are_pruned(tmp_path):
+    from factory_orchestrator.ask import ASK_IDLE_SECONDS, prune_conversations
+    engine, out = engine_for(tmp_path)
+    base = tmp_path / "ws" / "ask"
+    old, fresh = base / "old", base / "fresh"
+    for d in (old, fresh):
+        d.mkdir(parents=True)
+    import time as _t
+    stale = _t.time() - ASK_IDLE_SECONDS - 60
+    os.utime(old, (stale, stale))
+    assert prune_conversations(tmp_path / "ws") == 1
+    assert not old.exists() and fresh.exists()
+    # The next ask prunes on its way in.
+    os.utime(fresh, (stale, stale))
+    answer_question(engine, owner="o", repo="r", question="x", context="", conversation="idea-4")
+    assert not fresh.exists() and (base / "idea-4").exists()
+
+
+def test_a_bad_conversation_key_or_session_is_refused(tmp_path):
+    engine, out = engine_for(tmp_path)
+    for bad in ("../etc", "a b", "x" * 65, ""):
+        with pytest.raises(AskError) as e:
+            answer_question(engine, owner="o", repo="r", question="x", context="", conversation=bad)
+        assert e.value.status == 400
+    with pytest.raises(AskError) as e:
+        answer_question(engine, owner="o", repo="r", question="x", context="", conversation="ok", session=" ")
+    assert e.value.status == 400
+    assert not list(out.glob("argv-*.txt"))
+
+
+@pytest.mark.anyio
+async def test_the_endpoint_validates_the_conversation_key_and_passes_the_session(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db", "DISPATCH_TOKEN": "op-token"})
+    app = create_app(cfg, Ledger(cfg.database_url), lambda *_: None, poll_interval=0.05)
+    seen = {}
+
+    def asker(**kw):
+        seen.update(kw)
+        return {"answer": "ok", "model": "m", "usage": {}, "session": "sess-9", "resumed": True}
+    app.state.asker = asker
+    h = {"authorization": "Bearer op-token"}
+    base = {"owner": "o", "repo": "r", "question": "why?"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        bad = await c.post("/ask", json={**base, "conversation": "../x"}, headers=h)
+        assert bad.status_code == 400 and "conversation" in bad.json()["detail"]
+        ok = await c.post("/ask", json={**base, "conversation": "idea_1", "session": "sess-9"}, headers=h)
+        assert ok.status_code == 200 and ok.json()["session"] == "sess-9" and ok.json()["resumed"] is True
+    assert seen["conversation"] == "idea_1" and seen["session"] == "sess-9"

@@ -17,6 +17,13 @@ Shape page: a longer conversation that turns an idea into a requirement, so
 its budgets are wider. Either may carry image attachments — screenshots the
 person uploaded — which are written beside the checkout and named in the
 prompt for the Read tool, which views images.
+
+A conversation may keep its workspace between messages (`conversation`): the
+home under `<workspace_root>/ask/<key>` survives, each message brings every
+copy level with GitHub (fetch from the mirror, detach, reset, clean) instead
+of cloning again, and the Claude session can be resumed (`session`) so the
+model keeps what it already read and only the new question is sent. Idle
+conversation homes are pruned after a day.
 """
 
 from __future__ import annotations
@@ -25,10 +32,14 @@ import base64
 import binascii
 import json
 import logging
+import os
 import re
+import shutil
 import subprocess
 import tempfile
+import threading
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +73,48 @@ _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 #: Sibling repositories a conversation may read beside the primary one.
 MAX_REPOS = 8
+
+#: A persistent conversation workspace: its key, and how long it may sit idle.
+CONVERSATION_KEY = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+ASK_IDLE_SECONDS = 24 * 3600
+_conv_guard = threading.Lock()
+_conv_locks: dict[str, threading.Lock] = {}
+
+
+def _conv_lock(key: str) -> threading.Lock:
+    with _conv_guard:
+        return _conv_locks.setdefault(key, threading.Lock())
+
+
+def prune_conversations(workspace_root: Path, now: float | None = None) -> int:
+    """Delete conversation homes idle longer than ASK_IDLE_SECONDS; how many went.
+
+    A home in use is skipped (its lock is held), so a long answer is never
+    pulled from under the session. Cheap: one listdir and a stat each, run
+    at the start of every ask.
+    """
+    base = Path(workspace_root) / "ask"
+    if not base.is_dir():
+        return 0
+    cutoff = (now if now is not None else time.time()) - ASK_IDLE_SECONDS
+    gone = 0
+    for home in base.iterdir():
+        try:
+            if not home.is_dir() or home.stat().st_mtime >= cutoff:
+                continue
+        except OSError:
+            continue
+        lock = _conv_lock(home.name)
+        if not lock.acquire(blocking=False):
+            continue
+        try:
+            shutil.rmtree(home, ignore_errors=True)
+            gone += 1
+        finally:
+            lock.release()
+    if gone:
+        log.info("ask: pruned %s idle conversation workspace(s)", gone)
+    return gone
 
 INTRO = """You answer a question from a person using the Compass.
 
@@ -102,6 +155,11 @@ The question:
 {question}
 """
 MAX_INSTRUCTIONS = 8_000
+
+#: What a resumed session is sent: the new question and its attachments. The
+#: repositories, the instructions and the earlier turns are what it remembers.
+RESUME_PROMPT = """{attachments}{question}
+"""
 
 
 class AskError(RuntimeError):
@@ -204,9 +262,60 @@ def _checkout_on(dest: Path, branch: str | None) -> str:
     return name if name and name != "HEAD" else "the default branch"
 
 
+def _default_label(dest: Path) -> str:
+    head = _git(["rev-parse", "--abbrev-ref", "HEAD"], dest)
+    name = (head.stdout or "").strip()
+    return name if name and name != "HEAD" else "the default branch"
+
+
+def _level(engine, owner: str, name: str, token: str, dest: Path, branch: str | None) -> str:
+    """Bring an existing copy level with GitHub through the mirror; the branch it sits on.
+
+    The copy has no remote (none may carry a token), so the fetch names the
+    mirror's path with an explicit refspec, then the copy is detached on the
+    wanted branch and reset hard. Only ignored files survive between messages.
+    """
+    cache = engine.runner.repo_cache
+    master = cache.refresh_master(owner, name, token)
+    fetched = _git(["fetch", "-q", "--prune", "--no-write-fetch-head", str(master),
+                    "+refs/heads/*:refs/remotes/origin/*"], dest)
+    if fetched.returncode != 0:
+        raise RuntimeError(f"fetch from the mirror failed: {fetched.stderr.strip()[-200:]}")
+    default = cache.default_branch(owner, name)
+    on = branch if branch and _git(["rev-parse", "--verify", "--quiet",
+                                    f"refs/remotes/origin/{branch}"], dest).returncode == 0 else default
+    for args in (["checkout", "-q", "--detach", f"origin/{on}"], ["reset", "-q", "--hard"],
+                 ["clean", "-q", "-fd"]):
+        done = _git(args, dest)
+        if done.returncode != 0:
+            raise RuntimeError(f"git {args[0]} failed: {done.stderr.strip()[-200:]}")
+    return on
+
+
+def _prepare_repo(engine, home: Path, owner: str, name: str, token: str,
+                  branch: str | None) -> tuple[Path, str]:
+    """A read-only copy of owner/name under home, on branch when it exists.
+
+    A copy left by an earlier message is levelled rather than cloned; one that
+    cannot be levelled is thrown away and cloned afresh. Either way no token
+    survives in it: a fresh clone loses its remote right after the checkout.
+    """
+    dest = home / name
+    if (dest / ".git").exists():
+        try:
+            return dest, _level(engine, owner, name, token, dest, branch)
+        except Exception as e:  # noqa: BLE001 - throwaway on doubt, like issue copies
+            log.warning("ask: copy of %s/%s could not be levelled (%s) - recloning", owner, name, e)
+            shutil.rmtree(dest, ignore_errors=True)
+    engine.runner.repo_cache.checkout(owner, name, token, dest)
+    on = _checkout_on(dest, branch)
+    _git(["remote", "remove", "origin"], dest)
+    return dest, on
+
+
 def _checkout_siblings(engine, home: Path, siblings: list[dict[str, Any]],
                        tokens: list[str]) -> list[dict[str, Any]]:
-    """Clone each sibling beside the primary; what landed and what did not.
+    """Put each sibling beside the primary; what landed and what did not.
 
     A sibling the engine cannot reach — no installation, a failed clone — is
     reported in the prompt as unavailable and never fails the question: the
@@ -219,13 +328,10 @@ def _checkout_siblings(engine, home: Path, siblings: list[dict[str, Any]],
         try:
             token = engine.app.installation_token(o, n, min_remaining=600)
             tokens.append(token)
-            engine.runner.repo_cache.checkout(o, n, token, dest)
-            on = _checkout_on(dest, sib.get("branch"))
-            _git(["remote", "remove", "origin"], dest)
+            dest, on = _prepare_repo(engine, home, o, n, token, sib.get("branch"))
             out.append({"name": n, "path": dest, "branch": on, "ok": True})
         except Exception as e:  # noqa: BLE001 - one sibling must not fail the ask
             log.warning("ask: sibling %s/%s unavailable: %s", o, n, e)
-            import shutil
             shutil.rmtree(dest, ignore_errors=True)
             out.append({"name": n, "path": dest, "branch": None, "ok": False})
     return out
@@ -248,6 +354,7 @@ def _siblings_note(siblings: list[dict[str, Any]]) -> str:
 def _write_images(home: Path, images: list[dict[str, Any]]) -> list[Path]:
     """Put the attachments beside (never inside) the checkout; their paths."""
     folder = home / "attachments"
+    shutil.rmtree(folder, ignore_errors=True)  # last message's files: already read
     folder.mkdir(parents=True, exist_ok=True)
     paths = []
     for img in images:
@@ -293,10 +400,23 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                     branch: str | None = None, instructions: str | None = None,
                     images: list[dict[str, Any]] | None = None,
                     mode: str = "ask",
-                    repos: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Run one read-only Claude session; the answer, model and usage."""
+                    repos: list[dict[str, Any]] | None = None,
+                    conversation: str | None = None,
+                    session: str | None = None) -> dict[str, Any]:
+    """Run one read-only Claude session; the answer, model, usage and session.
+
+    With `conversation` the workspace is kept between calls and brought level
+    with GitHub each time; with `session` too, the earlier Claude session is
+    resumed and only the new question is sent. A resume that fails falls back
+    to a fresh prompt with whatever `context` the caller sent.
+    """
     if mode not in MODES:
         raise AskError(f"Unknown mode {mode!r}; use ask or shape.", 400)
+    if conversation is not None and not CONVERSATION_KEY.match(conversation):
+        raise AskError("conversation must match [A-Za-z0-9_-]{1,64}.", 400)
+    if session is not None and (not isinstance(session, str) or not session.strip()
+                                or len(session) > 128):
+        raise AskError("session must be a short string.", 400)
     max_question, max_context, turns, timeout = MODES[mode]
     question = (question or "").strip()
     if not question:
@@ -319,46 +439,72 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
     token = engine.app.installation_token(owner, repo, min_remaining=600)
     tokens = [token]  # every token that touched this home, for redaction
     context = (context or "")[-max_context:]
-    with runner._slots:  # noqa: SLF001 - an ask is a run: it shares the slots
-        home = Path(tempfile.mkdtemp(prefix="ask-", dir=runner.workspace_root))
+    persistent = conversation is not None
+    root = Path(runner.workspace_root)
+    if persistent:
+        prune_conversations(root)
+        (root / "ask").mkdir(parents=True, exist_ok=True)
+    conv_lock = _conv_lock(conversation) if persistent else nullcontext()
+    resumed = False
+    with conv_lock, runner._slots:  # noqa: SLF001 - an ask is a run: it shares the slots
+        if persistent:
+            home = root / "ask" / conversation
+            existed = home.is_dir()
+            home.mkdir(exist_ok=True)
+        else:
+            home = Path(tempfile.mkdtemp(prefix="ask-", dir=runner.workspace_root))
+            existed = False
         try:
-            dest = home / repo
             attached = _write_images(home, files)
-            runner.repo_cache.checkout(owner, repo, token, dest)
-            on_branch = False
-            if branch and _git(["rev-parse", "--verify", "--quiet", f"refs/remotes/origin/{branch}"],
-                               dest).returncode == 0:
-                on_branch = _git(["checkout", "-q", "--detach", f"origin/{branch}"], dest).returncode == 0
-            # No token may outlive the clone: the session cannot push or call
-            # GitHub. (After the checkout: removing the remote drops its branches.)
-            _git(["remote", "remove", "origin"], dest)
+            dest, on = _prepare_repo(engine, home, owner, repo, token, branch)
+            on_branch = bool(branch) and on == branch
             siblings = _checkout_siblings(engine, home, wanted, tokens)
-            prompt = PROMPT.format(
-                intro=INTRO.format(repo=f"{owner}/{repo}",
-                                   branch_note=f", on `{branch}`" if on_branch else "",
-                                   siblings=_siblings_note(siblings)),
-                instructions=(instructions or "").strip()[:MAX_INSTRUCTIONS] or DEFAULT_INSTRUCTIONS,
-                attachments=_attachments_note(attached),
-                context=context or "(no comments yet)", question=question)
-            argv = [runner.claude_bin, "-p", prompt, "--model", model,
-                    "--max-turns", str(turns), "--output-format", "json",
-                    "--allowedTools", ASK_TOOLS]
+            common = ["--model", model, "--max-turns", str(turns), "--output-format", "json",
+                      "--allowedTools", ASK_TOOLS]
             # The tools reach only the working directory unless told
             # otherwise; each sibling is granted explicitly, nothing else.
             for sib in siblings:
                 if sib["ok"]:
-                    argv += ["--add-dir", str(sib["path"])]
+                    common += ["--add-dir", str(sib["path"])]
             env = {"PATH": agent_path(), "HOME": str(home), "OPENSPEC_TELEMETRY": "0",
                    "GIT_TERMINAL_PROMPT": "0", **cfg.agent_credential_env()}
             started = time.monotonic()
-            try:
-                proc = subprocess.run(argv, cwd=dest, env=env, capture_output=True,
-                                      text=True, timeout=timeout)
-            except subprocess.TimeoutExpired as e:
-                raise AskError(f"The question took longer than {timeout} seconds.", 504) from e
+
+            def run(argv: list[str]) -> subprocess.CompletedProcess:
+                try:
+                    return subprocess.run(argv, cwd=dest, env=env, capture_output=True,
+                                          text=True, timeout=timeout)
+                except subprocess.TimeoutExpired as e:
+                    raise AskError(f"The question took longer than {timeout} seconds.", 504) from e
+
+            proc = None
+            if persistent and session and existed:
+                # The session remembers the repositories, the instructions
+                # and the earlier turns; it is sent the new question alone.
+                short = RESUME_PROMPT.format(attachments=_attachments_note(attached), question=question)
+                proc = run([runner.claude_bin, "-p", short, "--resume", session.strip(), *common])
+                got = _result_of(proc.stdout or "")
+                if proc.returncode == 0 and got and not got.get("is_error") and str(got.get("result") or "").strip():
+                    resumed = True
+                else:
+                    log.info("ask: resume of %s failed (exit=%s) - starting fresh", session[:12], proc.returncode)
+            if not resumed:
+                prompt = PROMPT.format(
+                    intro=INTRO.format(repo=f"{owner}/{repo}",
+                                       branch_note=f", on `{branch}`" if on_branch else "",
+                                       siblings=_siblings_note(siblings)),
+                    instructions=(instructions or "").strip()[:MAX_INSTRUCTIONS] or DEFAULT_INSTRUCTIONS,
+                    attachments=_attachments_note(attached),
+                    context=context or "(no comments yet)", question=question)
+                proc = run([runner.claude_bin, "-p", prompt, *common])
         finally:
-            import shutil
-            shutil.rmtree(home, ignore_errors=True)
+            if persistent:
+                try:
+                    os.utime(home, None)  # idle time counts from the last message
+                except OSError:
+                    pass
+            else:
+                shutil.rmtree(home, ignore_errors=True)
 
     raw = (proc.stdout or "") + "\n" + (proc.stderr or "")
     for t in tokens:
@@ -381,6 +527,7 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
              time.monotonic() - started, result.get("num_turns"))
     _record_usage(engine, owner=owner, repo=repo, mode=mode, model=model, result=result)
     return {"answer": answer, "model": model,
+            "session": result.get("session_id"), "resumed": resumed,
             "usage": {"input_tokens": usage.get("input_tokens", 0),
                       "output_tokens": usage.get("output_tokens", 0),
                       "cost_usd": result.get("total_cost_usd", 0)}}
