@@ -216,7 +216,8 @@ def build_graph(engine: Engine, checkpointer=None):
     def route_node(state: PipelineState) -> dict[str, Any]:
         port = engine.port(state["owner"], state["repo"])
         result = Router(port, engine.repo_config(port), port_for=engine.port,
-                        estate=engine.cfg.claimed_repos).route(
+                        estate=engine.cfg.claimed_repos,
+                        factory_checkout=factory_checkout(engine)).route(
             state["event_name"], state["payload"])
         # `result.repo` is set only for a cross-repo epic (FACTORY.md §7):
         # the task that closed lives here, the epic and its dispatcher live

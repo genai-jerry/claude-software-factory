@@ -47,6 +47,12 @@ EXPEDITE = "factory:expedite"
 EPIC_READY = "factory:epic-ready"
 ORTHOGONAL = [IN_PROGRESS, EXPEDITE, "factory:blocked"]
 AGENT_MARK = "<!-- factory-agent -->"
+IN_STAGING = "factory:in-staging"
+DEPLOYED = "factory:deployed"
+#: A promotion PR's title (commands/release.md step 10): the epics riding it.
+#: In a repo that is not the epic's home the numbers are the home repo's, and
+#: the body names them in full (`owner/repo#N`).
+PROMOTION_TITLE = re.compile(r"^release\(([\d,\s#]+)\)\s*:")
 
 #: A gate whose own approver key is absent or empty borrows another's list.
 #: GS is the only one: an estate that has not adopted `staging` keeps
@@ -496,12 +502,26 @@ def _is_task_title(title: str | None) -> bool:
     return bool(re.match(r"^task\(\d+\)", title or ""))
 
 
+def _is_shipping_epic(issue: dict[str, Any] | None) -> bool:
+    """An open epic at `factory:in-staging` — not a task, case or bug that
+    happens to share the number, and not one that has already shipped."""
+    if not issue or issue.get("state") == "closed":
+        return False
+    if re.match(r"^(task|test|bug)\(\d+\)", issue.get("title") or ""):
+        return False
+    return IN_STAGING in _names(issue.get("labels"))
+
+
 class Router:
     def __init__(self, port: RepoPort, config: RepoConfig,
                  port_for: Callable[[str, str], RepoPort] | None = None,
-                 estate: Sequence[str] = ()):
+                 estate: Sequence[str] = (), factory_checkout=None):
         self.port = port
         self.cfg = config
+        #: Where the hand-off table lives (handbook/next-step.json), for the
+        #: one notice this router posts itself: the promotion merge. None
+        #: means no table and no notice, as for a role run without a source.
+        self.factory_checkout = factory_checkout
         #: How to reach a repo that is not this event's own. Without it a
         #: cross-repo lookup is skipped rather than guessed at.
         self.port_for = port_for
@@ -541,6 +561,132 @@ class Router:
             except Exception:  # noqa: BLE001 - one unreachable repo is not a failure
                 log.warning("Could not open %s for a cross-repo search", full)
         return out
+
+    # -- the promotion merge: gate G3 -> factory:deployed -------------------
+    def _route_pull_request(self, payload: dict[str, Any]) -> None:
+        """A merged promotion PR ships the epics it names (FACTORY.md §4).
+
+        Gate G3 is the human's merge click, and until this branch nothing in
+        the engine noticed it: the Release Manager's run ended when it posted
+        the merge list, so an epic sat at `factory:in-staging` after it had
+        shipped, and Compass kept asking whether to ship it. Only a merged
+        `closed` on a PR from the integration branch into the default branch,
+        titled as the Release Manager titles a promotion, routes here.
+        """
+        pr = payload.get("pull_request") or {}
+        action = payload.get("action")
+        if action != "closed" or not pr.get("merged"):
+            log.info("Pull request %s - only a merged promotion PR routes", action)
+            return
+        number = pr.get("number")
+        head = (pr.get("head") or {}).get("ref")
+        base = (pr.get("base") or {}).get("ref")
+        default = ((payload.get("repository") or {}).get("default_branch")
+                   or self.port.default_branch())
+        staging = self.cfg.staging_branch
+        m = PROMOTION_TITLE.match(pr.get("title") or "")
+        if not m or base != default or not staging or head != staging:
+            log.info("PR #%s merged (%s -> %s) - not a promotion PR", number, head, base)
+            return
+        numbers = [int(x) for x in re.findall(r"\d+", m.group(1))]
+        body = pr.get("body") or ""
+        shipped = []
+        for port, epic in self.promoted_epics(numbers, body):
+            if self.ship(port, epic, int(number or 0)):
+                shipped.append(f"{port.owner}/{port.repo}#{epic['number']}")
+        log.info("Promotion PR #%s merged - shipped %s", number, ", ".join(shipped) or "nothing yet")
+
+    def promoted_epics(self, numbers: list[int], body: str) -> list[tuple[RepoPort, dict[str, Any]]]:
+        """The epics a promotion PR names that are waiting to ship, with the
+        port each lives on. A number is this repo's first; a cross-repo epic
+        (FACTORY.md §7) is found on a sibling the body names in full, so a
+        sibling's unrelated issue with the same number is never touched."""
+        out: list[tuple[RepoPort, dict[str, Any]]] = []
+        siblings = self.sibling_ports()
+        for n in numbers:
+            iss = self.port.get_issue(n)
+            if _is_shipping_epic(iss):
+                out.append((self.port, iss))
+                continue
+            for s in siblings:
+                if f"{s.owner}/{s.repo}#{n}" not in body:
+                    continue
+                iss = s.get_issue(n)
+                if _is_shipping_epic(iss):
+                    out.append((s, iss))
+                    break
+        return out
+
+    def open_promotions(self, epic: int, home: str) -> list[str]:
+        """Repos whose promotion PR for this epic is still open — the epic has
+        not shipped until the last of them merges."""
+        waiting = []
+        for p in [self.port, *self.sibling_ports()]:
+            here = f"{p.owner}/{p.repo}"
+            try:
+                pulls = p.list_pulls()
+            except Exception:  # noqa: BLE001 - an unreadable sibling is not a shipped epic
+                log.warning("Could not list %s pull requests - assuming its promotion is pending", here)
+                waiting.append(here)
+                continue
+            for pull in pulls:
+                m = PROMOTION_TITLE.match(pull.get("title") or "")
+                if not m or (pull.get("base") or {}).get("ref") != p.default_branch():
+                    continue
+                nums = [int(x) for x in re.findall(r"\d+", m.group(1))]
+                mine = (here == home and epic in nums) or f"{home}#{epic}" in (pull.get("body") or "")
+                if mine and here not in waiting:
+                    waiting.append(here)
+        return waiting
+
+    def ship(self, port: RepoPort, epic: dict[str, Any], pr_number: int) -> bool:
+        """Move an epic and its tasks from `factory:in-staging` to
+        `factory:deployed` once every repo's promotion PR has merged, and say
+        what happens next. Returns False while another repo is still open."""
+        n = int(epic["number"])
+        home = f"{port.owner}/{port.repo}"
+        this = f"{self.port.owner}/{self.port.repo}"
+        waiting = self.open_promotions(n, home)
+        if waiting:
+            marker = f"<!-- factory-promoted:{this}#{pr_number} -->"
+            said = self._comment_bodies(port, n)
+            if not any(marker in b for b in said):
+                names = " and ".join(w.split("/", 1)[1] for w in waiting)
+                port.create_comment(
+                    n,
+                    f"**{this.split('/', 1)[1]} is in production.** This epic also ships from "
+                    f"{names}. It counts as shipped when the last promotion PR is merged.\n\n"
+                    f"{marker}\n{AGENT_MARK}")
+            log.info("Epic %s#%s promoted in %s - waiting for %s", home, n, this, ", ".join(waiting))
+            return False
+        self._deploy_label(port, n)
+        for p in [self.port, *self.sibling_ports()]:
+            try:
+                tasks = p.list_issues(labels=IN_STAGING, state="open")
+            except Exception:  # noqa: BLE001
+                continue
+            for t in tasks:
+                if re.match(rf"^task\({n}\)", t.get("title") or ""):
+                    self._deploy_label(p, int(t["number"]))
+        from .guards import report_next_step  # noqa: PLC0415 - guards imports this module
+        report_next_step(port, n, "promotion", self.factory_checkout, port_for=self.port_for)
+        log.info("Epic %s#%s shipped - %s", home, n, DEPLOYED)
+        return True
+
+    @staticmethod
+    def _deploy_label(port: RepoPort, n: int) -> None:
+        try:
+            port.remove_label(n, IN_STAGING)
+        except Exception:  # noqa: BLE001 - already gone is fine
+            pass
+        port.add_labels(n, [DEPLOYED])
+
+    @staticmethod
+    def _comment_bodies(port: RepoPort, n: int) -> list[str]:
+        try:
+            return [(c.get("body") or "") for c in port.list_comments(n)]
+        except Exception:  # noqa: BLE001
+            return []
 
     # -- helpers mirroring the JS router ----------------------------------
     def say(self, n: int, body: str) -> None:
@@ -1179,6 +1325,9 @@ class Router:
 
         elif event_name == "issues":
             self._route_issues(payload, r)
+
+        elif event_name == "pull_request":
+            self._route_pull_request(payload)
 
         elif event_name == "push":
             ref = payload.get("ref") or ""

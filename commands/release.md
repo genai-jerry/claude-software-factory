@@ -277,9 +277,11 @@ staging). If it is neither, you are in phase 1 — go back.
     protect-branches hook blocks it and PR-merge tools are denied
     (FACTORY.md §8a). The human's merge clicks are the promotion.
 13. After each human merge, watch the corresponding production deploy workflow
-    and report status on the epic. When every repo is promoted: on the epic
-    and its task issues remove `factory:in-staging`, apply
-    `factory:deployed`. Where the profile has a `test_data` block and you
+    and report status on the epic. When every repo is promoted, the epic and
+    its task issues move from `factory:in-staging` to `factory:deployed`: the
+    orchestrator does that itself on the merged `pull_request` event and posts
+    the hand-off, so do it by hand only under the Actions engine, or when you
+    find a promoted epic still at `factory:in-staging`. Where the profile has a `test_data` block and you
     loaded this epic's sets on staging, run `test_data.unload` there now,
     with the same data directory, so sets do not pile up from one epic to
     the next; report the output, and a failure as something to run by hand.
