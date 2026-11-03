@@ -161,11 +161,11 @@
     },
     "factory:in-staging": {
       "who": "gate G3 — {approvers}",
-      "how": "The Release Manager's integration report above lists the promotion PR(s) and the order to merge them. Merge them through the GitHub UI, in that order. G3 is deliberately not comment-approvable — `Approved` does nothing here."
+      "how": "The Release Manager's integration report above lists the promotion PR(s) and the order to merge them. Merge them through the GitHub UI, in that order. G3 is deliberately not comment-approvable — `Approved` does nothing here. When the last of them is merged, the engine moves this epic to `factory:deployed` and says so here."
     },
     "factory:deployed": {
       "who": "Ops",
-      "how": "In production and soaking. Ops verifies health, archives the change folder and closes this issue — the Compass's **Start Ops** button, or Actions → \"Factory pipeline\" → Run workflow (role: `ops`, issue `{issue}`). File `factory:incident` instead if the deploy regressed."
+      "how": "In production, in its watch period: a day of real use while someone watches for new errors. Ops checks the release's health, archives the change folder and closes this issue — Actions → \"Factory pipeline\" → Run workflow (role: `ops`, issue `{issue}`). Where Ops is not set up, close this issue yourself once the day looks clean. File `factory:incident` instead if the release broke something."
     },
     "factory:fast-track": {
       "who": "any owner, member or collaborator",

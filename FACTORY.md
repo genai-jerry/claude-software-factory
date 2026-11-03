@@ -564,8 +564,8 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:bug-open` | *On a `bug(<epic>)` report:* raised, and its fix task is in flight | The `Bug` router branch | The fix lands → Dispatcher → `factory:bug-retest` |
 | `factory:bug-retest` | *On a bug:* the fix is assembled; a human confirms the repair | Dispatcher | `Test Passed` → `factory:bug-verified`; `Test Failed` → back to `factory:bug-open` |
 | `factory:bug-verified` | *On a bug:* the repair was confirmed. The sub-issue closes | The `Test Passed` router branch | — (terminal) |
-| `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR → `factory:deployed` |
-| `factory:deployed` | In production, soak in progress | Release | Ops archives + closes, or files `factory:incident` |
+| `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR(s); the engine, on the last merge, → `factory:deployed` (epic and tasks) |
+| `factory:deployed` | In production, in its watch period (a day of real use under observation) | The engine, when the last promotion PR merges | Ops archives + closes, or files `factory:incident`; without an Ops run, the human closes it after a clean day |
 | `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
 | `factory:profile` | *Kind:* this issue is the home of `.factory/profile.json` (§2c) | Compass's profile step, or a human | Nobody: it stays, because it is how the one profile issue is found. Remove and re-apply it to re-run the Profiler |
 | `factory:expedite` | *Marker:* this epic advances itself — every stage after the spec runs without waiting for a human, up to gate GS (§4a) | Human triage, authorised against the `expedite` approvers | Human removes it; the normal gates resume from the current state |
