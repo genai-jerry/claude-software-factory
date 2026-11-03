@@ -84,8 +84,12 @@ see [`../docs/LOCAL_DEPLOYMENT.md`](../docs/LOCAL_DEPLOYMENT.md):
 ./scripts/local-deploy.sh production
 ```
 
-The GitHub Actions workflow below is the push-to-main path. Local-deploy
-and CI run the same remote compose script.
+The GitHub Actions workflow (`.github/workflows/deploy-orchestrator.yml`) is
+the push-to-main path: it moves `v1` on every merge and deploys when
+`orchestrator/**` changed. Local-deploy and CI run the same remote compose
+script. The running orchestrator refreshes its factory checkout from
+`FACTORY_REF` before a role run, so prompt and handbook merges need no
+redeploy.
 
 ## Deploy
 

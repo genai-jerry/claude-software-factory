@@ -1,9 +1,18 @@
 name: Deploy Factory Orchestrator
 
-# Deploys the LangGraph orchestrator to the Hostinger VPS the same way
-# Compass deploys: build the image on the runner, scp the tarball,
-# docker load, compose up in ~/factory-orchestrator. Traefik on
-# lighthouse-network routes Host(ORCHESTRATOR_HOST) to :8080.
+# Two things happen on a push to main:
+#
+# 1. `v1` moves to the merged commit. Roles read prompts and the handbook from
+#    `v1` (FACTORY_REF), and the orchestrator refreshes its checkout from that
+#    ref before a run, so a prompt or handbook change is live within a minute
+#    of the merge, with no redeploy.
+# 2. When the push touched orchestrator/**, the orchestrator is tested, built
+#    and deployed to the Hostinger VPS the same way Compass deploys: build the
+#    image on the runner, scp the tarball, docker load, compose up in
+#    ~/factory-orchestrator. Traefik on lighthouse-network routes
+#    Host(ORCHESTRATOR_HOST) to :8080.
+#
+# Run workflow (workflow_dispatch) deploys regardless of what changed.
 #
 # GitHub Environment "production" (optional "staging" for a dry-run of secrets)
 #   Secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_KEY  — same SSH trio as Console
@@ -16,12 +25,13 @@ name: Deploy Factory Orchestrator
 #            FACTORY_CROSS_REPO_TOKEN (optional)
 #   Variables: PUBLIC_BASE_URL  — https://factory.genaipeople.com (DNS A → VPS)
 #              CLAIMED_REPOS, FACTORY_REPO, FACTORY_REF
-
-# Manual only. A push to main used to start this, and every run failed for want
-# of the DEPLOY_* secrets above (30 of 34); the orchestrator is deployed from a
-# laptop with orchestrator/scripts/local-deploy.sh. Run this by hand once the
-# secrets are set, or put the push trigger back then.
+#
+# Without the DEPLOY_* secrets the deploy job fails at "Validate required
+# configuration" and says which are missing; orchestrator/scripts/local-deploy.sh
+# is the laptop fallback and runs the same remote script.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       environment:
@@ -40,7 +50,68 @@ permissions:
   contents: read
 
 jobs:
+  v1:
+    name: move v1 to main
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      orchestrator_changed: ${{ steps.changed.outputs.orchestrator }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Did the orchestrator change?
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "No usable previous commit — treating the orchestrator as changed."
+            echo "orchestrator=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --quiet "$BEFORE" "$GITHUB_SHA" -- orchestrator/; then
+            echo "orchestrator/ unchanged since $BEFORE"
+            echo "orchestrator=false" >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only "$BEFORE" "$GITHUB_SHA" -- orchestrator/
+            echo "orchestrator=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fast-forward v1
+        run: |
+          # v1 only ever points at a commit on main, so this is a fast-forward.
+          # Anything else means someone moved v1 by hand off main: stop and say so
+          # rather than overwrite it.
+          if git ls-remote --exit-code --heads origin v1 >/dev/null 2>&1; then
+            current="$(git ls-remote --heads origin v1 | cut -f1)"
+            if ! git merge-base --is-ancestor "$current" "$GITHUB_SHA"; then
+              echo "::error::origin/v1 ($current) is not an ancestor of main ($GITHUB_SHA). Move it back onto main by hand, then re-run."
+              exit 1
+            fi
+          fi
+          git push origin "$GITHUB_SHA:refs/heads/v1"
+          echo "v1 -> $GITHUB_SHA"
+
+  check:
+    name: orchestrator tests
+    needs: v1
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || (needs.v1.result == 'success' && needs.v1.outputs.orchestrator_changed == 'true')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install -e "./orchestrator[dev]"
+      - run: python -m pytest orchestrator/tests -q
+
   build-and-deploy:
+    needs: [v1, check]
+    if: ${{ !cancelled() && needs.check.result == 'success' }}
     runs-on: ubuntu-latest
     environment: >-
       ${{
