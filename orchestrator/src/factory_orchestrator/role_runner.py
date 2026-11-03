@@ -208,14 +208,27 @@ def inspect_pushable_branch(cwd: Path, env: dict[str, str] | None = None) -> str
 
 
 class FactorySource:
-    """The factory repo at the pinned ref, cached outside every workspace."""
+    """The factory repo at the pinned ref, cached outside every workspace.
+
+    Cloned once, then refreshed from the ref before a role run when the last
+    fetch is older than `refresh_seconds`: the deploy workflow moves `v1` on
+    every merge to main, so a prompt or handbook change reaches the roles
+    without a redeploy. A failed fetch keeps the checkout it has — a flaky
+    network must not turn into a failed role run.
+    """
+
+    GIT_ENV = {"GIT_TERMINAL_PROMPT": "0", "PATH": "/usr/local/bin:/usr/bin:/bin"}
 
     def __init__(self, cfg: Config, cache_dir: str | None = None,
-                 local_path: str | None = None):
+                 local_path: str | None = None, url: str | None = None,
+                 refresh_seconds: float = 60.0):
         self.cfg = cfg
         self.local_path = local_path
+        self.url = url or f"https://github.com/{cfg.factory_repo}"
+        self.refresh_seconds = refresh_seconds
         self.cache_dir = Path(cache_dir or tempfile.mkdtemp(prefix="factory-src-"))
         self._lock = threading.Lock()
+        self._fetched_at = 0.0
 
     def _checkout(self) -> Path:
         if self.local_path:
@@ -225,10 +238,30 @@ class FactorySource:
             if not dest.exists():
                 subprocess.run(
                     ["git", "clone", "--depth", "1", "--branch", self.cfg.factory_ref,
-                     f"https://github.com/{self.cfg.factory_repo}", str(dest)],
-                    check=True, capture_output=True, timeout=300,
-                    env={"GIT_TERMINAL_PROMPT": "0", "PATH": "/usr/local/bin:/usr/bin:/bin"})
+                     self.url, str(dest)],
+                    check=True, capture_output=True, timeout=300, env=self.GIT_ENV)
+                self._fetched_at = time.monotonic()
+            elif time.monotonic() - self._fetched_at >= self.refresh_seconds:
+                self._refresh(dest)
         return dest
+
+    def _refresh(self, dest: Path) -> None:
+        """Move the checkout to the ref's current tip, best-effort."""
+        ref = self.cfg.factory_ref
+        try:
+            subprocess.run(["git", "fetch", "-q", "--depth", "1", "origin", ref],
+                           cwd=dest, check=True, capture_output=True, timeout=120,
+                           env=self.GIT_ENV)
+            subprocess.run(["git", "reset", "-q", "--hard", "FETCH_HEAD"],
+                           cwd=dest, check=True, capture_output=True, timeout=60,
+                           env=self.GIT_ENV)
+            self._fetched_at = time.monotonic()
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            err = getattr(exc, "stderr", b"") or b""
+            log.warning("could not refresh the factory checkout at %s from %s@%s - keeping it: %s",
+                        dest, self.url, ref, err.decode(errors="replace").strip()[:300])
+            # Try again next time rather than every call.
+            self._fetched_at = time.monotonic()
 
     def path(self) -> Path:
         """The pinned checkout itself — shared data files live beside FACTORY.md."""

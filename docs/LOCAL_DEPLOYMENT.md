@@ -1,5 +1,12 @@
 # Local Packaging & Deployment (no GitHub Actions)
 
+The usual path is the **Deploy Factory Orchestrator** workflow: every push to
+`main` moves `v1` to the merged commit (the roles pick it up within a minute,
+no restart), and a push that touched `orchestrator/**` tests, builds and
+deploys the orchestrator. It needs `DEPLOY_HOST`, `DEPLOY_USER` and
+`DEPLOY_KEY` on the `production` environment. This page is the fallback from a
+laptop.
+
 `orchestrator/scripts/local-deploy.sh` packages and deploys the LangGraph
 orchestrator from your machine, the same way
 [`lighthouse-backend/scripts/local-deploy.sh`](https://github.com/genai-jerry/lighthouse-backend/blob/main/scripts/local-deploy.sh)

@@ -510,3 +510,54 @@ def test_run_goes_on_without_images_when_the_compass_is_down_or_unknown(tmp_path
     assert runner.run(owner="o", repo="r", role="intake", issue=6, model="m", github_token="t").status == "success"
     for p in out.glob("prompt-*.txt"):
         assert "===== ATTACHMENTS =====" not in p.read_text()
+
+
+def _commit_factory(src: Path, handbook: str, ref: str = "v1") -> None:
+    env = {"PATH": os.environ["PATH"], "GIT_TERMINAL_PROMPT": "0",
+           "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t"}
+    (src / "FACTORY.md").write_text(handbook)
+    if not (src / ".git").exists():
+        subprocess.run(["git", "init", "-q", "-b", ref, str(src)], check=True, env=env)
+    subprocess.run(["git", "-C", str(src), "add", "-A"], check=True, env=env)
+    subprocess.run(["git", "-C", str(src), "commit", "-q", "-m", "factory"], check=True, env=env)
+
+
+def test_factory_source_follows_the_ref_without_a_restart(tmp_path):
+    """The deploy workflow moves v1 on every merge; a role run picks the new
+    tip up without the orchestrator being redeployed."""
+    src = make_local_factory(tmp_path)
+    _commit_factory(src, "# The Software Factory\nFIRST\n")
+    bare = make_bare_origin(src, tmp_path / "factory.git")
+    cfg = load_config({**BASE, "FACTORY_REF": "v1"})
+    source = FactorySource(cfg, cache_dir=str(tmp_path / "cache"), url=str(bare),
+                           refresh_seconds=0)
+    assert "FIRST" in source.handbook()
+
+    _commit_factory(src, "# The Software Factory\nSECOND\n")
+    subprocess.run(["git", "-C", str(src), "push", "-q", str(bare), "v1"], check=True,
+                   env={"PATH": os.environ["PATH"], "GIT_TERMINAL_PROMPT": "0"})
+    assert "SECOND" in source.handbook()
+
+    # A refresh that cannot reach the origin keeps what it has.
+    source.url = str(tmp_path / "gone.git")
+    subprocess.run(["git", "-C", str(source.path()), "remote", "set-url", "origin", source.url],
+                   check=True, env={"PATH": os.environ["PATH"]})
+    assert "SECOND" in source.handbook()
+
+
+def test_factory_source_fetches_at_most_once_per_interval(tmp_path):
+    src = make_local_factory(tmp_path)
+    _commit_factory(src, "# The Software Factory\nFIRST\n")
+    bare = make_bare_origin(src, tmp_path / "factory.git")
+    cfg = load_config({**BASE, "FACTORY_REF": "v1"})
+    source = FactorySource(cfg, cache_dir=str(tmp_path / "cache"), url=str(bare),
+                           refresh_seconds=3600)
+    assert "FIRST" in source.handbook()
+    _commit_factory(src, "# The Software Factory\nSECOND\n")
+    subprocess.run(["git", "-C", str(src), "push", "-q", str(bare), "v1"], check=True,
+                   env={"PATH": os.environ["PATH"], "GIT_TERMINAL_PROMPT": "0"})
+    # Inside the interval the checkout stands; the next interval picks it up.
+    assert "FIRST" in source.handbook()
+    source._fetched_at = 0.0
+    assert "SECOND" in source.handbook()
