@@ -559,5 +559,7 @@ def test_factory_source_fetches_at_most_once_per_interval(tmp_path):
                    env={"PATH": os.environ["PATH"], "GIT_TERMINAL_PROMPT": "0"})
     # Inside the interval the checkout stands; the next interval picks it up.
     assert "FIRST" in source.handbook()
-    source._fetched_at = 0.0
+    # Long ago, whatever the clock: monotonic() counts from boot, and a fresh
+    # CI runner has been up for less than the interval.
+    source._fetched_at = float("-inf")
     assert "SECOND" in source.handbook()
