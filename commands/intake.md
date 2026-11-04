@@ -69,6 +69,27 @@ Turn the raw requirement into a structured, testable OpenSpec change proposal.
    `.github/factory-approvers.json` lists `spec` approvers, cc them
    (`@username`) in the summary — gate G1 is theirs.
 
+## An OpenSpec draft from the Compass
+
+A requirement shaped in the Compass carries a `## OpenSpec draft` section:
+one `<details>` fold per file (`proposal.md`, `specs/<capability-path>/spec.md`),
+each in a four-backtick fence, and a marker `<!-- openspec-draft: <slug> -->`.
+The person read and approved that wording before opening the issue, so it is
+your starting point, not a suggestion:
+
+- Use its slug for the change folder: `openspec/changes/<issue-number>-<slug>/`.
+- Copy each file in, then correct it against the code and `openspec/specs/`:
+  a capability that already exists is a `## MODIFIED Requirements` delta at
+  its exact existing path, never a new one; every requirement has a
+  scenario with exactly four `#`; `## Purpose` only on a new capability.
+- Keep the person's requirements and scenarios. Add what step 4 needs that
+  the draft lacks (Non-goals, affected repositories, data/privacy notes).
+  Where you change the meaning of a requirement, or drop one, add it to
+  `## Interpretations taken` so gate G1 shows it.
+- The draft's Open questions still go through step 3: block on any that
+  changes scope.
+- A draft is never a reason to skip steps 1 and 2.
+
 ## Attachments
 
 When your prompt lists attachments, view every one with the Read tool before
