@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Docker Desktop's CLI runs plugin hooks (the docker-ai "what's next" tips)
+# after a build in a terminal; with Desktop not running (Colima) the hook
+# never returns and the deploy sits after "View build details" until Ctrl+C.
+export DOCKER_CLI_HINTS=false
 
 # Local packaging + deployment for the LangGraph factory orchestrator.
 #
