@@ -36,6 +36,12 @@ none of them logic. See §10.
 content. Agents read requirements from the change folder, never from the issue
 body.** This prevents the two-sources-of-truth drift.
 
+One input is allowed to look like spec content: a requirement shaped in the
+Compass carries an **OpenSpec draft** (`## OpenSpec draft`, one fold per
+file). It is the person's raw requirement, not a second source of truth: the
+Intake Analyst starts the change folder from it, and from the spec PR on,
+every role reads the change folder only.
+
 ## 1a. Writing for people
 
 Every comment and issue body you write is read by a person who has not read
