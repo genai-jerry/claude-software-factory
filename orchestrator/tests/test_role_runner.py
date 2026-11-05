@@ -59,9 +59,8 @@ def make_fake_claude(tmp_path: Path, out_dir: Path, *, exit_code: int = 0,
 # fake claude: record prompt, argv, cwd, env for assertions
 out="{out_dir}"
 n=$(date +%s%N)
-shift  # -p
-printf '%s' "$1" > "$out/prompt-$n.txt"
-shift
+shift  # -p: the prompt arrives on stdin, never as an argument
+cat > "$out/prompt-$n.txt"
 printf '%s\\n' "$@" > "$out/argv-$n.txt"
 pwd > "$out/cwd-$n.txt"
 echo "GH_TOKEN=$GH_TOKEN" > "$out/env-$n.txt"
@@ -198,6 +197,24 @@ def test_role_run_copies_from_the_repo_master_and_keeps_it(tmp_path):
     # each run's copy is gone; the master both copies came from is not
     assert not any(c.exists() for c in cwds)
     assert cache.master("o", "r").is_dir()
+
+
+def test_prompt_longer_than_one_argument_allows_reaches_claude_whole(tmp_path):
+    """Linux caps a single argv entry at 128 KiB. The handbook plus the
+    Release Manager's instructions crossed it on 5 Nov 2026 and every release
+    run died in execve. The prompt now travels on stdin, so size is no limit."""
+    cfg, runner, out = build_runner(tmp_path)
+    handbook = tmp_path / "factory" / "FACTORY.md"
+    handbook.write_text("# The Software Factory\n" + ("HANDBOOK BODY " * 12_000) + "\nTHE END\n")
+    assert handbook.stat().st_size > 131_072
+    outcome = runner.run(owner="o", repo="r", role="intake", issue=5,
+                         model="claude-sonnet-5", github_token="ghs_secret_token")
+    assert outcome.status == "success", outcome.error
+    prompt = next(out.glob("prompt-*.txt")).read_text()
+    assert len(prompt.encode()) > 131_072
+    assert "THE END" in prompt and "ROLE BODY" in prompt
+    argv = next(out.glob("argv-*.txt")).read_text()
+    assert "HANDBOOK BODY" not in argv
 
 
 def test_role_run_captures_prompt_and_cleans_workspace(tmp_path):
@@ -407,7 +424,8 @@ def test_role_run_streams_output_before_exit(tmp_path):
     gate = tmp_path / "stream-gate"
     script = tmp_path / "claude"
     script.write_text(f"""#!/bin/bash
-shift; shift
+shift
+cat > /dev/null
 pwd > "{out_dir}/cwd-1.txt"
 echo FIRST
 n=0

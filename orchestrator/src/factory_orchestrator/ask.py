@@ -470,10 +470,13 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                    "GIT_TERMINAL_PROMPT": "0", **cfg.agent_credential_env()}
             started = time.monotonic()
 
-            def run(argv: list[str]) -> subprocess.CompletedProcess:
+            # The prompt goes in on stdin, as the roles' do (role_runner):
+            # Linux caps one argument at 128 KiB, and a prompt that carries a
+            # whole thread and its documents can cross it.
+            def run(argv: list[str], prompt_text: str) -> subprocess.CompletedProcess:
                 try:
                     return subprocess.run(argv, cwd=dest, env=env, capture_output=True,
-                                          text=True, timeout=timeout)
+                                          text=True, timeout=timeout, input=prompt_text)
                 except subprocess.TimeoutExpired as e:
                     raise AskError(f"The question took longer than {timeout} seconds.", 504) from e
 
@@ -482,7 +485,7 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                 # The session remembers the repositories, the instructions
                 # and the earlier turns; it is sent the new question alone.
                 short = RESUME_PROMPT.format(attachments=_attachments_note(attached), question=question)
-                proc = run([runner.claude_bin, "-p", short, "--resume", session.strip(), *common])
+                proc = run([runner.claude_bin, "-p", "--resume", session.strip(), *common], short)
                 got = _result_of(proc.stdout or "")
                 if proc.returncode == 0 and got and not got.get("is_error") and str(got.get("result") or "").strip():
                     resumed = True
@@ -496,7 +499,7 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                     instructions=(instructions or "").strip()[:MAX_INSTRUCTIONS] or DEFAULT_INSTRUCTIONS,
                     attachments=_attachments_note(attached),
                     context=context or "(no comments yet)", question=question)
-                proc = run([runner.claude_bin, "-p", prompt, *common])
+                proc = run([runner.claude_bin, "-p", *common], prompt)
         finally:
             if persistent:
                 try:
