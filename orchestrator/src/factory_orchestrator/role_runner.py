@@ -444,7 +444,13 @@ class RoleRunner:
                        on_phase: Callable[[str], None] | None,
                        on_output: Callable[[str], None] | None = None,
                        readers: list[StreamReader] | None = None) -> RoleOutcome:
-        argv = [self.claude_bin, "-p", prompt,
+        # The prompt goes in on stdin, never as an argument. It carries the
+        # whole handbook plus the role's instructions, and Linux caps one
+        # argument at 128 KiB (MAX_ARG_STRLEN): the Release Manager's prompt
+        # crossed it on 5 Nov 2026 and every release run died in execve with
+        # "Argument list too long" before Claude ever started. `claude -p`
+        # with no positional prompt reads it from stdin.
+        argv = [self.claude_bin, "-p",
                 "--model", model,
                 "--max-turns", str(self.cfg.max_turns),
                 # JSON events so the run's usage can be read (claude_stream);
@@ -471,7 +477,8 @@ class RoleRunner:
                 emit(text)
 
         try:
-            proc = _run_bounded(argv, cwd=cwd, env=env, deadline=deadline, on_output=show)
+            proc = _run_bounded(argv, cwd=cwd, env=env, deadline=deadline,
+                                on_output=show, stdin=prompt)
         except subprocess.TimeoutExpired:
             log.error("claude timeout cwd=%s after wall clock", cwd)
             return RoleOutcome(status="timeout",
@@ -689,17 +696,35 @@ def _remaining(deadline: float) -> float:
 
 def _run_bounded(argv: str | list[str], *, cwd: Path, env: dict[str, str],
                  deadline: float, shell: bool = False,
-                 on_output: Callable[[str], None] | None = None) -> subprocess.CompletedProcess:
+                 on_output: Callable[[str], None] | None = None,
+                 stdin: str | None = None) -> subprocess.CompletedProcess:
     """Run a process, forwarding stdout/stderr as they arrive so the Console
-    can show Claude and test output before the process exits."""
+    can show Claude and test output before the process exits. `stdin`, when
+    given, is written to the process and closed — on its own thread, so a
+    child that fills its stdout pipe before reading its stdin cannot deadlock
+    against the writer."""
     left = _remaining(deadline)
     if left <= 0:
         raise subprocess.TimeoutExpired(argv, 0)
     proc = subprocess.Popen(
         argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
         text=True, errors="replace", bufsize=1, shell=shell, start_new_session=True)
     chunks: list[str] = []
     q: queue.Queue[str | None] = queue.Queue()
+
+    if stdin is not None:
+        def feed() -> None:
+            try:
+                assert proc.stdin is not None
+                proc.stdin.write(stdin)
+                proc.stdin.close()
+            except (BrokenPipeError, OSError, ValueError):
+                # The child exited (or never read): its exit code tells the
+                # story, and the pump below still collects what it said.
+                pass
+
+        threading.Thread(target=feed, daemon=True).start()
 
     def pump() -> None:
         try:
