@@ -10,6 +10,7 @@ processor callable — in production the LangGraph pipeline, in tests a stub.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import html
 import json
 import logging
@@ -378,6 +379,26 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
     return app
 
 
+def _clock(value: Any) -> str:
+    """A run's clock as ISO 8601 with its zone written, always UTC.
+
+    The ledger stores an aware datetime, but SQLite hands it back naive
+    (``2026-11-05 06:01:48.213069``), and a browser reads a bare timestamp
+    as local time: a run four minutes old showed as "running for 334 min"
+    in Compass five and a half hours east of Greenwich.
+    """
+    if isinstance(value, dt.datetime):
+        at = value
+    else:
+        try:
+            at = dt.datetime.fromisoformat(str(value))
+        except ValueError:
+            return str(value)
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=dt.UTC)
+    return at.astimezone(dt.UTC).isoformat()
+
+
 def _public_run(run: dict[str, Any]) -> dict[str, Any]:
     out = dict(run)
     for key in ("model_fallbacks", "guards"):
@@ -388,7 +409,7 @@ def _public_run(run: dict[str, Any]) -> dict[str, Any]:
                 pass
     for key in ("started_at", "finished_at"):
         if out.get(key) is not None:
-            out[key] = str(out[key])
+            out[key] = _clock(out[key])
     out["events"] = read_events(out.get("transcript_path"))
     # Whether /transcript has anything to serve: the file lives in TRANSCRIPT_DIR,
     # which a redeploy can clear, so a past run's list entry says so rather than
