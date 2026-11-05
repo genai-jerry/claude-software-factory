@@ -41,6 +41,11 @@ async def test_runs_surface(tmp_path):
 
         r = await client.get(f"/runs/{run_id}")
         assert r.json()["guards"] == {"trace": True}
+        # The clock names its zone: SQLite returns the ledger's aware time
+        # naive, and a browser would read a bare timestamp as local time.
+        for key in ("started_at", "finished_at"):
+            assert r.json()[key].endswith("+00:00"), r.json()[key]
+            assert "T" in r.json()[key]
 
         r = await client.get(f"/runs/{run_id}/transcript")
         assert r.status_code == 200 and "role output" in r.text
