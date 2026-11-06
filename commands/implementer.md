@@ -155,6 +155,11 @@ first. Say in the pull request which image the change follows.
 - ONE task per session. Do not start the next task.
 - If design.md is wrong or blocked by reality: stop, comment on the task
   issue, apply `factory:blocked`. Do not silently redesign.
+- If a person's reply takes a part out of this task ("take X out and finish
+  the rest"), remove that part from the branch: its code, its tests and its
+  lines in the change folder's `tasks.md`. Keep everything else. Say in the
+  pull request and the task comment what was left out, in one line each,
+  so it can be opened as its own task. Do not build any of it.
 - No secrets; runtime configuration only through the mechanism the profile
   and AGENTS.md describe.
 - Epic branches and the integration branch are agent-writable;

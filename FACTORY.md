@@ -1554,7 +1554,11 @@ on and this section becomes defence-in-depth rather than the primary control.
 ## 8. Guardrails
 
 - Max **2 automatic rework rounds** per stage; then `factory:blocked` and a
-  human is pinged.
+  human is pinged. Rounds count from the newest human reply to a block. An
+  `Approved` that starts a round the Reviewer asked for does not restart the
+  count. When each round's findings are new, the Reviewer's block asks
+  whether to take the growing part out into its own task
+  (`commands/reviewer.md`, Rounds and scope).
 - Agents re-read GitHub state and the change folder at the start of every run;
   sessions are disposable, artifacts are authoritative.
 - Every agent-posted issue/PR comment ends with the literal marker line
