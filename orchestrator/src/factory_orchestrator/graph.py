@@ -420,6 +420,27 @@ def run_link_base(engine: Engine, owner: str, repo: str) -> str:
     return engine.cfg.public_base_url
 
 
+def pr_base_for(engine: Engine, port: RepoPort, issue: int) -> str | None:
+    """The base for a PR the engine opens on a task: its epic's branch.
+
+    The implementer is told to base its PR on the epic branch, but when it
+    leaves the PR to the engine the engine used the default branch, and a
+    task's PR landed against main (beacon-api#238, 5 Nov 2026). None when
+    the repo has no epic branches or the task's epic has none here.
+    """
+    try:
+        if not engine.repo_config(port).epics:
+            return None
+        m = re.match(r"^(?:task|bug)\((\d+)\)", (port.get_issue(issue) or {}).get("title") or "")
+        if not m:
+            return None
+        branch = f"factory/epic-{m.group(1)}"
+        return branch if port.branch_exists(branch) else None
+    except Exception:  # noqa: BLE001 - the default base is still a base
+        log.warning("could not work out the PR base for #%s", issue, exc_info=True)
+        return None
+
+
 def build_environment(port: RepoPort, role: str, key: IssueKey | None,
                       staging_open: bool) -> IssueKey | None:
     """Which build environment a run works in, under issue workspaces.
@@ -572,6 +593,7 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             staging_open=staging_open, integration_branch=staging,
             attachment_issues=attachment_targets(port, f"{owner}/{repo}", issue),
             run_id=run_id,
+            pr_base=pr_base_for(engine, port, issue),
             **({"workspace": key} if key else {}))
         # The role may have run for the better part of an hour; everything from
         # here on needs a token that is good now, not one that was good then.

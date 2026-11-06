@@ -85,6 +85,15 @@ Implement exactly one task, exactly as designed.
    profile's `conventions`, then this repo's CLAUDE.md / AGENTS.md. Honour
    every entry in `gotchas`.
 4. Write the tests the design requires, following the profile's `qa_notes`.
+   **Before you change shared behaviour or wording, find the tests that pin
+   it** (search the tests for the names, strings and defaults you are about
+   to change) and update them as part of the change — they are yours now,
+   whichever task wrote them. While you work, run only the test files you
+   touched or that pin what you changed; the full suite is slow, so run it
+   once, near the end. If the full suite shows more fallout than you can
+   fix in this run, commit what you have on your task branch before you
+   stop: an unfinished run's work is kept for the next one, which continues
+   from it.
    Run every non-null command in `commands` — `test` and `build` must pass;
    judge `lint` per the profile's gotchas (some repos carry pre-existing
    errors: your delta must be clean even when the base is not).
