@@ -68,6 +68,11 @@ ALLOWED_TOOLS = "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch,TodoWrite,Tas
 PROTECTED_BRANCHES = frozenset({"main", "master"})
 FACTORY_BRANCH_PREFIXES = ("factory/", "factory-console/")
 MAX_FIX_RESUMES = 2
+
+#: Roles whose Claude conversation is kept in the task's environment and
+#: continued on the role's next run there (a fix round after review, a run
+#: after a timeout), instead of starting over and re-reading everything.
+RESUMABLE_ROLES = ("implementer",)
 TEST_LOG_TAIL = 8000
 _PYTHON_COMMS = frozenset({"python", "python3", "pytest", "py.test"})
 
@@ -191,6 +196,38 @@ def assemble_prompt(*, role: str, repository: str, owner: str, issue: int | str,
         + "\n===== FACTORY HANDBOOK =====\n\n"
         + handbook
         + f"\n\n===== ROLE INSTRUCTIONS ({role}) =====\n\n"
+        + role_instructions
+    )
+
+
+RESUME_PROMPT = """\
+This is a new run of the "{role}" role of the Software Factory on
+{repository} issue #{issue}. It continues your earlier conversation on this
+task: this is round {round}. The factory handbook and your role
+instructions from the start of this conversation still apply; the role
+instructions are repeated below.
+
+Since your last run:
+- The working copy was reset to GitHub. Anything you did not push is gone;
+  your branches are as you pushed them.
+- Read what changed on GitHub before you act: new comments on the issue and
+  on its pull request (a reviewer's findings, QA's report, a person's
+  answer), and the issue's labels now. Act on where things stand now, not
+  on what you remember.
+"""
+
+
+def assemble_resume_prompt(*, role: str, repository: str, issue: int | str, round_no: int,
+                           role_instructions: str, attachments: Fetched | None = None,
+                           environment_notes: str = "") -> str:
+    """What a continued conversation is sent: the new run's facts, not the handbook again."""
+    note = attachments_note(attachments, int(issue)) if attachments and str(issue).isdigit() else ""
+    return (
+        RESUME_PROMPT.format(role=role, repository=repository, issue=issue, round=round_no)
+        + (("\n" + note) if note else "")
+        + (("\n" + environment_notes) if environment_notes else "")
+        + PROMPT_TRIGGER_NOTE
+        + f"\n===== ROLE INSTRUCTIONS ({role}) =====\n\n"
         + role_instructions
     )
 
@@ -320,6 +357,10 @@ class RoleOutcome:
     usage: dict | None = field(default=None)
     #: Claude's closing message, redacted: the environment's next note.
     summary: str | None = field(default=None)
+    #: The Claude conversation the run ended in, and whether it continued
+    #: an earlier one: {"resumed": bool, "round": int}; None when not kept.
+    session_id: str | None = field(default=None)
+    conversation: dict | None = field(default=None)
 
 
 def install_branch_guard(home: Path, factory: Path | None) -> Path | None:
@@ -404,19 +445,46 @@ class RoleRunner:
                         home, on_phase)
                     notes = (self.issue_workspaces.notes(owner, repo, workspace)
                              if workspace is not None else [])
+                    notes_block = environment_notes_block(notes, _place(owner, repo, workspace))
+                    instructions = self.source.role_instructions(role)
                     prompt = assemble_prompt(
                         role=role, repository=f"{owner}/{repo}", owner=owner, issue=issue,
                         handbook=self.source.handbook(),
-                        role_instructions=self.source.role_instructions(role),
+                        role_instructions=instructions,
                         attachments=fetched,
-                        environment_notes=environment_notes_block(
-                            notes, _place(owner, repo, workspace)))
+                        environment_notes=notes_block)
+                    keep = (workspace is not None and not workspace.staging
+                            and role in RESUMABLE_ROLES)
+                    name = f"{role}-{issue}"
+                    kept = (self.issue_workspaces.load_conversation(
+                        owner, repo, workspace, name, home) if keep else None)
+                    resume = None
+                    if kept:
+                        resume = (kept["session_id"], assemble_resume_prompt(
+                            role=role, repository=f"{owner}/{repo}", issue=issue,
+                            round_no=int(kept.get("rounds") or 1) + 1,
+                            role_instructions=instructions, attachments=fetched,
+                            environment_notes=notes_block))
                     outcome = self._session(
                         prompt, cwd=cwd, home=home, owner=owner, repo=repo,
                         role=role, issue=issue, model=model,
                         github_token=github_token, deadline=deadline,
                         on_phase=on_phase, on_output=on_output,
-                        staging_open=staging_open, integration_branch=integration_branch)
+                        staging_open=staging_open, integration_branch=integration_branch,
+                        resume=resume)
+                    if keep:
+                        resumed = bool(outcome.conversation and outcome.conversation.get("resumed"))
+                        rounds = (int(kept.get("rounds") or 1) + 1) if (kept and resumed) else 1
+                        outcome.conversation = {"resumed": resumed, "round": rounds}
+                        if outcome.status in ("success", "timeout") and outcome.session_id:
+                            self.issue_workspaces.save_conversation(
+                                owner, repo, workspace, name, home, outcome.session_id, rounds)
+                        else:
+                            # A conversation that ended in an error is not
+                            # one to continue: the next run starts fresh.
+                            self.issue_workspaces.drop_conversation(owner, repo, workspace, name)
+                    else:
+                        outcome.conversation = None
                 if workspace is not None:
                     self.issue_workspaces.add_note(owner, repo, workspace, {
                         "run_id": run_id, "role": role, "issue": issue,
@@ -515,7 +583,10 @@ class RoleRunner:
                  on_phase: Callable[[str], None] | None,
                  on_output: Callable[[str], None] | None,
                  staging_open: bool = False,
-                 integration_branch: str | None = None) -> RoleOutcome:
+                 integration_branch: str | None = None,
+                 resume: tuple[str, str] | None = None) -> RoleOutcome:
+        """`resume` is (session id, prompt): continue that conversation, or
+        start afresh with `prompt` when it cannot be continued."""
         guard = install_branch_guard(home, self.source.path() if hasattr(self.source, "path") else None)
         gh_token = (self.cfg.cross_repo_token.reveal()
                     if self.cfg.cross_repo_token else github_token)
@@ -532,9 +603,9 @@ class RoleRunner:
             **self.cfg.agent_credential_env(),
         }
         readers: list[StreamReader] = []
-        outcome = self._invoke_claude(
-            prompt, cwd=cwd, env=env, model=model,
-            github_token=github_token, deadline=deadline,
+        outcome, resumed = self._invoke_continuing(
+            resume[1] if resume else prompt, prompt, resume[0] if resume else None,
+            cwd=cwd, env=env, model=model, github_token=github_token, deadline=deadline,
             on_phase=on_phase, on_output=on_output, readers=readers)
         if outcome.status != "timeout":
             outcome = self._observe(
@@ -545,13 +616,30 @@ class RoleRunner:
                 readers=readers)
         outcome.usage = run_usage(readers)
         outcome.summary = closing_summary(readers, lambda t: self._redact(t, github_token))
+        outcome.session_id = next((r.session_id for r in reversed(readers) if r.session_id), None)
+        outcome.conversation = {"resumed": resumed}
         return outcome
+
+    def _invoke_continuing(self, resume_prompt: str, fresh_prompt: str, session_id: str | None,
+                           **kw) -> tuple[RoleOutcome, bool]:
+        """Continue `session_id` with `resume_prompt`; if that conversation
+        will not open (the session never got going), run `fresh_prompt`."""
+        readers = kw["readers"]
+        if session_id:
+            outcome = self._invoke_claude(resume_prompt, resume=session_id, **kw)
+            started = bool(readers) and readers[-1].assistant_turns > 0
+            if outcome.status != "error" or started:
+                return outcome, True
+            log.info("could not continue conversation %s (exit=%s) - starting fresh",
+                     session_id[:12], outcome.exit_code)
+        return self._invoke_claude(fresh_prompt, **kw), False
 
     def _invoke_claude(self, prompt: str, *, cwd: Path, env: dict[str, str],
                        model: str, github_token: str, deadline: float,
                        on_phase: Callable[[str], None] | None,
                        on_output: Callable[[str], None] | None = None,
-                       readers: list[StreamReader] | None = None) -> RoleOutcome:
+                       readers: list[StreamReader] | None = None,
+                       resume: str | None = None) -> RoleOutcome:
         # The prompt goes in on stdin, never as an argument. It carries the
         # whole handbook plus the role's instructions, and Linux caps one
         # argument at 128 KiB (MAX_ARG_STRLEN): the Release Manager's prompt
@@ -569,11 +657,14 @@ class RoleRunner:
                 "--allowedTools", ALLOWED_TOOLS]
         if env.get("FACTORY_GUARD_SETTINGS"):
             argv += ["--settings", env["FACTORY_GUARD_SETTINGS"]]
+        if resume:
+            argv += ["--resume", resume]
         log.info(
             "claude start role cwd=%s model=%s max_turns=%s remaining=%.0fs",
             cwd, model, self.cfg.max_turns, _remaining(deadline))
         if on_phase:
-            on_phase(f"running Claude ({model})")
+            on_phase(f"running Claude ({model})"
+                     + (", continuing its earlier conversation" if resume else ""))
         emit = self._emitter(github_token, on_output)
         reader = StreamReader()
         if readers is not None:
@@ -652,10 +743,15 @@ class RoleRunner:
                         test_command=test_cmd, log_tail=_tail(test_log))
                     log.info("resuming Claude (%s/%s) after red tests on %s",
                              resumes, MAX_FIX_RESUMES, branch)
-                    outcome = self._invoke_claude(
-                        fix, cwd=cwd, env=env, model=model,
+                    # Continue the conversation that wrote the code, so it
+                    # fixes with what it knows; a fresh one if that fails.
+                    current = next((r.session_id for r in reversed(readers or [])
+                                    if r.session_id), None)
+                    outcome, _ = self._invoke_continuing(
+                        fix, fix, current, cwd=cwd, env=env, model=model,
                         github_token=github_token, deadline=deadline,
-                        on_phase=on_phase, on_output=on_output, readers=readers)
+                        on_phase=on_phase, on_output=on_output,
+                        readers=readers if readers is not None else [])
                     parts.append(outcome.transcript)
                     if outcome.status == "timeout":
                         return RoleOutcome(

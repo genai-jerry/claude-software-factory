@@ -536,7 +536,10 @@ Release Manager runs, so merges into one epic take turns. Each task has its
 own environment. A run waiting for its environment does not hold one of
 the `max_parallel` sessions. Each environment keeps notes beside its copy:
 after a run, Claude's closing summary is added, and the next run there
-reads the latest notes as context, never as instructions. `GET
+reads the latest notes as context, never as instructions. A task's
+implementer also keeps its Claude conversation there, and its next run
+on the task (a fix round after review) continues it rather than starting
+over. `GET
 /environments` lists them for the Compass.
 Picture and details: the wiki's *Repo Workspaces* sheet.
 

@@ -609,6 +609,9 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         usage = getattr(outcome, "usage", None)
         if usage:
             guards["usage"] = usage  # read back by GET /usage
+        conversation = getattr(outcome, "conversation", None)
+        if isinstance(conversation, dict):
+            guards["conversation"] = conversation  # did this run continue the last one?
         # FACTORY.md §1a, report-only: how readable were this run's comments?
         writing = score_new_comments(port, issue, before.comments, factory_checkout(engine))
         if writing:

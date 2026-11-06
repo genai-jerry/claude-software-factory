@@ -73,6 +73,12 @@ DEFAULT_IDLE_DAYS = 7.0
 NOTES_KEPT = 40
 NOTES_IN_PROMPT = 6
 NOTE_SUMMARY_CHARS = 1500
+#: A builder's conversation is continued on its next run while it is this
+#: young, has been continued fewer times than this, and is no bigger than
+#: this; past any of them the next run starts fresh.
+CONVERSATION_MAX_AGE = 3 * 86400
+CONVERSATION_MAX_ROUNDS = 6
+CONVERSATION_MAX_BYTES = 40 * 1024 * 1024
 
 _SUB_ISSUE_TITLE = re.compile(r"^(?:task|test|bug)\((\d+)\)")
 _CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)",
@@ -303,6 +309,64 @@ class IssueWorkspaces:
             if isinstance(note, dict):
                 out.append(note)
         return out
+
+    # ------------------------------------------------------- conversations
+    def save_conversation(self, owner: str, repo: str, key: IssueKey, name: str,
+                          run_home: Path, session_id: str, rounds: int) -> bool:
+        """Keep a run's Claude conversation beside the copy, to continue later.
+
+        Claude writes it under the run's private HOME, which is deleted when
+        the run ends; the file is copied out with its path relative to that
+        HOME, so the next run can put it back where `--resume` looks.
+        """
+        found = next(iter(run_home.glob(f".claude/projects/*/{session_id}.jsonl")), None)
+        if found is None:
+            log.info("no conversation file for %s in %s", session_id, run_home)
+            return False
+        dest = self.home(owner, repo, key) / "conversations" / name
+        try:
+            shutil.rmtree(dest, ignore_errors=True)
+            rel = found.relative_to(run_home)
+            (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(found, dest / rel)
+            (dest / "conversation.json").write_text(json.dumps({
+                "session_id": session_id, "path": str(rel), "rounds": rounds,
+                "saved_at": self.clock(), "bytes": found.stat().st_size}))
+            return True
+        except OSError:
+            log.warning("could not keep conversation %s", session_id, exc_info=True)
+            shutil.rmtree(dest, ignore_errors=True)
+            return False
+
+    def load_conversation(self, owner: str, repo: str, key: IssueKey, name: str,
+                          run_home: Path) -> dict[str, Any] | None:
+        """Put a kept conversation into a new run's HOME; its record, or None
+        when there is none worth continuing (too old, too long, too big)."""
+        src = self.home(owner, repo, key) / "conversations" / name
+        try:
+            meta = json.loads((src / "conversation.json").read_text())
+        except (OSError, ValueError):
+            return None
+        if not isinstance(meta, dict) or not isinstance(meta.get("session_id"), str):
+            return None
+        stale = self.clock() - float(meta.get("saved_at") or 0) > CONVERSATION_MAX_AGE
+        if (stale or int(meta.get("rounds") or 0) >= CONVERSATION_MAX_ROUNDS
+                or int(meta.get("bytes") or 0) > CONVERSATION_MAX_BYTES):
+            self.drop_conversation(owner, repo, key, name)
+            return None
+        rel = Path(str(meta.get("path") or ""))
+        if rel.is_absolute() or ".." in rel.parts or not (src / rel).is_file():
+            self.drop_conversation(owner, repo, key, name)
+            return None
+        try:
+            (run_home / rel).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src / rel, run_home / rel)
+        except OSError:
+            return None
+        return meta
+
+    def drop_conversation(self, owner: str, repo: str, key: IssueKey, name: str) -> None:
+        shutil.rmtree(self.home(owner, repo, key) / "conversations" / name, ignore_errors=True)
 
     # ------------------------------------------------------- environments
     def environments(self, notes: int = 5) -> list[dict[str, Any]]:

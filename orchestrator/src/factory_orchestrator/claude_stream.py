@@ -33,6 +33,10 @@ class StreamReader:
         self.results: list[dict[str, Any]] = []
         self.rate_limit: dict[str, Any] | None = None
         self.retries = 0
+        #: The Claude conversation this process wrote to, for `--resume`.
+        self.session_id: str | None = None
+        #: Assistant messages seen: 0 means the session never got going.
+        self.assistant_turns = 0
 
     def feed(self, line: str) -> str | None:
         """The readable text for one stdout line, or None when it shows nothing."""
@@ -72,8 +76,11 @@ class StreamReader:
         if not isinstance(ev, dict):
             return line
         self._note_rate_limit(ev)
+        if isinstance(ev.get("session_id"), str) and ev["session_id"]:
+            self.session_id = ev["session_id"]
         kind, sub = ev.get("type"), ev.get("subtype")
         if kind == "assistant":
+            self.assistant_turns += 1
             return self._assistant(ev.get("message") or {})
         if kind == "result":
             self.results.append(ev)
