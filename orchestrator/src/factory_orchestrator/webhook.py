@@ -166,6 +166,7 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
             "webhooks": "POST /webhooks/github",
             "events": "POST /events",
             "runs": "/runs",
+            "environments": "/environments",
         }
 
     @app.get("/healthz")
@@ -349,6 +350,14 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         if _wants_html(request):
             return Response(content=_runs_index_html(rows), media_type="text/html")
         return Response(content=json.dumps(rows), media_type="application/json")
+
+    @app.get("/environments")
+    async def environments() -> dict[str, Any]:
+        """The build environments, who holds each and who waits (issue_workspaces.py)."""
+        source = getattr(app.state, "environments", None)
+        if source is None:
+            return {"sessions": None, "environments": []}
+        return await asyncio.to_thread(source)
 
     @app.get("/usage")
     async def usage() -> dict[str, Any]:

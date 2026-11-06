@@ -528,6 +528,16 @@ state: each run starts by resetting it to GitHub, so only files git ignores
 (installed dependencies, build caches) carry over, and work a run did not
 push is gone exactly as under Actions. Copies are deleted when their issue
 closes (an epic takes its tasks' copies with it) or after they sit idle.
+Each copy is a **build environment** that runs one session at a time, and
+there are three levels. Staging has one environment per repo: every Release
+Manager run that writes to the integration branch works there, so epics go
+onto staging one at a time. Each epic's environment also takes its tasks'
+Release Manager runs, so merges into one epic take turns. Each task has its
+own environment. A run waiting for its environment does not hold one of
+the `max_parallel` sessions. Each environment keeps notes beside its copy:
+after a run, Claude's closing summary is added, and the next run there
+reads the latest notes as context, never as instructions. `GET
+/environments` lists them for the Compass.
 Picture and details: the wiki's *Repo Workspaces* sheet.
 
 ## 3. Label state machine

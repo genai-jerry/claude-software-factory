@@ -103,8 +103,35 @@ The roles are not all handed an issue number. The reviewer and QA get the
 | intake, planner, architect, dispatch | epic #34 | copy **34** |
 | implementer | task #60 | copy **60** |
 | reviewer, qa | PR #70 (body says `Closes #60`) | copy **60** |
-| release | epic #34 or task #60 | the copy of the number it was handed |
+| release on a task | task #60 | the **epic's** copy, 34: merges into one epic take turns |
+| release on an epic, or onto staging | epic #34 | the repo's **staging** copy: epics go onto staging one at a time |
 | any role on a PR that closes nothing | PR #80 | copy **80**: cold, but correct |
+
+## Build environments: staging, epic, task
+
+Each copy is a build environment, and each runs **one session at a time**.
+
+| Environment | How many | Who works there | Lifetime |
+|---|---|---|---|
+| Staging | one per repo, `…/<repo>/staging/` | every Release Manager run onto staging, and epic releases | permanent: never swept |
+| Epic | one per epic | the epic's roles, and its tasks' Release Manager merging into the epic | until the epic closes |
+| Task | one per task | implementer, reviewer, QA, fix runs | until the task closes |
+
+- **The turn comes before the session.** A run first waits for its
+  environment, and only then takes one of the `max_parallel` sessions. Two
+  queued runs on one epic no longer sit on half the capacity doing nothing.
+  The run's phase says what it waits for: *waiting for its turn on
+  staging*, *waiting for its build environment*, or *waiting for a free
+  session*.
+- **Notes.** Each environment keeps `notes.jsonl` beside its copy, out of
+  reach of the reset. After every run the engine appends the role, the
+  outcome and Claude's closing summary, redacted; the latest 40 are kept.
+  The next run there gets the latest six in its prompt, marked as context,
+  not instructions: GitHub stays the state.
+- **Seen from outside.** `GET /environments` lists every environment with
+  its kind, the run holding it and what it is doing, the runs queued for
+  it, and its latest notes, plus the sessions in use and waiting. The
+  Compass *Environments* page draws it.
 
 ## Naming: flat, with the epic recorded inside
 
@@ -193,7 +220,7 @@ stateDiagram-v2
   copy has been idle longer than `WORKSPACE_IDLE_DAYS` (default 7). If GitHub
   can't be reached, the copy is kept.
 - **Never mid-run.** Deletion skips a copy that a run holds; the next sweep
-  gets it. Two runs on the same issue take turns on a per-issue lock.
+  gets it. Two runs on the same environment take turns on its lock.
 
 ## Credentials
 

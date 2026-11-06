@@ -49,7 +49,7 @@ from .guards import (
     snapshot,
     verify_no_op,
 )
-from .issue_workspaces import MODES, IssueKey, workspace_key
+from .issue_workspaces import MODES, STAGING, IssueKey, workspace_key
 from .ledger import Ledger
 from .live_log import LiveRunLog
 from .models import ModelResolutionError, Probe, load_models_config, resolve_model
@@ -420,6 +420,28 @@ def run_link_base(engine: Engine, owner: str, repo: str) -> str:
     return engine.cfg.public_base_url
 
 
+def build_environment(port: RepoPort, role: str, key: IssueKey | None,
+                      staging_open: bool) -> IssueKey | None:
+    """Which build environment a run works in, under issue workspaces.
+
+    The Release Manager integrates, so it works where it integrates *into*:
+    a task's release merges into its epic and takes the epic's environment
+    (merges into one epic take turns); anything that writes to staging, or a
+    release on an epic or a standalone issue, takes the repo's one staging
+    environment (epics go onto staging one at a time). Every other role
+    works in its own issue's environment. A cross-repo task keeps its own:
+    its epic's number belongs to another repo.
+    """
+    if key is None or role != "release":
+        return key
+    if staging_open or not key.epic:
+        return STAGING
+    epic_repo, _, epic_no = key.epic.rpartition("#")
+    if epic_repo == f"{port.owner}/{port.repo}" and epic_no.isdigit():
+        return IssueKey(int(epic_no))
+    return key
+
+
 def staging_policy(engine: Engine, port: RepoPort, role: str, issue: int) -> tuple[str, bool]:
     """The integration branch's name, and whether this run may write to it.
 
@@ -539,8 +561,8 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         # can follow the log without an Actions run.
         report_start(port, issue, role, run_url)
         before = snapshot(port, issue)
-        key = engine.workspace_for(port, issue)
         staging, staging_open = staging_policy(engine, port, role, issue)
+        key = build_environment(port, role, engine.workspace_for(port, issue), staging_open)
         staging_before = branch_head(port, staging)
         outcome = engine.runner.run(
             owner=owner, repo=repo, role=role, issue=issue, model=resolved.model,
@@ -549,6 +571,7 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             on_output=live.write,
             staging_open=staging_open, integration_branch=staging,
             attachment_issues=attachment_targets(port, f"{owner}/{repo}", issue),
+            run_id=run_id,
             **({"workspace": key} if key else {}))
         # The role may have run for the better part of an hour; everything from
         # here on needs a token that is good now, not one that was good then.

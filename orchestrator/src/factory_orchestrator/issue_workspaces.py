@@ -27,10 +27,27 @@ review, QA and every fix run.
 - **Lifetime.** Deleted when its issue closes (an epic closing takes its
   tasks' copies with it), or by the reconciler sweep when the issue is found
   closed or the copy has sat idle for `idle_days`.
+
+Each copy is a **build environment** with three levels (6 Nov 2026):
+
+- **Staging, one per repo** (`<root>/<owner>/<repo>/staging/repo`). Every
+  Release Manager run that writes to the integration branch works here, so
+  epics go onto staging one at a time, in the order they asked. Never swept.
+- **Epic.** The epic's own roles, plus a task's Release Manager merging the
+  task into the epic branch, so merges into one epic take turns.
+- **Task.** Implementer, reviewer and QA for that task.
+
+One run at a time per environment: :meth:`hold` is the turn, and it is
+taken *before* a session slot (role_runner.py), so a run waiting its turn
+holds no slot. :meth:`environments` reports who holds each turn and who is
+queued for it, for GET /environments. Each environment keeps `notes.jsonl`
+beside its copy (never in it, so the reset cannot touch them): one entry per
+run, which the next run there reads before it starts.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import re
@@ -52,6 +69,10 @@ log = logging.getLogger("factory-orchestrator.issue-workspaces")
 
 MODES = ("run", "issue")
 DEFAULT_IDLE_DAYS = 7.0
+#: Notes kept per environment, and how much of them a prompt carries.
+NOTES_KEPT = 40
+NOTES_IN_PROMPT = 6
+NOTE_SUMMARY_CHARS = 1500
 
 _SUB_ISSUE_TITLE = re.compile(r"^(?:task|test|bug)\((\d+)\)")
 _CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)",
@@ -64,6 +85,20 @@ class IssueKey:
 
     number: int
     epic: str | None = None      # "owner/repo#n", or None for an epic or a standalone issue
+    staging: bool = False        # the repo's one staging environment; `number` is unused
+
+    def label(self) -> str:
+        """Who waits on whom, in words: `staging`, `epic`, or `issue`."""
+        return "staging" if self.staging else ("task" if self.epic else "issue")
+
+
+STAGING = IssueKey(0, None, True)
+
+
+def _iso(epoch: float | None) -> str | None:
+    if not isinstance(epoch, int | float):
+        return None
+    return dt.datetime.fromtimestamp(epoch, dt.UTC).isoformat()
 
 
 def workspace_key(port, number: int) -> IssueKey:
@@ -100,41 +135,96 @@ class IssueWorkspaces:
         self.clock = clock
         self._guard = threading.Lock()
         self._locks: dict[str, threading.Lock] = {}
+        #: Live turns, by environment id: who holds it, who is queued.
+        self._holders: dict[str, dict[str, Any]] = {}
+        self._queues: dict[str, list[dict[str, Any]]] = {}
 
-    def path(self, owner: str, repo: str, number: int) -> Path:
+    def path(self, owner: str, repo: str, number: int | str) -> Path:
         return self.root / owner / repo / str(number)
+
+    def home(self, owner: str, repo: str, key: IssueKey) -> Path:
+        return self.path(owner, repo, "staging" if key.staging else key.number)
+
+    @staticmethod
+    def env_id(owner: str, repo: str, key: IssueKey) -> str:
+        return f"{owner}/{repo}@staging" if key.staging else f"{owner}/{repo}#{key.number}"
 
     @contextmanager
     def acquire(self, owner: str, repo: str, key: IssueKey, token: str) -> Iterator[Path]:
         """The issue's copy, reset to GitHub, for the length of one run."""
-        home = self.path(owner, repo, key.number)
+        with self.hold(owner, repo, key):
+            with self.prepare(owner, repo, key, token) as copy:
+                yield copy
+
+    @contextmanager
+    def hold(self, owner: str, repo: str, key: IssueKey, who: dict[str, Any] | None = None,
+             on_wait: Callable[[], None] | None = None) -> Iterator[None]:
+        """This environment's turn: one run at a time, first come first served.
+
+        `who` (run id, role, issue) is what GET /environments shows; `on_wait`
+        is called once if the turn is not free at once.
+        """
+        env = self.env_id(owner, repo, key)
+        lock = self._key_lock(env)
+        entry = {**(who or {}), "since": self.clock()}
+        if not lock.acquire(blocking=False):
+            with self._guard:
+                self._queues.setdefault(env, []).append(entry)
+            if on_wait:
+                on_wait()
+            lock.acquire()
+            with self._guard:
+                waiting = [w for w in self._queues.get(env, []) if w is not entry]
+                if waiting:
+                    self._queues[env] = waiting
+                else:
+                    self._queues.pop(env, None)
+        try:
+            with self._guard:
+                self._holders[env] = {**entry, "since": self.clock(), "state": "starting"}
+            yield
+        finally:
+            with self._guard:
+                self._holders.pop(env, None)
+            lock.release()
+
+    def mark(self, owner: str, repo: str, key: IssueKey, state: str) -> None:
+        """Say what the run holding this environment is doing (`waiting for a
+        session`, `running`)."""
+        env = self.env_id(owner, repo, key)
+        with self._guard:
+            if env in self._holders:
+                self._holders[env]["state"] = state
+
+    @contextmanager
+    def prepare(self, owner: str, repo: str, key: IssueKey, token: str) -> Iterator[Path]:
+        """The copy, reset to GitHub. The caller already holds the turn."""
+        home = self.home(owner, repo, key)
         copy = home / "repo"
         url = self.cache.url_for(owner, repo, token)
-        with self._lock(owner, repo, key.number):
-            if copy.exists():
-                try:
-                    self._reset(copy, url)
-                    log.info("issue copy reused repo=%s/%s#%s", owner, repo, key.number)
-                except subprocess.SubprocessError:
-                    log.warning("issue copy could not be reset repo=%s/%s#%s - recopying",
-                                owner, repo, key.number)
-                    shutil.rmtree(copy, ignore_errors=True)
-            if not copy.exists():
-                home.mkdir(parents=True, exist_ok=True)
-                self.cache.checkout(owner, repo, token, copy)
-                log.info("issue copy created repo=%s/%s#%s", owner, repo, key.number)
-            self._write_meta(home, owner, repo, key)
+        if copy.exists():
             try:
-                yield copy
-            finally:
-                try:
-                    git(self.cache.env, "-C", str(copy), "remote", "set-url", "origin",
-                        self.cache.public_url_for(owner, repo))
-                except (subprocess.SubprocessError, OSError):
-                    # A copy that will not take the token-free URL is not kept.
-                    shutil.rmtree(copy, ignore_errors=True)
-                self._touch(home)
-
+                self._reset(copy, url)
+                log.info("issue copy reused %s", self.env_id(owner, repo, key))
+            except subprocess.SubprocessError:
+                log.warning("issue copy could not be reset %s - recopying",
+                            self.env_id(owner, repo, key))
+                shutil.rmtree(copy, ignore_errors=True)
+        if not copy.exists():
+            home.mkdir(parents=True, exist_ok=True)
+            self.cache.checkout(owner, repo, token, copy)
+            log.info("issue copy created %s", self.env_id(owner, repo, key))
+        self._write_meta(home, owner, repo, key)
+        try:
+            yield copy
+        finally:
+            try:
+                git(self.cache.env, "-C", str(copy), "remote", "set-url", "origin",
+                    self.cache.public_url_for(owner, repo))
+            except (subprocess.SubprocessError, OSError):
+                # A copy that will not take the token-free URL is not kept.
+                shutil.rmtree(copy, ignore_errors=True)
+            self._touch(home)
     def discard(self, owner: str, repo: str, number: int) -> int:
         """Delete an issue's copy and, for an epic, every copy that names it.
 
@@ -159,6 +249,8 @@ class IssueWorkspaces:
         removed = 0
         cutoff = self.clock() - self.idle_days * 86400
         for home, meta in self._copies():
+            if meta.get("staging"):
+                continue  # the repo's staging environment is never swept
             owner, repo, number = meta.get("owner"), meta.get("repo"), meta.get("number")
             if not (owner and repo and isinstance(number, int)):
                 removed += self._remove(home, meta)
@@ -174,10 +266,113 @@ class IssueWorkspaces:
             removed += self._remove(home, meta)
         return removed
 
-    # ------------------------------------------------------------ internals
-    def _lock(self, owner: str, repo: str, number: int) -> threading.Lock:
+    # ------------------------------------------------------------- notes
+    def add_note(self, owner: str, repo: str, key: IssueKey, entry: dict[str, Any]) -> None:
+        """Append one run's entry to the environment's notes; keep the latest few."""
+        home = self.home(owner, repo, key)
+        path = home / "notes.jsonl"
+        try:
+            home.mkdir(parents=True, exist_ok=True)
+            kept = self._read_notes(path)[-(NOTES_KEPT - 1):]
+            summary = str(entry.get("summary") or "").strip()
+            if len(summary) > NOTE_SUMMARY_CHARS:
+                summary = summary[:NOTE_SUMMARY_CHARS].rstrip() + " …"
+            kept.append({**entry, "summary": summary, "at": self.clock()})
+            path.write_text("".join(json.dumps(n) + "\n" for n in kept))
+        except OSError:
+            log.warning("could not write notes for %s", self.env_id(owner, repo, key),
+                        exc_info=True)
+
+    def notes(self, owner: str, repo: str, key: IssueKey,
+              limit: int = NOTES_IN_PROMPT) -> list[dict[str, Any]]:
+        """The environment's latest notes, oldest first."""
+        return self._read_notes(self.home(owner, repo, key) / "notes.jsonl")[-limit:]
+
+    @staticmethod
+    def _read_notes(path: Path) -> list[dict[str, Any]]:
+        try:
+            lines = path.read_text().splitlines()
+        except OSError:
+            return []
+        out = []
+        for line in lines:
+            try:
+                note = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(note, dict):
+                out.append(note)
+        return out
+
+    # ------------------------------------------------------- environments
+    def environments(self, notes: int = 5) -> list[dict[str, Any]]:
+        """Every environment on disk, with who holds it and who waits for it.
+
+        `kind` is `staging`, `epic` (an issue some task copy names as its
+        epic), `task`, or `issue` (standalone). An environment a run is
+        waiting for that has never been created is listed too.
+        """
+        copies = list(self._copies())
+        epics = {meta.get("epic") for _, meta in copies if meta.get("epic")}
         with self._guard:
-            return self._locks.setdefault(f"{owner}/{repo}#{number}", threading.Lock())
+            holders = {k: dict(v) for k, v in self._holders.items()}
+            queues = {k: [dict(w) for w in v] for k, v in self._queues.items()}
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for home, meta in copies:
+            owner, repo = meta.get("owner"), meta.get("repo")
+            if not (owner and repo):
+                continue
+            staging = bool(meta.get("staging"))
+            number = meta.get("number")
+            env = f"{owner}/{repo}@staging" if staging else f"{owner}/{repo}#{number}"
+            seen.add(env)
+            kind = ("staging" if staging else "epic" if meta.get("ref") in epics
+                    else "task" if meta.get("epic") else "issue")
+            out.append({
+                "id": env, "kind": kind, "repo": f"{owner}/{repo}",
+                "number": None if staging else number, "epic": meta.get("epic"),
+                "created_at": _iso(meta.get("created_at")),
+                "last_used_at": _iso(meta.get("last_used_at")),
+                "active": self._public_turn(holders.get(env)),
+                "queue": [self._public_turn(w) for w in queues.get(env, [])],
+                "notes": [self._public_note(n) for n in
+                          self._read_notes(home / "notes.jsonl")[-notes:]][::-1],
+            })
+        for env in sorted({*holders, *queues} - seen):
+            repo_part, _, rest = env.partition("@") if "@" in env else env.partition("#")
+            staging = env.endswith("@staging")
+            out.append({
+                "id": env, "kind": "staging" if staging else "issue", "repo": repo_part,
+                "number": None if staging else int(rest) if rest.isdigit() else None,
+                "epic": None, "created_at": None, "last_used_at": None,
+                "active": self._public_turn(holders.get(env)),
+                "queue": [self._public_turn(w) for w in queues.get(env, [])],
+                "notes": [],
+            })
+        return out
+
+    @staticmethod
+    def _public_turn(turn: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not turn:
+            return None
+        return {"run_id": turn.get("run_id"), "role": turn.get("role"),
+                "issue": turn.get("issue"), "state": turn.get("state", "waiting"),
+                "since": _iso(turn.get("since"))}
+
+    @staticmethod
+    def _public_note(note: dict[str, Any]) -> dict[str, Any]:
+        return {"at": _iso(note.get("at")), "role": note.get("role"),
+                "issue": note.get("issue"), "run_id": note.get("run_id"),
+                "outcome": note.get("outcome"), "summary": note.get("summary") or ""}
+
+    # ------------------------------------------------------------ internals
+    def _key_lock(self, env: str) -> threading.Lock:
+        with self._guard:
+            return self._locks.setdefault(env, threading.Lock())
+
+    def _lock(self, owner: str, repo: str, number: int) -> threading.Lock:
+        return self._key_lock(f"{owner}/{repo}#{number}")
 
     def _remove(self, home: Path, meta: dict[str, Any]) -> int:
         owner, repo, number = meta.get("owner"), meta.get("repo"), meta.get("number")
@@ -205,9 +400,14 @@ class IssueWorkspaces:
             meta = json.loads(meta_path.read_text())
         except (OSError, ValueError):
             meta = {"created_at": self.clock()}
-        meta.update({"owner": owner, "repo": repo, "number": key.number,
-                     "ref": f"{owner}/{repo}#{key.number}", "epic": key.epic,
-                     "last_used_at": self.clock()})
+        if key.staging:
+            meta.update({"owner": owner, "repo": repo, "number": None, "staging": True,
+                         "ref": self.env_id(owner, repo, key), "epic": None,
+                         "last_used_at": self.clock()})
+        else:
+            meta.update({"owner": owner, "repo": repo, "number": key.number,
+                         "ref": f"{owner}/{repo}#{key.number}", "epic": key.epic,
+                         "last_used_at": self.clock()})
         meta_path.write_text(json.dumps(meta, indent=2))
 
     def _touch(self, home: Path) -> None:

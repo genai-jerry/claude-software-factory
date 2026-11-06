@@ -219,7 +219,12 @@ GitHub carries all of it.
   (`meta.json` beside it names the epic), reset to GitHub at the start of
   every run. Copies go when their issue closes, or on the sweep once closed
   or idle for `WORKSPACE_IDLE_DAYS` (default 7). Deleting a copy by hand is
-  always safe — it is only a cache. See the wiki's *Repo Workspaces* sheet.
+  always safe — it is only a cache. The repo's staging environment lives
+  at `WORKSPACE_DIR/<owner>/<repo>/staging/` and is never swept. Each
+  environment runs one session at a time and keeps `notes.jsonl` beside
+  its copy. `GET /environments` lists every environment with the run
+  holding it, the runs queued for it, and its latest notes, plus the
+  sessions in use. See the wiki's *Repo Workspaces* sheet.
 - **Factory CI**: a repo with `"ci": "factory"` in its
   `.github/factory-orchestrator.json` gets a `factory/tests` commit status
   on the task PR's head after every QA run: green at
