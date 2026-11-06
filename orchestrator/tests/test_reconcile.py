@@ -183,3 +183,34 @@ def test_sweep_targets_union_claimed_repos_and_the_ledger(tmp_path):
     ledger.record_delivery("d1", "issues", {"repository": {"full_name": "o/app"}})
     engine = SimpleNamespace(cfg=SimpleNamespace(claimed_repos=("o/pinned", "o/app")))
     assert sweep_targets(engine, ledger) == ["o/app", "o/pinned"]
+
+
+def test_sweep_clears_a_marker_its_run_left_behind(tmp_path, monkeypatch):
+    # The release run ended but clearing factory:in-progress failed, so every
+    # later Approved on the epic was refused as "a run is already live".
+    import factory_orchestrator.reconcile as rc
+    monkeypatch.setattr(rc, "STALE_MARKER_AFTER", rc.dt.timedelta(0))
+    world = FakeRepo({7: issue(7, "Epic", ["factory:epic-ready", "factory:blocked",
+                                           "factory:in-progress"])})
+    ledger = make_ledger(tmp_path)
+    run = ledger.start_run(repo="o/r", issue=7, role="release", trigger="t")
+    ledger.finish_run(run, outcome="success")
+    sweep_repo(world, ledger)
+    assert "factory:in-progress" not in world.labels_of(7)
+
+
+def test_sweep_keeps_the_marker_of_a_live_run(tmp_path, monkeypatch):
+    import factory_orchestrator.reconcile as rc
+    monkeypatch.setattr(rc, "STALE_MARKER_AFTER", rc.dt.timedelta(0))
+    world = FakeRepo({7: issue(7, "Epic", ["factory:epic-ready", "factory:in-progress"])})
+    ledger = make_ledger(tmp_path)
+    ledger.start_run(repo="o/r", issue=7, role="release", trigger="t")
+    sweep_repo(world, ledger)
+    assert "factory:in-progress" in world.labels_of(7)
+
+
+def test_sweep_leaves_a_marker_it_has_no_runs_for(tmp_path):
+    # Another engine (Actions) may own it.
+    world = FakeRepo({7: issue(7, "Epic", ["factory:epic-ready", "factory:in-progress"])})
+    sweep_repo(world, make_ledger(tmp_path))
+    assert "factory:in-progress" in world.labels_of(7)

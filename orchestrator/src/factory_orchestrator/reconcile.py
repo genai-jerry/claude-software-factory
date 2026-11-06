@@ -153,6 +153,20 @@ def stalled_role(port: RepoPort, issue: dict[str, Any], labels: list[str],
     return None
 
 
+STALE_MARKER_AFTER = dt.timedelta(minutes=10)
+
+
+def stale_marker(runs: list[dict[str, Any]], now: dt.datetime) -> bool:
+    """True when this engine ran the issue, nothing is live, and the last run ended a while ago.
+
+    No runs here means another engine (Actions) may own the marker: leave it.
+    """
+    if not runs or any(r.get("finished_at") is None for r in runs):
+        return False
+    ended = max((as_utc(r.get("finished_at")) for r in runs), default=None)
+    return ended is not None and now - ended > STALE_MARKER_AFTER
+
+
 def consecutive_failures(runs: list[dict[str, Any]]) -> int:
     """Failures of the newest run's role since it last succeeded (newest first)."""
     fails = 0
@@ -287,6 +301,13 @@ def sweep_repo(port: RepoPort, ledger: Ledger,
                   for l in issue.get("labels", [])]
         n = issue["number"]
         runs = ledger.list_runs(repo=full, issue=n, limit=20)
+
+        if IN_PROGRESS in labels and stale_marker(runs, now):
+            # The marker outlived its run: clearing it failed at the end of
+            # the run. Left on, it refuses every Approved on the issue.
+            log.warning("clearing a stale %s on %s#%s", IN_PROGRESS, full, n)
+            port.remove_label(n, IN_PROGRESS)
+            labels = [l for l in labels if l != IN_PROGRESS]
 
         stalled = stalled_role(port, issue, labels, runs, epics, port_for, now)
         if stalled:
