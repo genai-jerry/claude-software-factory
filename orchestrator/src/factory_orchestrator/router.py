@@ -1950,6 +1950,11 @@ class Router:
                 # like an `Approved` start. Reviewer and QA have no approver
                 # list of their own (§2b), so any reply resumes them.
                 "factory:ready": "implementer",
+                # Gate GS approved but the Release Manager stopped before the
+                # integration merge (a repo of the train not ready, a
+                # conflict). Its questions are answered here, so the reply
+                # re-runs it, authorised like the gate itself.
+                EPIC_READY: "release",
                 "factory:in-review": "reviewer",
                 "factory:in-test": "qa",
             }
@@ -1963,6 +1968,10 @@ class Router:
                 r.role = "scrum" if is_tracker else "intake"
             if r.role == "implementer" and not authorized("implementation"):
                 refuse("implementation", "another implementer round on this task")
+                r.role = "none"
+                return
+            if r.role == "release" and not authorized("staging"):
+                refuse("staging", "the Release Manager on this epic")
                 r.role = "none"
                 return
             if r.role != "none":

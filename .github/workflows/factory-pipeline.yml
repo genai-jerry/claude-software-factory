@@ -1743,6 +1743,9 @@ jobs:
                   // at factory:ready the reply allows another implementer
                   // round, so it is authorised like an `Approved` start.
                   'factory:ready': 'implementer',
+                  // Gate GS approved but the Release Manager stopped before
+                  // the integration merge: the reply answers its questions.
+                  'factory:epic-ready': 'release',
                   'factory:in-review': 'reviewer',
                   'factory:in-test': 'qa',
                 };
@@ -1756,6 +1759,9 @@ jobs:
                 }
                 if (role === 'implementer' && !authorized('implementation')) {
                   await refuse('implementation', 'another implementer round on this task');
+                  role = 'none';
+                } else if (role === 'release' && !authorized('staging')) {
+                  await refuse('staging', 'the Release Manager on this epic');
                   role = 'none';
                 } else if (role !== 'none') {
                   core.info(`Human reply on blocked issue - resuming ${role}`);

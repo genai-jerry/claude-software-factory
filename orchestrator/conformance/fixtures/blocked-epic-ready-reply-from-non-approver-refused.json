@@ -1,0 +1,56 @@
+{
+  "name": "blocked-epic-ready-reply-from-non-approver-refused",
+  "description": "a reply on a blocked epic-ready epic from someone outside the staging approvers starts nothing",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "release": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 7,
+        "title": "Epic",
+        "labels": [
+          "factory:blocked",
+          "factory:epic-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 7,
+    "comment": {
+      "body": "ship it",
+      "login": "rando",
+      "authorAssociation": "CONTRIBUTOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "labels": {
+      "7": {
+        "has": [
+          "factory:blocked",
+          "factory:epic-ready"
+        ]
+      }
+    }
+  }
+}

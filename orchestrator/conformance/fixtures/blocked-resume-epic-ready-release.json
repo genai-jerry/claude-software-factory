@@ -1,0 +1,61 @@
+{
+  "name": "blocked-resume-epic-ready-release",
+  "description": "an approver's reply on an epic blocked after gate GS re-runs the Release Manager",
+  "config": {
+    "approvers": {
+      "release_scope": [
+        "boss"
+      ],
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "boss"
+      ],
+      "release": [
+        "boss"
+      ]
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 7,
+        "title": "Epic",
+        "labels": [
+          "factory:blocked",
+          "factory:epic-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 7,
+    "comment": {
+      "body": "Put backend on staging first",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "release",
+    "issues": [
+      "7"
+    ],
+    "labels": {
+      "7": {
+        "not": [
+          "factory:blocked"
+        ],
+        "has": [
+          "factory:epic-ready"
+        ]
+      }
+    }
+  }
+}

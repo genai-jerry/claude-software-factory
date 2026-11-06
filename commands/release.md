@@ -208,6 +208,38 @@ staging). If it is neither, you are in phase 1 — go back.
    affected repo's epic branch is green (§7); then merge them yourself in the
    contract-first order from step 1, each with a **merge commit** (never
    squash — task history and the single-revert demotion path must survive).
+   **A repo that is not ready.** When one repo in a cross-repo train is
+   not ready (a task with no pull request, a design that never merged, a
+   red epic branch), stop before any integration merge. Comment on the
+   epic, apply `factory:blocked`, and ask only questions a reply here can
+   settle, with your recommendation first:
+
+   ```
+   **Questions for you:**
+   1. Put <the ready repos, by plain name> on staging now, and <the rest> when it is built? (Recommended when the ready repos do not need the rest to work.)
+   2. Or hold the whole epic until <the missing piece> is built?
+   ```
+
+   A step only a person can take, such as merging a design pull request
+   (gate G2), is not a question. Put it under **You need to:** with its link
+   ("merge the beacon-web design pull request: <link>"), and say what starts
+   once it is done.
+
+   **The reply re-runs you** at this step. Read the newest human reply on
+   the epic before anything else:
+   - **Ship the ready repos now:** merge only their integration PRs, in the
+     contract-first order. Move their tasks to `factory:in-staging` as they
+     land. The epic stays `factory:epic-ready` with gate GS still approved.
+     Leave the other repo's epic branch and tasks as they are. In the
+     report, list what is on staging, what is not, and which system test
+     cases wait for the rest. When the rest reaches `factory:on-epic`, an
+     `Approved` on the epic runs you again for that repo alone. Once every
+     repo is on staging, the epic moves to `factory:in-staging`.
+   - **Hold:** change nothing. Say what the epic waits for and what will
+     start it.
+   - Anything else: do what it says if it is within this role, and
+     otherwise say plainly that it is not, and who can do it.
+
 7a. **With system tests on and cases running on staging** — no epic branch,
    or `run_on: staging` (§4b) — the merges you just made are the first time
    this epic's code has reached the environment its cases run on, so they can
