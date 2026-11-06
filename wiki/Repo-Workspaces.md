@@ -139,6 +139,17 @@ Each copy is a build environment, and each runs **one session at a time**.
   run starts fresh. A red test run inside one run continues the same
   conversation too. Each run's ledger entry says whether it continued
   (`guards.conversation`), so the effect on rounds and time can be measured.
+- **Unfinished work carries over too.** A task's implementer run that ends
+  without pushing — out of turns, out of time, or red — has its work on its
+  `factory/<task>` branch kept beside the copy (`wip/work.bundle`: its local
+  commits, plus its uncommitted edits in a carrier commit). After the next
+  run's reset it is put back on that branch, the edits unstaged again, and
+  the prompt says so. GitHub wins: if the branch moved on there in a way the
+  kept work does not build on, the kept work is dropped. A run that
+  succeeds drops it.
+- **Out of turns is said as such.** A session stopped at `--max-turns`
+  reads "Ran out of turns", not "Claude exited 1", and keeps its
+  conversation like a timeout does.
 - **Seen from outside.** `GET /environments` lists every environment with
   its kind, the run holding it and what it is doing, the runs queued for
   it, and its latest notes, plus the sessions in use and waiting. The

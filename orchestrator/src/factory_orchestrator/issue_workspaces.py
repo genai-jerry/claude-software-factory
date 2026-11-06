@@ -79,6 +79,9 @@ NOTE_SUMMARY_CHARS = 1500
 CONVERSATION_MAX_AGE = 3 * 86400
 CONVERSATION_MAX_ROUNDS = 6
 CONVERSATION_MAX_BYTES = 40 * 1024 * 1024
+#: The commit that carries a run's uncommitted edits into its bundle; undone
+#: (reset --mixed) when the work is restored, so the edits come back unstaged.
+WIP_COMMIT_MESSAGE = "factory: unfinished work, not pushed"
 
 _SUB_ISSUE_TITLE = re.compile(r"^(?:task|test|bug)\((\d+)\)")
 _CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)",
@@ -367,6 +370,107 @@ class IssueWorkspaces:
 
     def drop_conversation(self, owner: str, repo: str, key: IssueKey, name: str) -> None:
         shutil.rmtree(self.home(owner, repo, key) / "conversations" / name, ignore_errors=True)
+
+    # ---------------------------------------------------- unfinished work
+    def save_wip(self, owner: str, repo: str, key: IssueKey, copy: Path,
+                 run_id: str | None = None) -> dict[str, Any] | None:
+        """Keep what a run did but never pushed, beside the copy.
+
+        The next run resets the copy to GitHub, which is right for state and
+        wrong for half-finished work: a task too big for one run then starts
+        from nothing every time. The work on the run's `factory/<task>`
+        branch — its local commits and its uncommitted edits — goes into a
+        git bundle beside the copy, and :meth:`restore_wip` puts it back
+        after the next reset. Returns the record, or None when there was
+        nothing to keep.
+        """
+        def g(*args: str) -> str:
+            return git(self.cache.env, "-C", str(copy), *args, timeout=120).stdout.strip()
+
+        self.drop_wip(owner, repo, key)
+        try:
+            branch = g("symbolic-ref", "--quiet", "--short", "HEAD")
+        except subprocess.SubprocessError:
+            return None  # detached: nothing branch-shaped to keep
+        if not branch.startswith("factory/") or branch.startswith("factory/epic-"):
+            return None
+        try:
+            wip_commit = False
+            if g("status", "--porcelain"):
+                g("add", "-A")
+                g("-c", "user.name=factory", "-c", "user.email=factory@localhost",
+                  "commit", "-q", "--no-verify", "-m", WIP_COMMIT_MESSAGE)
+                wip_commit = True
+            ahead = int(g("rev-list", "--count", branch, "--not", "--remotes") or 0)
+            if ahead == 0:
+                return None
+            dest = self.home(owner, repo, key) / "wip"
+            dest.mkdir(parents=True, exist_ok=True)
+            g("bundle", "create", str(dest / "work.bundle"), branch, "--not", "--remotes")
+            meta = {"branch": branch, "head": g("rev-parse", branch),
+                    "commits": ahead - (1 if wip_commit else 0), "uncommitted": wip_commit,
+                    "saved_at": self.clock(), "run_id": run_id}
+            (dest / "wip.json").write_text(json.dumps(meta))
+            log.info("kept unfinished work on %s for %s (%d commit(s)%s)", branch,
+                     self.env_id(owner, repo, key), meta["commits"],
+                     " + edits" if wip_commit else "")
+            return meta
+        except (subprocess.SubprocessError, OSError, ValueError):
+            log.warning("could not keep unfinished work for %s",
+                        self.env_id(owner, repo, key), exc_info=True)
+            self.drop_wip(owner, repo, key)
+            return None
+
+    def restore_wip(self, owner: str, repo: str, key: IssueKey, copy: Path) -> dict[str, Any] | None:
+        """Put kept unfinished work back into a freshly reset copy.
+
+        Skipped (and the work dropped) when it is too old, or when GitHub
+        moved the branch on in a way the kept work does not build on: then
+        GitHub wins, as everywhere else.
+        """
+        src = self.home(owner, repo, key) / "wip"
+        try:
+            meta = json.loads((src / "wip.json").read_text())
+        except (OSError, ValueError):
+            return None
+        branch = meta.get("branch") if isinstance(meta, dict) else None
+        if (not isinstance(branch, str) or not branch.startswith("factory/")
+                or self.clock() - float(meta.get("saved_at") or 0) > CONVERSATION_MAX_AGE):
+            self.drop_wip(owner, repo, key)
+            return None
+
+        def g(*args: str) -> subprocess.CompletedProcess:
+            return git(self.cache.env, "-C", str(copy), *args, timeout=120)
+
+        temp = f"refs/factory-wip/{branch}"
+        try:
+            g("fetch", "-q", str(src / "work.bundle"), f"+refs/heads/{branch}:{temp}")
+            on_github = f"refs/remotes/origin/{branch}"
+            exists = subprocess.run(["git", "-C", str(copy), "rev-parse", "--verify", "-q",
+                                     on_github], env=self.cache.env, capture_output=True)
+            if exists.returncode == 0:
+                ancestor = subprocess.run(
+                    ["git", "-C", str(copy), "merge-base", "--is-ancestor", on_github, temp],
+                    env=self.cache.env, capture_output=True)
+                if ancestor.returncode != 0:
+                    log.info("GitHub moved %s on; dropping the kept work", branch)
+                    self.drop_wip(owner, repo, key)
+                    return None
+            g("checkout", "-q", "-f", "-B", branch, temp)
+            if meta.get("uncommitted"):
+                g("reset", "-q", "--mixed", "HEAD~1")
+            return meta
+        except subprocess.SubprocessError:
+            log.warning("could not restore unfinished work on %s - starting from GitHub",
+                        branch, exc_info=True)
+            self.drop_wip(owner, repo, key)
+            return None
+        finally:
+            subprocess.run(["git", "-C", str(copy), "update-ref", "-d", temp],
+                           env=self.cache.env, capture_output=True)
+
+    def drop_wip(self, owner: str, repo: str, key: IssueKey) -> None:
+        shutil.rmtree(self.home(owner, repo, key) / "wip", ignore_errors=True)
 
     # ------------------------------------------------------- environments
     def environments(self, notes: int = 5) -> list[dict[str, Any]]:

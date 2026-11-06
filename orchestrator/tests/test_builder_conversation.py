@@ -88,13 +88,13 @@ def test_the_builders_next_run_continues_its_conversation(tmp_path):
     runner, ws, out = setup(tmp_path)
     first = run(runner)
     assert first.status == "success"
-    assert first.conversation == {"resumed": False, "round": 1}
+    assert first.conversation == {"resumed": False, "round": 1, "restored_work": False}
     assert "HANDBOOK BODY" in last(out, "prompt")
     sid = first.session_id
 
     second = run(runner)
     assert second.status == "success"
-    assert second.conversation == {"resumed": True, "round": 2}
+    assert second.conversation == {"resumed": True, "round": 2, "restored_work": False}
     assert f"--resume {sid}" in last(out, "argv")
     prompt = last(out, "prompt")
     # the new run's facts and the role rules, not the handbook again
@@ -104,7 +104,7 @@ def test_the_builders_next_run_continues_its_conversation(tmp_path):
     assert second.session_id == sid
 
     third = run(runner)
-    assert third.conversation == {"resumed": True, "round": 3}
+    assert third.conversation == {"resumed": True, "round": 3, "restored_work": False}
 
 
 def test_a_conversation_that_will_not_open_falls_back_to_a_fresh_run(tmp_path):
@@ -113,7 +113,7 @@ def test_a_conversation_that_will_not_open_falls_back_to_a_fresh_run(tmp_path):
     (tmp_path / "refuse-resume").write_text("x")
     again = run(runner)
     assert again.status == "success"
-    assert again.conversation == {"resumed": False, "round": 1}
+    assert again.conversation == {"resumed": False, "round": 1, "restored_work": False}
     assert "HANDBOOK BODY" in last(out, "prompt")
 
 
@@ -124,7 +124,7 @@ def test_a_run_that_ends_in_an_error_is_not_continued(tmp_path):
     assert run(runner).status == "error"
     (tmp_path / "fail").unlink()
     fresh = run(runner)
-    assert fresh.conversation == {"resumed": False, "round": 1}
+    assert fresh.conversation == {"resumed": False, "round": 1, "restored_work": False}
     assert "--resume" not in last(out, "argv")
 
 
@@ -132,8 +132,8 @@ def test_a_long_conversation_starts_over(tmp_path, monkeypatch):
     monkeypatch.setattr(issue_workspaces, "CONVERSATION_MAX_ROUNDS", 2)
     runner, ws, out = setup(tmp_path)
     run(runner)
-    assert run(runner).conversation == {"resumed": True, "round": 2}
-    assert run(runner).conversation == {"resumed": False, "round": 1}
+    assert run(runner).conversation == {"resumed": True, "round": 2, "restored_work": False}
+    assert run(runner).conversation == {"resumed": False, "round": 1, "restored_work": False}
 
 
 def test_other_roles_start_fresh_every_time(tmp_path):
@@ -161,4 +161,4 @@ def test_a_kept_path_that_escapes_is_refused(tmp_path):
     kept = ws.home("o", "r", TASK) / "conversations" / "implementer-60"
     meta = json.loads((kept / "conversation.json").read_text())
     (kept / "conversation.json").write_text(json.dumps({**meta, "path": "../../evil.jsonl"}))
-    assert run(runner).conversation == {"resumed": False, "round": 1}
+    assert run(runner).conversation == {"resumed": False, "round": 1, "restored_work": False}

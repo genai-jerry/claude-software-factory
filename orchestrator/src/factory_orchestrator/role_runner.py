@@ -217,6 +217,24 @@ Since your last run:
 """
 
 
+WIP_NOTE = """\
+UNFINISHED WORK RESTORED: an earlier run on this task stopped before it
+pushed ({why}). Its work is back in this copy: branch `{branch}` is checked
+out with {commits} commit(s) not yet on GitHub{edits}. Continue from it —
+run `git status` and `git log --oneline -n 20` first — and do not start
+over. Its tests were not passing yet.
+"""
+
+
+def wip_block(meta: dict | None, why: str = "it ran out of turns or time") -> str:
+    """The prompt's note about restored unfinished work; '' when none."""
+    if not meta:
+        return ""
+    edits = ", and its uncommitted edits are back in the working tree" if meta.get("uncommitted") else ""
+    return WIP_NOTE.format(why=why, branch=meta.get("branch"), commits=meta.get("commits", 0),
+                           edits=edits)
+
+
 def assemble_resume_prompt(*, role: str, repository: str, issue: int | str, round_no: int,
                            role_instructions: str, attachments: Fetched | None = None,
                            environment_notes: str = "") -> str:
@@ -361,6 +379,8 @@ class RoleOutcome:
     #: an earlier one: {"resumed": bool, "round": int}; None when not kept.
     session_id: str | None = field(default=None)
     conversation: dict | None = field(default=None)
+    #: Claude stopped at --max-turns: it ran out of room, it did not crash.
+    out_of_turns: bool = field(default=False)
 
 
 def install_branch_guard(home: Path, factory: Path | None) -> Path | None:
@@ -424,7 +444,8 @@ class RoleRunner:
             staging_open: bool = False,
             integration_branch: str | None = None,
             attachment_issues: list[tuple[str, int]] | None = None,
-            run_id: str | None = None) -> RoleOutcome:
+            run_id: str | None = None,
+            pr_base: str | None = None) -> RoleOutcome:
         """One role session. `workspace` names the issue copy to work in; None
         is a throwaway copy for this run alone. `staging_open` says a person
         approved this run writing to the integration branch (gate GS).
@@ -443,9 +464,14 @@ class RoleRunner:
                     fetched = self._fetch_attachments(
                         owner, repo, attachment_issues or [(f"{owner}/{repo}", issue)],
                         home, on_phase)
+                    keep = (workspace is not None and not workspace.staging
+                            and role in RESUMABLE_ROLES)
+                    restored = (self.issue_workspaces.restore_wip(owner, repo, workspace, cwd)
+                                if keep else None)
                     notes = (self.issue_workspaces.notes(owner, repo, workspace)
                              if workspace is not None else [])
-                    notes_block = environment_notes_block(notes, _place(owner, repo, workspace))
+                    notes_block = (environment_notes_block(notes, _place(owner, repo, workspace))
+                                   + wip_block(restored))
                     instructions = self.source.role_instructions(role)
                     prompt = assemble_prompt(
                         role=role, repository=f"{owner}/{repo}", owner=owner, issue=issue,
@@ -453,8 +479,6 @@ class RoleRunner:
                         role_instructions=instructions,
                         attachments=fetched,
                         environment_notes=notes_block)
-                    keep = (workspace is not None and not workspace.staging
-                            and role in RESUMABLE_ROLES)
                     name = f"{role}-{issue}"
                     kept = (self.issue_workspaces.load_conversation(
                         owner, repo, workspace, name, home) if keep else None)
@@ -471,12 +495,22 @@ class RoleRunner:
                         github_token=github_token, deadline=deadline,
                         on_phase=on_phase, on_output=on_output,
                         staging_open=staging_open, integration_branch=integration_branch,
-                        resume=resume)
+                        resume=resume, pr_base=pr_base)
                     if keep:
                         resumed = bool(outcome.conversation and outcome.conversation.get("resumed"))
                         rounds = (int(kept.get("rounds") or 1) + 1) if (kept and resumed) else 1
-                        outcome.conversation = {"resumed": resumed, "round": rounds}
-                        if outcome.status in ("success", "timeout") and outcome.session_id:
+                        outcome.conversation = {"resumed": resumed, "round": rounds,
+                                                "restored_work": bool(restored)}
+                        if outcome.status == "success":
+                            self.issue_workspaces.drop_wip(owner, repo, workspace)
+                        else:
+                            # Not pushed: keep what it did for the next run.
+                            kept_work = self.issue_workspaces.save_wip(
+                                owner, repo, workspace, cwd, run_id)
+                            if outcome.out_of_turns or outcome.status == "timeout":
+                                outcome.error = (outcome.error or "") + (KEPT_NOTE if kept_work else "")
+                        continuing = outcome.status in ("success", "timeout") or outcome.out_of_turns
+                        if continuing and outcome.session_id:
                             self.issue_workspaces.save_conversation(
                                 owner, repo, workspace, name, home, outcome.session_id, rounds)
                         else:
@@ -584,7 +618,8 @@ class RoleRunner:
                  on_output: Callable[[str], None] | None,
                  staging_open: bool = False,
                  integration_branch: str | None = None,
-                 resume: tuple[str, str] | None = None) -> RoleOutcome:
+                 resume: tuple[str, str] | None = None,
+                 pr_base: str | None = None) -> RoleOutcome:
         """`resume` is (session id, prompt): continue that conversation, or
         start afresh with `prompt` when it cannot be continued."""
         guard = install_branch_guard(home, self.source.path() if hasattr(self.source, "path") else None)
@@ -608,12 +643,16 @@ class RoleRunner:
             cwd=cwd, env=env, model=model, github_token=github_token, deadline=deadline,
             on_phase=on_phase, on_output=on_output, readers=readers)
         if outcome.status != "timeout":
+            ran_out = outcome.out_of_turns
             outcome = self._observe(
                 outcome, cwd=cwd, workspace=home, env=env,
                 owner=owner, repo=repo, role=role, issue=issue,
                 model=model, github_token=github_token,
                 deadline=deadline, on_phase=on_phase, on_output=on_output,
-                readers=readers)
+                readers=readers, pr_base=pr_base)
+            if ran_out and outcome.status != "success":
+                outcome.out_of_turns = True
+                outcome.error = outcome.error or out_of_turns_error(self.cfg.max_turns)
         outcome.usage = run_usage(readers)
         outcome.summary = closing_summary(readers, lambda t: self._redact(t, github_token))
         outcome.session_id = next((r.session_id for r in reversed(readers) if r.session_id), None)
@@ -684,16 +723,20 @@ class RoleRunner:
                                transcript=self._redact(reader.text(), github_token))
         transcript = self._redact(reader.text(), github_token)
         status = "success" if proc.returncode == 0 else "error"
-        log.info("claude exit cwd=%s code=%s status=%s", cwd, proc.returncode, status)
+        ran_out = status == "error" and hit_turn_limit(reader, self.cfg.max_turns)
+        log.info("claude exit cwd=%s code=%s status=%s%s", cwd, proc.returncode, status,
+                 " (out of turns)" if ran_out else "")
         return RoleOutcome(status=status, transcript=transcript,
-                           exit_code=proc.returncode)
+                           exit_code=proc.returncode, out_of_turns=ran_out,
+                           error=out_of_turns_error(self.cfg.max_turns) if ran_out else None)
 
     def _observe(self, outcome: RoleOutcome, *, cwd: Path, workspace: Path,
                  env: dict[str, str], owner: str, repo: str, role: str,
                  issue: int, model: str, github_token: str, deadline: float,
                  on_phase: Callable[[str], None] | None,
                  on_output: Callable[[str], None] | None = None,
-                 readers: list[StreamReader] | None = None) -> RoleOutcome:
+                 readers: list[StreamReader] | None = None,
+                 pr_base: str | None = None) -> RoleOutcome:
         """Own tests for a local factory branch, then push — or resume Claude on red."""
         parts = [outcome.transcript]
         resumes = 0
@@ -764,7 +807,7 @@ class RoleRunner:
                 on_phase("pushing the branch")
             pushed = self._push_and_open_pr(
                 cwd=cwd, env=env, branch=branch, owner=owner, repo=repo,
-                role=role, issue=issue, deadline=deadline)
+                role=role, issue=issue, deadline=deadline, pr_base=pr_base)
             parts.append(pushed.transcript)
             return RoleOutcome(
                 status=pushed.status,
@@ -784,7 +827,7 @@ class RoleRunner:
 
     def _push_and_open_pr(self, *, cwd: Path, env: dict[str, str], branch: str,
                           owner: str, repo: str, role: str, issue: int,
-                          deadline: float) -> RoleOutcome:
+                          deadline: float, pr_base: str | None = None) -> RoleOutcome:
         if branch in PROTECTED_BRANCHES or not branch.startswith(FACTORY_BRANCH_PREFIXES):
             return RoleOutcome(
                 status="error", transcript="",
@@ -810,14 +853,17 @@ class RoleRunner:
         notes = [f"--- push ---\n{push_log}"]
         pr_url = self._ensure_pr(
             cwd=cwd, env=env, slug=slug, owner=owner, branch=branch,
-            issue=issue, deadline=deadline, notes=notes)
+            issue=issue, deadline=deadline, notes=notes, base=pr_base)
         self._ensure_trace_comment(
             cwd=cwd, env=env, slug=slug, role=role, issue=issue,
             pr_url=pr_url, deadline=deadline, notes=notes)
         return RoleOutcome(status="success", transcript="\n".join(notes))
 
     def _ensure_pr(self, *, cwd: Path, env: dict[str, str], slug: str, owner: str,
-                   branch: str, issue: int, deadline: float, notes: list[str]) -> str:
+                   branch: str, issue: int, deadline: float, notes: list[str],
+                   base: str | None = None) -> str:
+        """The branch's open PR, or a new one against `base`: the task's epic
+        branch when it has one (graph.pr_base_for), else the default branch."""
         existing = self._gh(
             ["pr", "list", "--repo", slug, "--head", f"{owner}:{branch}",
              "--state", "open", "--json", "url,number"],
@@ -828,7 +874,7 @@ class RoleRunner:
             log.info("existing PR %s for %s", url, branch)
             return url
         title = _git(["log", "-1", "--pretty=%s"], cwd, env).stdout.strip() or branch
-        base = _default_base(cwd, env)
+        base = base or _default_base(cwd, env)
         body = f"Closes #{issue}\n\n{AGENT_MARK}\n"
         created = self._gh(
             ["pr", "create", "--repo", slug, "--head", branch, "--base", base,
@@ -892,6 +938,25 @@ class RoleRunner:
             if value:
                 text = text.replace(value, "***")
         return text
+
+
+def hit_turn_limit(reader: StreamReader, max_turns: int) -> bool:
+    """Did Claude stop because it used every turn it was given?"""
+    for result in reversed(reader.results):
+        if result.get("subtype") == "error_max_turns":
+            return True
+        turns = result.get("num_turns")
+        if isinstance(turns, int) and turns >= max_turns:
+            return True
+    return False
+
+
+def out_of_turns_error(max_turns: int) -> str:
+    return f"Ran out of turns: Claude used all {max_turns} turns before it finished."
+
+
+KEPT_NOTE = (" Its unfinished work and its conversation are kept, so the next run "
+             "continues from where this one stopped.")
 
 
 def closing_summary(readers: list[StreamReader], redact: Callable[[str], str]) -> str | None:

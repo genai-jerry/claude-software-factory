@@ -20,7 +20,7 @@ from typing import Any
 
 from .github_app import RepoPort, parse_json_or_empty
 from .ledger import Ledger
-from .router import IN_PROGRESS, RepoConfig, expedited_next, is_expedited
+from .router import AGENT_MARK, IN_PROGRESS, RepoConfig, expedited_next, is_expedited
 
 log = logging.getLogger("factory-orchestrator.reconcile")
 
@@ -142,14 +142,8 @@ def stalled_role(port: RepoPort, issue: dict[str, Any], labels: list[str],
         # the grace lets it go ahead, so the restart only fills a real gap.
         if kind != "limit" and now - finished < RETRY_AFTER:
             return None
-        if kind == "failed":
-            fails = 0
-            for r in runs:
-                if r["role"] != last["role"] or run_kind(r) == "success":
-                    break
-                fails += run_kind(r) == "failed"
-            if fails > MAX_RETRIES:
-                return None
+        if kind == "failed" and consecutive_failures(runs) > MAX_RETRIES:
+            return None
         return last["role"], state
 
     nxt = expedited_next(state, epics)
@@ -157,6 +151,99 @@ def stalled_role(port: RepoPort, issue: dict[str, Any], labels: list[str],
             and is_expedited(port, issue, port_for)):
         return nxt, state
     return None
+
+
+def consecutive_failures(runs: list[dict[str, Any]]) -> int:
+    """Failures of the newest run's role since it last succeeded (newest first)."""
+    fails = 0
+    for r in runs:
+        if r["role"] != runs[0]["role"] or run_kind(r) == "success":
+            break
+        fails += run_kind(r) == "failed"
+    return fails
+
+
+GAVE_UP_MARK = "<!-- factory-gave-up:{run} -->"
+ROLE_WORD = {"implementer": "Implementer", "reviewer": "Reviewer", "qa": "QA",
+             "release": "Release Manager", "planner": "Planner", "architect": "Architect",
+             "dispatch": "Dispatcher", "intake": "Intake Analyst", "testplanner": "Test Planner"}
+
+
+def gave_up_on(labels: list[str], runs: list[dict[str, Any]]) -> str | None:
+    """The role the sweep has stopped restarting on this issue, or None.
+
+    The sweep restarts a failed role at most MAX_RETRIES times and then
+    leaves it — which, said nowhere, looked like a factory that had simply
+    gone quiet: people pressed Start and the same run failed the same way
+    (beacon-api#202, 5–6 Nov 2026). This names the case so it can be said.
+    """
+    if not runs or IN_PROGRESS in labels or "factory:blocked" in labels:
+        return None
+    if any(r.get("finished_at") is None for r in runs):
+        return None
+    last = runs[0]
+    states = [x for x in labels if x.startswith("factory:") and x not in (
+        IN_PROGRESS, "factory:expedite", "factory:blocked")]
+    if len(states) != 1 or states[0] not in ROLE_STARTS.get(last["role"], ()):
+        return None
+    if run_kind(last) != "failed" or consecutive_failures(runs) <= MAX_RETRIES:
+        return None
+    return last["role"]
+
+
+def _how_it_ended(run: dict[str, Any]) -> str:
+    error = run.get("error") or ""
+    if error.startswith("Ran out of turns"):
+        return "ran out of turns"
+    if run.get("outcome") == "timeout":
+        return "ran out of time"
+    if error.startswith("Tests failed"):
+        return "its tests were failing"
+    return "failed"
+
+
+def report_gave_up(port: RepoPort, n: int, role: str, runs: list[dict[str, Any]]) -> int:
+    """Say on the issue that the factory stopped retrying, ask what to do,
+    and hold the issue at factory:blocked until someone answers. Once per
+    failed run: the mark names it."""
+    mark = GAVE_UP_MARK.format(run=runs[0]["id"])
+    try:
+        if any(mark in (c.get("body") or "") for c in port.list_comments(n)):
+            return 0
+    except Exception:  # noqa: BLE001 - better silent than posted twice
+        log.warning("could not read comments on %s/%s#%s", port.owner, port.repo, n, exc_info=True)
+        return 0
+    failed = []
+    for r in runs:
+        if r["role"] != role or run_kind(r) == "success":
+            break
+        if run_kind(r) == "failed":
+            failed.append(r)
+    endings: dict[str, int] = {}
+    for r in failed:
+        endings[_how_it_ended(r)] = endings.get(_how_it_ended(r), 0) + 1
+    said = ", ".join(f"{k} ({v}×)" if v > 1 else k for k, v in endings.items())
+    who = ROLE_WORD.get(role, role)
+    body = (
+        f"**The factory has stopped retrying the {who}.** Its last {len(failed)} runs on this "
+        f"task ended without finishing: {said}. Another run the same way would most likely end "
+        "the same way, so it is waiting for you.\n\n"
+        "Whatever the last run did but could not push is kept, with its conversation, so a "
+        "new run continues from where it stopped rather than starting over.\n\n"
+        "**Questions for you:**\n"
+        f"1. Should the {who} try again from where it stopped? Reply to let it.\n"
+        "2. Is the task too big for one run? If so, split it, or say what it can leave out.\n\n"
+        f"{mark}\n{AGENT_MARK}")
+    try:
+        port.create_comment(n, body)
+        port.add_labels(n, ["factory:blocked"])
+        log.info("gave up on %s for %s/%s#%s after %d failures", role, port.owner, port.repo,
+                 n, len(failed))
+        return 1
+    except Exception:  # noqa: BLE001 - the next sweep tries again
+        log.warning("could not report giving up on %s/%s#%s", port.owner, port.repo, n,
+                    exc_info=True)
+        return 0
 
 
 def _queue_restart(ledger: Ledger, port: RepoPort, n: int, role: str, state: str,
@@ -204,6 +291,8 @@ def sweep_repo(port: RepoPort, ledger: Ledger,
         stalled = stalled_role(port, issue, labels, runs, epics, port_for, now)
         if stalled:
             queued += _queue_restart(ledger, port, n, *stalled, run_id=runs[0]["id"])
+        elif (given_up := gave_up_on(labels, runs)):
+            report_gave_up(port, n, given_up, runs)
         elif not runs:
             for label, _role in PENDING_STEP.items():
                 if label in labels:
