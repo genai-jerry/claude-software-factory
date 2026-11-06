@@ -89,6 +89,7 @@ def build_service():
     processor = Processor(engine, graph)
     web = create_app(cfg, ledger, processor, concurrency=cfg.worker_concurrency)
     web.state.asker = lambda **kw: answer_question(engine, **kw)
+    web.state.environments = runner.environments
     return cfg, ledger, engine, web, (console_store, from_console)
 
 

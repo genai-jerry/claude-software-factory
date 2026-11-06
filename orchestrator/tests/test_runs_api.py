@@ -131,3 +131,23 @@ async def test_a_browser_gets_a_page_not_json(tmp_path):
         assert r.json()["outcome"] == "success"
 
     await with_client(app, go)
+
+
+async def test_environments_surface(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db"})
+    app = create_app(cfg, Ledger(cfg.database_url), lambda e, p: None, poll_interval=0.05)
+
+    async def none_yet(client: httpx.AsyncClient):
+        r = await client.get("/environments")
+        assert r.status_code == 200
+        assert r.json() == {"sessions": None, "environments": []}
+
+    await with_client(app, none_yet)
+    view = {"sessions": {"total": 4, "in_use": [], "waiting": []},
+            "environments": [{"id": "o/r@staging", "kind": "staging"}]}
+    app.state.environments = lambda: view
+
+    async def listed(client: httpx.AsyncClient):
+        assert (await client.get("/environments")).json() == view
+
+    await with_client(app, listed)
