@@ -135,6 +135,9 @@ to the PR, the linked file or `Factory details`.
 16. Say the fix; do not point at it. "The fix: treat a report that carries
     the same time as a move we already handled as that move." Where the
     detail lives (the PR, the line comment) goes on the `Links:` line.
+17. Write a clock time in UTC and say so: "04:44 UTC", "01:47–01:51 UTC",
+    or "2026-11-06 04:44 UTC". Never a bare "04:44". The Compass shows a time
+    that names UTC in each reader's own time zone; a bare one it cannot.
 
 **Before you post, rewrite.** Draft the comment, then read the visible part
 as the product owner would and rewrite it: replace each stand-in noun with
