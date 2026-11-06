@@ -581,3 +581,17 @@ def test_factory_source_fetches_at_most_once_per_interval(tmp_path):
     # CI runner has been up for less than the interval.
     source._fetched_at = float("-inf")
     assert "SECOND" in source.handbook()
+
+
+def test_fix_rounds_continue_the_conversation_that_wrote_the_code(tmp_path, monkeypatch):
+    hook = FACTORY_COMMIT_HOOK + """
+echo '{"type":"system","subtype":"init","session_id":"s-1"}'
+echo '{"type":"assistant","message":{"content":[{"type":"text","text":"on it"}]}}'
+"""
+    cfg, runner, out, origin = build_observer_runner(
+        tmp_path, monkeypatch, test_command="echo boom; exit 1", on_run=hook)
+    runner.run(owner="o", repo="r", role="fasttrack", issue=5, model="m", github_token="t")
+    argvs = [p.read_text() for p in sorted(out.glob("argv-*.txt"))]
+    assert len(argvs) == 3
+    assert "--resume" not in argvs[0]
+    assert all("--resume\ns-1" in a for a in argvs[1:])

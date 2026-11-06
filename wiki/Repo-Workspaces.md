@@ -128,6 +128,17 @@ Each copy is a build environment, and each runs **one session at a time**.
   outcome and Claude's closing summary, redacted; the latest 40 are kept.
   The next run there gets the latest six in its prompt, marked as context,
   not instructions: GitHub stays the state.
+- **The builder's conversation carries over.** A task's implementer keeps
+  its Claude conversation in the task's environment
+  (`conversations/implementer-<n>/`, beside the copy) and the next
+  implementer run there continues it with `--resume`: a fix round after
+  review, or a run after a timeout. It is sent the new run's facts and its
+  role instructions, not the handbook again, and is told to read what
+  changed on GitHub first. A conversation that ended in an error, is older
+  than three days, has run six rounds, or will not open is dropped and the
+  run starts fresh. A red test run inside one run continues the same
+  conversation too. Each run's ledger entry says whether it continued
+  (`guards.conversation`), so the effect on rounds and time can be measured.
 - **Seen from outside.** `GET /environments` lists every environment with
   its kind, the run holding it and what it is doing, the runs queued for
   it, and its latest notes, plus the sessions in use and waiting. The
