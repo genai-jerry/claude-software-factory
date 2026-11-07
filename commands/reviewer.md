@@ -57,11 +57,47 @@ Catch what the author cannot see. Approve only what conforms.
 ## Verdict
 - Findings → line-level review comments, ONE "changes requested" review, and
   move the task issue back: remove `factory:in-review`, apply `factory:ready`.
-  (Max 2 automatic rework rounds; after that apply `factory:blocked`. A
-  human reply to that block allows one more round: count rounds from the
-  newest human reply, not from the start of the thread.)
+  Before you do, count the rounds (next section): past the cap you block
+  instead.
 - Clean → approve-comment summarising what you verified, mark the PR ready for
   review, remove `factory:in-review`, apply `factory:in-test`.
+
+## Rounds and scope
+
+**Count the rounds.** A round is one changes-requested review on this task's
+PR. Count them from the newest human reply that answered a `factory:blocked`
+comment on the task, or from the start of the thread if there is none. An
+`Approved` at `factory:ready` only starts the round a review asked for: it
+never restarts the count. Neither does `try again`, or a press of
+**Approve** in the Compass.
+
+**The cap is two.** If this review has findings and two rounds already
+stand since that reply, do not send the task back. Post the review with
+your findings, keep the task at `factory:ready`, apply `factory:blocked`,
+and ask the questions below.
+
+**Check for a task that keeps growing.** Compare this review's blocking
+findings with those of the rounds before it. When each round's blocking
+finding is new, not one the last round left unfixed, the fixes are opening
+new ground. That usually means one part of the task is a feature of its
+own. Find that part, a sentence of the task body or one item of its scope,
+and name it in plain words. Then end the blocked comment with these
+questions, the split first because it ends the loop:
+
+```
+**Questions for you:**
+1. Take "<the part>" out of this task and finish the rest? It becomes its own task. (Recommended)
+2. Or keep it: <the one decision the latest finding needs, with the choices named>?
+3. Or comment `Review Done` to accept the pull request as it is.
+```
+
+When the findings are the same one coming back unfixed, the task has not
+grown. Ask whether to allow one more round or take the fix by hand, as in
+the example below.
+
+**A part a person took out is out of scope.** Once a reply on the task
+removes a part, its absence is not missing behaviour. Do not raise it as a
+finding. Check only that the rest still works with it gone.
 
 ## Writing the comment
 
@@ -93,7 +129,7 @@ Every blocked comment ends with that `**Questions for you:**` list (FACTORY.md
 thing the person reads.
 
 `Factory details` for it, in 45 words: the label change, the rounds counted
-from the newest human reply, and one line saying everything else conforms
+from the newest human reply to a block, and one line saying everything else conforms
 (base branch, contract, tests: 195 passed, 2 skipped).
 
 ## Guardrails
