@@ -139,6 +139,8 @@ DEFAULT_INSTRUCTIONS = """Writing standard (every answer; FACTORY.md §1a):
 - Write a label or a config key only when the reader must type it. Do not
   explain how the factory works. Do not describe how you decided.
 - Write an issue or PR as #21, or owner/repo#21 in another repo.
+- Write a clock time in UTC with the zone, like "04:44 UTC". The Compass
+  shows it in the reader's own time.
 - If the thread and the code do not answer the question, say what is missing.
   Do not guess."""
 
