@@ -20,6 +20,7 @@ node re-reads GitHub before acting (engine-contract).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import operator
@@ -450,17 +451,41 @@ def build_environment(port: RepoPort, role: str, key: IssueKey | None,
     (merges into one epic take turns); anything that writes to staging, or a
     release on an epic or a standalone issue, takes the repo's one staging
     environment (epics go onto staging one at a time). Every other role
-    works in its own issue's environment. A cross-repo task keeps its own:
-    its epic's number belongs to another repo.
+    works in its own issue's environment. A cross-repo task keeps its own,
+    even with staging open: its epic's release runs in the epic's home repo,
+    and the task's run takes that repo's staging turn instead
+    (`train_turn`), so the train moves one release at a time.
     """
     if key is None or role != "release":
         return key
-    if staging_open or not key.epic:
+    if not key.epic:
         return STAGING
     epic_repo, _, epic_no = key.epic.rpartition("#")
-    if epic_repo == f"{port.owner}/{port.repo}" and epic_no.isdigit():
+    if epic_repo != f"{port.owner}/{port.repo}":
+        return key
+    if staging_open:
+        return STAGING
+    if epic_no.isdigit():
         return IssueKey(int(epic_no))
     return key
+
+
+def train_turn(port: RepoPort, role: str, key: IssueKey | None) -> tuple[str, str] | None:
+    """The repo whose staging turn a cross-repo task's release waits for.
+
+    A cross-repo epic's releases run in its home repo's staging environment.
+    A release handed one of its tasks in a sibling repo works in the task's
+    own environment, but takes the home repo's staging turn around the run,
+    so it never runs beside the epic's own release. One staging turn per run
+    keeps the lock order simple: nothing holds two.
+    """
+    if key is None or role != "release" or not key.epic:
+        return None
+    epic_repo = key.epic.rpartition("#")[0]
+    if not epic_repo or epic_repo == f"{port.owner}/{port.repo}" or "/" not in epic_repo:
+        return None
+    owner, name = epic_repo.split("/", 1)
+    return owner, name
 
 
 def staging_policy(engine: Engine, port: RepoPort, role: str, issue: int) -> tuple[str, bool]:
@@ -585,16 +610,22 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         staging, staging_open = staging_policy(engine, port, role, issue)
         key = build_environment(port, role, engine.workspace_for(port, issue), staging_open)
         staging_before = branch_head(port, staging)
-        outcome = engine.runner.run(
-            owner=owner, repo=repo, role=role, issue=issue, model=resolved.model,
-            github_token=engine.token_for_role(owner, repo),
-            on_phase=lambda phase: note(phase, **extra),
-            on_output=live.write,
-            staging_open=staging_open, integration_branch=staging,
-            attachment_issues=attachment_targets(port, f"{owner}/{repo}", issue),
-            run_id=run_id,
-            pr_base=pr_base_for(engine, port, issue),
-            **({"workspace": key} if key else {}))
+        home = train_turn(port, role, key)
+        workspaces = getattr(engine.runner, "issue_workspaces", None)
+        turn = (workspaces.hold(*home, STAGING, {"run_id": run_id, "role": role, "issue": issue, "repo": f"{owner}/{repo}"},
+                                on_wait=lambda: note("waiting for the train's staging turn", **extra))
+                if home and workspaces is not None else contextlib.nullcontext())
+        with turn:
+            outcome = engine.runner.run(
+                owner=owner, repo=repo, role=role, issue=issue, model=resolved.model,
+                github_token=engine.token_for_role(owner, repo),
+                on_phase=lambda phase: note(phase, **extra),
+                on_output=live.write,
+                staging_open=staging_open, integration_branch=staging,
+                attachment_issues=attachment_targets(port, f"{owner}/{repo}", issue),
+                run_id=run_id,
+                pr_base=pr_base_for(engine, port, issue),
+                **({"workspace": key} if key else {}))
         # The role may have run for the better part of an hour; everything from
         # here on needs a token that is good now, not one that was good then.
         engine.refresh_token_before_guards(owner, repo)

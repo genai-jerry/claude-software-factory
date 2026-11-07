@@ -56,6 +56,16 @@ def test_a_release_onto_staging_takes_the_staging_environment():
     assert build_environment(port(), "release", IssueKey(34), False) is STAGING
 
 
+def test_a_cross_repo_tasks_release_keeps_its_own_environment_even_with_staging_open():
+    from factory_orchestrator.graph import train_turn
+    key = IssueKey(50, "o/api#193")
+    assert build_environment(port(), "release", key, True) == key
+    # and it waits on the epic's home staging, not this repo's
+    assert train_turn(port(), "release", key) == ("o", "api")
+    assert train_turn(port(), "release", IssueKey(60, "o/r#34")) is None
+    assert train_turn(port(), "implementer", key) is None
+
+
 def test_a_cross_repo_tasks_release_keeps_its_own_environment():
     key = IssueKey(60, "other/api#34")
     assert build_environment(port(), "release", key, False) == key
