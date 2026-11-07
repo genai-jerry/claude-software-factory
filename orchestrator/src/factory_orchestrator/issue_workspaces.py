@@ -524,8 +524,11 @@ class IssueWorkspaces:
     def _public_turn(turn: dict[str, Any] | None) -> dict[str, Any] | None:
         if not turn:
             return None
+        # `repo` names the issue's repo: a cross-repo task's release waits
+        # on its epic's home staging, where the number means another issue.
         return {"run_id": turn.get("run_id"), "role": turn.get("role"),
-                "issue": turn.get("issue"), "state": turn.get("state", "waiting"),
+                "issue": turn.get("issue"), "repo": turn.get("repo"),
+                "state": turn.get("state", "waiting"),
                 "since": _iso(turn.get("since"))}
 
     @staticmethod
