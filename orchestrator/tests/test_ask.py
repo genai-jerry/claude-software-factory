@@ -407,3 +407,30 @@ async def test_the_endpoint_validates_the_conversation_key_and_passes_the_sessio
         ok = await c.post("/ask", json={**base, "conversation": "idea_1", "session": "sess-9"}, headers=h)
         assert ok.status_code == 200 and ok.json()["session"] == "sess-9" and ok.json()["resumed"] is True
     assert seen["conversation"] == "idea_1" and seen["session"] == "sess-9"
+
+
+def test_a_repo_the_orchestrator_cannot_read_is_a_clear_refusal_not_a_crash(tmp_path):
+    from factory_orchestrator.github_app import TokenUnavailableError
+    engine, _ = engine_for(tmp_path)
+
+    def no_token(*a, **k):
+        raise TokenUnavailableError("no usable GitHub installation token for o/view")
+    engine.app = SimpleNamespace(installation_token=no_token)
+    with pytest.raises(AskError) as e:
+        answer_question(engine, owner="o", repo="view", question="What is needed here?", context="")
+    assert e.value.status == 503
+    assert "cannot read o/view" in str(e.value) and "GitHub Actions" in str(e.value)
+
+
+async def test_an_unexpected_failure_says_what_kind_instead_of_a_bare_500(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db", "DISPATCH_TOKEN": "op-token"})
+    app = create_app(cfg, Ledger(cfg.database_url), lambda *_: None, poll_interval=0.05)
+
+    def asker(**kw):
+        raise KeyError("ghs_secret_should_not_leak")
+    app.state.asker = asker
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.post("/ask", json={"owner": "o", "repo": "r", "question": "why?"},
+                         headers={"authorization": "Bearer op-token"})
+    assert r.status_code == 500
+    assert r.json()["detail"] == "The orchestrator failed while answering (KeyError). Its log has the details."
