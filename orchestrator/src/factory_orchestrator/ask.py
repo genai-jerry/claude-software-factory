@@ -45,6 +45,7 @@ from typing import Any
 
 from .claude_stream import TOKEN_KEYS
 from .config import agent_path
+from .github_app import TokenUnavailableError
 from .models import ModelResolutionError, load_models_config, resolve_model
 from .reconcile import usage_limit_error
 
@@ -438,7 +439,19 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
     except ModelResolutionError as e:
         raise AskError(str(e), 503) from e
 
-    token = engine.app.installation_token(owner, repo, min_remaining=600)
+    try:
+        token = engine.app.installation_token(owner, repo, min_remaining=600)
+    except TokenUnavailableError as e:
+        # Not a crash: this orchestrator has no GitHub access to the repo. It
+        # mints tokens only where its App is installed, or for repos the
+        # Console has dispatched here — a repo whose factory runs on GitHub
+        # Actions never is. Say so, instead of a bare 500.
+        log.info("ask: no token for %s/%s (%s)", owner, repo, e)
+        raise AskError(
+            f"The factory orchestrator cannot read {owner}/{repo}: it has no GitHub access to that "
+            "repository. It answers questions only about repositories whose factory runs on it — "
+            "this one is probably run by GitHub Actions instead, or the factory's GitHub App is not "
+            "installed there.", 503) from e
     tokens = [token]  # every token that touched this home, for redaction
     context = (context or "")[-max_context:]
     persistent = conversation is not None

@@ -293,6 +293,14 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
                 conversation=conversation, session=session)
         except AskError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
+        except Exception as e:  # noqa: BLE001 - the asker deserves a reason, not a bare 500
+            # The message can carry a token or a path; the kind of failure is
+            # what the person needs, and the log has the rest.
+            log.exception("ask: unexpected failure for %s/%s", body["owner"], body["repo"])
+            raise HTTPException(
+                status_code=500,
+                detail=f"The orchestrator failed while answering ({type(e).__name__}). "
+                       "Its log has the details.") from e
 
     @app.post("/dispatch")
     async def dispatch(request: Request) -> dict[str, Any]:
