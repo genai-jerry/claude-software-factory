@@ -254,9 +254,11 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         """A person's question about a thread, answered by the Claude CLI (ask.py)."""
         _require_dispatch_token(request)
         body = await request.json()
-        for key in ("owner", "repo", "question"):
-            if not isinstance(body.get(key), str) or not body[key].strip():
-                raise HTTPException(status_code=400, detail=f"missing {key}")
+        if not isinstance(body.get("question"), str) or not body["question"].strip():
+            raise HTTPException(status_code=400, detail="missing question")
+        for key in ("owner", "repo"):
+            if body.get(key) is not None and not isinstance(body.get(key), str):
+                raise HTTPException(status_code=400, detail=f"{key} must be a string")
         if app.state.asker is None:
             raise HTTPException(status_code=501, detail="this orchestrator cannot answer questions")
         apply_runtime_agent_secrets(cfg, body)
@@ -264,6 +266,10 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         mode = body.get("mode") or "ask"
         if mode not in MODES:
             raise HTTPException(status_code=400, detail="mode must be ask or shape")
+        # Shape about a new product sends neither: no repository yet.
+        owner, repo = str(body.get("owner") or ""), str(body.get("repo") or "")
+        if bool(owner) != bool(repo):
+            raise HTTPException(status_code=400, detail="send owner and repo together, or neither")
         images = body.get("images")
         repos = body.get("repos")
         conversation = body.get("conversation")
@@ -279,12 +285,12 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
             if images is not None:
                 check_images(images)
             if repos is not None:
-                check_repos(repos, body["owner"], body["repo"])
+                check_repos(repos, owner, repo)
         except AskError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
         try:
             return await asyncio.to_thread(
-                app.state.asker, owner=body["owner"], repo=body["repo"],
+                app.state.asker, owner=owner, repo=repo,
                 question=body["question"], context=str(body.get("context") or ""),
                 branch=body.get("branch") if isinstance(body.get("branch"), str) else None,
                 instructions=body.get("instructions") if isinstance(body.get("instructions"), str) else None,
@@ -296,7 +302,7 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         except Exception as e:  # noqa: BLE001 - the asker deserves a reason, not a bare 500
             # The message can carry a token or a path; the kind of failure is
             # what the person needs, and the log has the rest.
-            log.exception("ask: unexpected failure for %s/%s", body["owner"], body["repo"])
+            log.exception("ask: unexpected failure for %s/%s", owner, repo)
             raise HTTPException(
                 status_code=500,
                 detail=f"The orchestrator failed while answering ({type(e).__name__}). "
