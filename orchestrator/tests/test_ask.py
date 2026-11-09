@@ -474,8 +474,10 @@ async def test_the_endpoint_takes_owner_and_repo_together_or_neither(tmp_path):
     app.state.asker = asker
     h = {"authorization": "Bearer op-token"}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
-        ok = await c.post("/ask", json={"question": "new idea", "mode": "shape"}, headers=h)
+        ok = await c.post("/ask", json={"question": "new idea", "mode": "shape",
+                                        "mcp_servers": [{"name": "s", "url": "https://s", "tools": ["t"]}]}, headers=h)
         assert ok.status_code == 200, ok.text
         assert seen["owner"] == "" and seen["repo"] == ""
+        assert seen["mcp_servers"] == [{"name": "s", "url": "https://s", "tools": ["t"]}]
         half = await c.post("/ask", json={"owner": "o", "question": "x"}, headers=h)
         assert half.status_code == 400

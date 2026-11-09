@@ -296,7 +296,8 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
                 instructions=body.get("instructions") if isinstance(body.get("instructions"), str) else None,
                 images=images if isinstance(images, list) else None, mode=mode,
                 repos=repos if isinstance(repos, list) else None,
-                conversation=conversation, session=session)
+                conversation=conversation, session=session,
+                mcp_servers=body.get("mcp_servers") if isinstance(body.get("mcp_servers"), list) else None)
         except AskError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
         except Exception as e:  # noqa: BLE001 - the asker deserves a reason, not a bare 500

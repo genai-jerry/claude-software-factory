@@ -7,11 +7,19 @@ import json
 import os
 import stat
 
+import httpx
 import sqlalchemy as sa
 
 from factory_orchestrator.ask import answer_question
 from factory_orchestrator.console_secrets import seal
-from factory_orchestrator.mcp_tools import ConsoleMcpStore, McpServer, NoMcp, wire
+from factory_orchestrator.mcp_tools import (
+    ConsoleMcpPull,
+    ConsoleMcpStore,
+    McpServer,
+    NoMcp,
+    from_payload,
+    wire,
+)
 
 from .test_ask import engine_for
 from .test_role_runner import build_runner
@@ -93,10 +101,12 @@ def test_wire_writes_a_private_config_and_names_the_tools(tmp_path):
 
 
 class Fixed:
-    def __init__(self, by_surface):
-        self.by_surface = by_surface
+    def __init__(self, by_surface=None, by_surface_seen=None):
+        self.by_surface = by_surface or {}
+        self.asked: list[tuple[str, str | None]] = []
 
-    def servers(self, surface):
+    def servers(self, surface, repo=None):
+        self.asked.append((surface, repo))
         return self.by_surface.get(surface, [])
 
 
@@ -139,3 +149,52 @@ def test_a_build_run_without_servers_is_unchanged(tmp_path):
     runner.run(owner="o", repo="r", role="intake", issue=5, model="claude-sonnet-5", github_token="ghs_secret_token")
     argv = next(out.glob("argv-*.txt")).read_text()
     assert "--mcp-config" not in argv and "mcp__" not in argv
+
+
+PAYLOAD = [{"name": "sarvam_docs", "label": "Sarvam Docs", "transport": "http",
+            "url": "https://docs.sarvam.ai/_mcp/server", "headers": {}, "tools": ["searchDocs"],
+            "use_shape": True, "use_ask": True, "use_build": False}]
+
+
+def test_servers_as_compass_sends_them():
+    got = from_payload(PAYLOAD + [{"name": "bad", "url": "ftp://x", "tools": ["t"], "use_shape": True},
+                                  {"name": "none", "url": "https://n", "tools": [], "use_shape": True}, "junk"], "shape")
+    assert [(s.name, s.tools, s.label) for s in got] == [("sarvam_docs", ("searchDocs",), "Sarvam Docs")]
+    assert from_payload(PAYLOAD, "build") == [] and from_payload(None, "ask") == []
+
+
+def test_a_shape_session_uses_the_servers_compass_sent(tmp_path):
+    engine, out = engine_for(tmp_path)
+    engine.runner.mcp = Fixed()
+    answer_question(engine, owner="", repo="", question="Sarvam vision?", context="", mode="shape",
+                    mcp_servers=PAYLOAD)
+    argv = next(out.glob("argv-*.txt")).read_text().split("\n")
+    assert "mcp__sarvam_docs__searchDocs" in argv[argv.index("--allowedTools") + 1]
+    assert engine.runner.mcp.asked == []  # what Compass sent wins
+
+
+def test_builds_ask_the_dispatching_compass_and_cache_it():
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((str(request.url), request.headers.get("authorization")))
+        return httpx.Response(200, json={"servers": [{**PAYLOAD[0], "use_build": True}]})
+    pull = ConsoleMcpPull("dispatch-tok", lambda o, r: "https://compass.example" if (o, r) == ("acme", "app") else None,
+                          client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert [s.name for s in pull.servers("build", "acme/app")] == ["sarvam_docs"]
+    assert [s.name for s in pull.servers("shape", "acme/app")] == ["sarvam_docs"]  # one fetch serves every surface
+    assert seen == [("https://compass.example/api/orchestrator/mcp-servers?repo=acme%2Fapp", "Bearer dispatch-tok")]
+    assert pull.servers("build", "other/repo") == [] and len(seen) == 1  # unknown Compass: nothing asked
+
+
+def test_a_compass_that_fails_gives_no_tools():
+    pull = ConsoleMcpPull("t", lambda o, r: "https://compass.example",
+                          client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(404))))
+    assert pull.servers("build", "acme/app") == []
+
+
+def test_a_build_run_asks_for_its_own_repo(tmp_path):
+    cfg, runner, out = build_runner(tmp_path)
+    runner.mcp = Fixed()
+    runner.run(owner="o", repo="r", role="intake", issue=5, model="claude-sonnet-5", github_token="ghs_secret_token")
+    assert runner.mcp.asked == [("build", "o/r")]

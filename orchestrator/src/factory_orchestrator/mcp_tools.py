@@ -1,5 +1,12 @@
 """MCP servers an org added in Compass → Tools, given to Claude sessions.
 
+Three ways in, whichever the deployment has:
+- `/ask` carries the org's servers in its body (`from_payload`): Shape and Ask.
+- `ConsoleMcpPull` asks the Compass that dispatched a repo, over the same
+  dispatch-token channel as attachments and token re-minting: role runs on a
+  deployment without CONSOLE_DATABASE_URL (production).
+- `ConsoleMcpStore` reads Compass's table directly, where the database is shared.
+
 Compass keeps each server in its `mcp_servers` table: a name, a remote URL
 (streamable HTTP or SSE), optional request headers sealed with
 CONSOLE_MASTER_KEY, the tools it offered when last tested, which of those
@@ -25,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+import httpx
 import sqlalchemy as sa
 
 from .console_secrets import SealedSecretError, decrypt_sealed
@@ -54,14 +62,86 @@ class McpServer:
 
 
 class McpSource(Protocol):
-    def servers(self, surface: str) -> list[McpServer]: ...
+    def servers(self, surface: str, repo: str | None = None) -> list[McpServer]: ...
 
 
 class NoMcp:
     """No Compass store: sessions get no MCP servers."""
 
-    def servers(self, surface: str) -> list[McpServer]:
+    def servers(self, surface: str, repo: str | None = None) -> list[McpServer]:
         return []
+
+
+def from_payload(items: Any, surface: str) -> list[McpServer]:
+    """Servers as Compass sends them (in /ask, or from its endpoint), for one surface.
+
+    Each item: name, label, transport, url, headers {}, tools [allowed names],
+    use_shape / use_ask / use_build. Anything malformed is skipped, never fatal.
+    """
+    if surface not in SURFACES:
+        raise ValueError(f"unknown surface {surface!r}")
+    out: list[McpServer] = []
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict) or not it.get(f"use_{surface}"):
+            continue
+        name, url = it.get("name"), it.get("url")
+        tools = tuple(t for t in (it.get("tools") or []) if isinstance(t, str) and t)
+        if not isinstance(name, str) or not name or not isinstance(url, str) or not url.startswith(("https://", "http://")) or not tools:
+            continue
+        headers = it.get("headers") if isinstance(it.get("headers"), dict) else {}
+        out.append(McpServer(name=name, url=url, transport="sse" if it.get("transport") == "sse" else "http",
+                             headers={str(k): str(v) for k, v in headers.items()},
+                             tools=tools, label=str(it.get("label") or name)))
+    return out
+
+
+PULL_PATH = "/api/orchestrator/mcp-servers"
+
+
+class ConsoleMcpPull:
+    """Ask the Compass that dispatched a repo for its org's servers.
+
+    `origin_of(owner, repo)` is the Compass origin a dispatch registered (the
+    same one images and tokens come from). Cached per repo for a minute; a
+    Compass that is unknown, down or too old gives no tools, never a failed run.
+    """
+
+    def __init__(self, dispatch_token: str, origin_of, *, client: httpx.Client | None = None,
+                 ttl_seconds: float = 60.0, timeout: float = 10.0):
+        self.dispatch_token = dispatch_token
+        self.origin_of = origin_of
+        self.ttl = ttl_seconds
+        self.timeout = timeout
+        self._client = client
+        self._cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+
+    def _items(self, repo: str) -> list[dict[str, Any]]:
+        hit = self._cache.get(repo)
+        if hit and time.monotonic() - hit[0] < self.ttl:
+            return hit[1]
+        owner, _, name = repo.partition("/")
+        origin = self.origin_of(owner, name) if self.origin_of else None
+        items: list[dict[str, Any]] = []
+        if origin and self.dispatch_token:
+            client = self._client or httpx.Client(timeout=self.timeout)
+            try:
+                r = client.get(f"{origin.rstrip('/')}{PULL_PATH}", params={"repo": repo},
+                               headers={"Authorization": f"Bearer {self.dispatch_token}"})
+                if r.status_code < 400:
+                    items = list((r.json() or {}).get("servers") or [])
+                else:
+                    log.warning("mcp: Compass %s returned %s for %s", PULL_PATH, r.status_code, repo)
+            except (httpx.HTTPError, ValueError) as e:
+                log.warning("mcp: could not read tools from the Compass for %s: %s", repo, e)
+                items = hit[1] if hit else []
+            finally:
+                if self._client is None:
+                    client.close()
+        self._cache[repo] = (time.monotonic(), items)
+        return items
+
+    def servers(self, surface: str, repo: str | None = None) -> list[McpServer]:
+        return from_payload(self._items(repo), surface) if repo else []
 
 
 class ConsoleMcpStore:
@@ -103,7 +183,7 @@ class ConsoleMcpStore:
         self._rows, self._at = rows, time.monotonic()
         return rows
 
-    def servers(self, surface: str) -> list[McpServer]:
+    def servers(self, surface: str, repo: str | None = None) -> list[McpServer]:
         if surface not in SURFACES:
             raise ValueError(f"unknown surface {surface!r}")
         out: list[McpServer] = []
@@ -167,8 +247,11 @@ def wire(home: Path, servers: list[McpServer]) -> McpWiring:
     return McpWiring(["--strict-mcp-config", "--mcp-config", str(path)], allowed, secrets, note)
 
 
-def store_from_env(env: dict[str, str]) -> McpSource:
+def store_from_env(env: dict[str, str], *, dispatch_token: str = "", origin_of=None) -> McpSource:
+    """The Compass database where it is shared; else ask the dispatching Compass."""
     if env.get("CONSOLE_DATABASE_URL") and env.get("CONSOLE_MASTER_KEY"):
         return ConsoleMcpStore(env["CONSOLE_DATABASE_URL"], env["CONSOLE_MASTER_KEY"],
                                org=env.get("CONSOLE_ORG"))
+    if dispatch_token and origin_of:
+        return ConsoleMcpPull(dispatch_token, origin_of)
     return NoMcp()
