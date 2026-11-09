@@ -140,6 +140,19 @@ class Engine:
     def port(self, owner: str, repo: str) -> RepoPort:
         return self._port_factory(owner, repo)
 
+    def estate(self) -> tuple[str, ...]:
+        """The repos a cross-repo search spans: `CLAIMED_REPOS` plus every repo
+        this orchestrator has been handed a delivery for — the reconciler's
+        list (main.sweep_targets). `CLAIMED_REPOS` is empty in every shipped
+        config, so on its own it left a cross-repo epic unable to see its
+        sibling repos (beacon-web's design PR stayed unmerged after G2)."""
+        seen: list[str] = []
+        try:
+            seen = list(self.ledger.known_repos()) if self.ledger is not None else []
+        except Exception:  # noqa: BLE001 - a flaky ledger narrows the search, never fails a run
+            log.warning("could not read the repos seen - cross-repo search uses CLAIMED_REPOS only")
+        return tuple(sorted({*self.cfg.claimed_repos, *seen}))
+
     def repo_config(self, port: RepoPort) -> RepoConfig:
         return RepoConfig(
             release=parse_json_or_empty(port.get_file(".github/factory-release.json")),
@@ -217,7 +230,7 @@ def build_graph(engine: Engine, checkpointer=None):
     def route_node(state: PipelineState) -> dict[str, Any]:
         port = engine.port(state["owner"], state["repo"])
         result = Router(port, engine.repo_config(port), port_for=engine.port,
-                        estate=engine.cfg.claimed_repos,
+                        estate=engine.estate(),
                         factory_checkout=factory_checkout(engine)).route(
             state["event_name"], state["payload"])
         # `result.repo` is set only for a cross-repo epic (FACTORY.md §7):
@@ -308,7 +321,7 @@ def build_graph(engine: Engine, checkpointer=None):
             # what makes those cases runnable, and a fix re-integrated there
             # is what returns a failed one to its tester.
             router = Router(c_port, engine.repo_config(c_port), port_for=engine.port,
-                            estate=engine.cfg.claimed_repos)
+                            estate=engine.estate())
             if router.re_dispatchable(labels):
                 pending.append({"role": "dispatch", "issue": epic_no, "repo": c_repo})
                 log.info("Release run touched epic #%s - re-dispatching what it unblocked", epic_no)
@@ -330,7 +343,7 @@ def build_graph(engine: Engine, checkpointer=None):
             labels = [(l if isinstance(l, str) else l.get("name"))
                       for l in issue.get("labels", [])]
             router = Router(c_port, engine.repo_config(c_port), port_for=engine.port,
-                            estate=engine.cfg.claimed_repos)
+                            estate=engine.estate())
             nxt = router.expedite_now(issue, labels)
             if nxt != "none":
                 pending.append({"role": nxt, "issue": c["issue"], "repo": c_repo})

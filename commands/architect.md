@@ -86,7 +86,10 @@ Produce a grounded technical design for every affected repo.
    exist yet — else the branch you found its change folder on) and open one PR
    with that repo's `design.md`, based on that same branch. Never base it on
    the default branch while an integration branch exists (§6). One design PR per repo, all approved at
-   gate G2. On the epic: link the PR(s), remove `factory:planned`, apply
+   gate G2 — approving the epic merges every one of them, so a sibling repo's
+   design PR (branch `factory/<n>-design`) must name the epic in its
+   description as `owner/repo#<n>`, or it is not recognised and waits for a
+   person. Never tell the person a sibling PR "needs its own merge". On the epic: link the PR(s), remove `factory:planned`, apply
    `factory:design-ready`, and cc the `design` approvers from
    `.github/factory-approvers.json` — gate G2 is theirs. Where the change folder carries `system-tests/`, say in
    that comment how many test cases and data sets the PR also carries — the

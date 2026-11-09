@@ -925,12 +925,39 @@ class Router:
                          "Please merge it manually and apply the next label.")
         if not prs:
             log.info("No open gate PR on %s (already merged manually?) - proceeding", head_branch)
+        # A cross-repo epic (§7) has a design PR in each affected repo. G2
+        # covers them all, so they merge with the epic's own — onto the base
+        # each one already has (its repo's epic branch). Only a PR on the same
+        # branch name whose body names THIS epic: a sibling repo can have an
+        # epic of its own with the same number.
+        if not spec:
+            for sib in self.sibling_ports():
+                for pr in self.sibling_design_prs(sib, number):
+                    where = f"{sib.owner}/{sib.repo}#{pr['number']}"
+                    try:
+                        sib.merge_pr(pr["number"], "squash")
+                        log.info("Merged sibling design PR %s", where)
+                    except Exception as e:  # noqa: BLE001
+                        all_merged = False
+                        self.say(number,
+                                 f"Approval noted, but the design PR {where} could not be merged automatically ({e}). "
+                                 "Please merge it manually and apply the next label.")
         if not all_merged:
             return None
         self.drop_label(number, "factory:spec-ready" if spec else "factory:design-ready")
         self.port.add_labels(number,
                              ["factory:spec-approved" if spec else "factory:design-approved"])
         return "planner" if spec else "dispatch"
+
+    def sibling_design_prs(self, sib: RepoPort, number: int) -> list[dict[str, Any]]:
+        """Open `factory/<n>-design` PRs in a sibling repo that belong to this epic."""
+        epic_ref = re.compile(rf"\b{re.escape(self.port.owner)}/{re.escape(self.port.repo)}#{number}\b", re.IGNORECASE)
+        try:
+            prs = sib.list_open_prs(head=f"{sib.owner}:factory/{number}-design")
+        except Exception:  # noqa: BLE001 - one unreachable repo is not a failed gate
+            log.warning("Could not list design PRs in %s/%s", sib.owner, sib.repo)
+            return []
+        return [pr for pr in prs if epic_ref.search(pr.get("body") or "")]
 
     def expedite_now(self, issue: dict[str, Any], labels: list[str]) -> str:
         """Act on an expedited issue's *current* state, returning a role.
