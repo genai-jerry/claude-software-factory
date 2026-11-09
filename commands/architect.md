@@ -67,6 +67,12 @@ Produce a grounded technical design for every affected repo.
      `conventions` (`.factory/profile.json`) and its CLAUDE.md / AGENTS.md.
      The profile's `plain_names` are the words the design's prose and every
      comment use for the product's things (FACTORY.md §1a rules 14–15).
+   - **A new repository** (its profile's `stack` begins "Not chosen yet";
+     FACTORY.md §2c): choose the stack — language, framework, package manager,
+     test runner, and the test/build/lint commands — as a stated decision with
+     its reasons and the alternatives you rejected, so the approver approves
+     it with the design. Make the first task "Scaffold the project", which
+     every other task in that repo depends on.
    - Failure modes and edge cases per spec scenario.
    - Rollout order and rollback notes.
 4. **Cross-repo contract:** one shared contract snippet, byte-identical in every

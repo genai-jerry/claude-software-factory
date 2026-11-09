@@ -401,6 +401,28 @@ repo — and how that changed — reads in one thread. A run that finds nothing 
 change says so in one comment and opens no PR: a maintenance check that PRs on
 every push gets muted, and then it protects nothing.
 
+### A new repository
+
+Compass can create a repository for a new product (Shape → a new product →
+Open as work → a new repository). It has a README, `main` and `staging`, the
+factory's files, and a profile that says the stack is **not chosen yet**:
+`commands` are all null, `conventions` empty, and `stack` begins
+"Not chosen yet". There is no code, so the Profiler has nothing to read.
+
+- **Architect:** the first epic's design chooses the stack — language,
+  framework, package manager, test runner, and the test/build/lint commands —
+  as an explicit decision with its reasons, so the G2 approver approves the
+  stack along with the design. The first task in tasks.md scaffolds it.
+- **Implementer, the scaffolding task:** creates the project the design
+  chose, with one passing test, and in the same PR sets `stack`, `commands`
+  (each one a command it ran) and `conventions` in `.factory/profile.json`.
+  Until that merges, a later task waits on it (its dependency).
+- **Reviewer:** checks the profile in that PR against what the scaffold
+  actually contains.
+
+From then on the repo is like any other; the Profiler can correct the profile
+later, as usual.
+
 ## 2b. Approvers and notifications
 
 `.github/factory-approvers.json` in the consuming repo maps each gate to

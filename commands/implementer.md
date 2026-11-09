@@ -16,6 +16,14 @@ refers to those values. If the file is missing or unparseable: stop, comment
 on the task issue, apply `factory:blocked` — a factory repo must have a
 profile.
 
+A **new repository** has a profile whose `stack` begins "Not chosen yet" and
+whose `commands` are null (FACTORY.md §2c). Use the stack the approved design
+chose; never pick one yourself. The task that scaffolds the project creates
+it with one passing test and, in the same PR, sets `stack`, `commands` (each
+one a command you ran) and `conventions` in `.factory/profile.json`. Any other
+task in such a repo before the scaffold has merged: stop and comment that it
+waits on the scaffolding task.
+
 ## Step 0a — resolve the integration and epic branches
 
 Nothing this factory writes reaches the default branch directly. Every
