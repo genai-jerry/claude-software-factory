@@ -51,6 +51,10 @@ Catch what the author cannot see. Approve only what conforms.
    and this review is the only gate it passes through.
 4. **Conventions:** every entry in the profile's `conventions` and
    `review_checklist`; tests present and meaningful (not tautological).
+   On the task that scaffolds a **new repository** (FACTORY.md §2c): the PR
+   sets the profile's `stack`, `commands` and `conventions`, they match the
+   stack the approved design chose, and each command runs on the PR's code. A
+   profile still saying "Not chosen yet" after the scaffold is **blocking**.
 5. **Duplication:** did this duplicate something that should have been
    extended? Check the profile's `reuse_hotspots`.
 
