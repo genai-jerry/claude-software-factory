@@ -160,3 +160,59 @@ def test_a_repo_that_refuses_the_branch_still_gets_its_gate_approved():
     assert r.role == "planner"
     assert "factory/epic-5" not in w.branches
     assert w.merged_bases[9] == "main"
+
+
+# -- a cross-repo epic's design PRs (FACTORY.md §7) ---------------------------
+
+def _cross(web_prs, *, port_for=True):
+    api = FakeRepo(issues=_issue(5, ["factory:design-ready"]), owner="acme", repo="api")
+    api.open_prs["acme:factory/5-design"] = [{"number": 9, "base": {"ref": "main"}}]
+    web = FakeRepo(owner="acme", repo="web")
+    web.open_prs["acme:factory/5-design"] = web_prs
+    ports = {"acme/api": api, "acme/web": web}
+    router = Router(api, RepoConfig(approvers=APPROVERS, branches=EPICS_ON),
+                    port_for=(lambda o, n: ports[f"{o}/{n}"]) if port_for else None,
+                    estate=("acme/api", "acme/web"))
+    return api, web, router
+
+
+def test_design_approval_merges_the_sibling_repos_design_pr_too():
+    # G2 covers the design in every affected repo. beacon-web's design PR used
+    # to wait for a person after the epic's approval had merged beacon-api's.
+    api, web, router = _cross([{"number": 70, "base": {"ref": "factory/epic-5"},
+                                "body": "Links: epic acme/api#5 · tasks acme/web#67"}])
+    r = router.route(*_approved(api, 5))
+    assert r.role == "dispatch"
+    assert api.merged_prs == [9] and web.merged_prs == [70]
+    assert web.merged_bases[70] == "factory/epic-5"  # its own base, untouched
+
+
+def test_a_sibling_design_pr_for_another_epic_with_the_same_number_is_left_alone():
+    api, web, router = _cross([{"number": 71, "base": {"ref": "factory/epic-5"},
+                                "body": "Design for acme/web#5, an epic of its own (acme/api#50 is unrelated)"}])
+    router.route(*_approved(api, 5))
+    assert web.merged_prs == []
+
+
+def test_a_sibling_design_pr_that_will_not_merge_keeps_the_gate_open():
+    api, web, router = _cross([{"number": 70, "base": {"ref": "factory/epic-5"}, "body": "epic acme/api#5"}])
+    def refuse(number, method="squash"):
+        raise RuntimeError("merge conflict")
+    web.merge_pr = refuse
+    r = router.route(*_approved(api, 5))
+    assert r.role in (None, "none")
+    assert "factory:design-ready" in api.labels_of(5)
+    assert any("acme/web#70 could not be merged" in c["body"] for c in api.comments.get(5, []))
+
+
+def test_the_estate_includes_every_repo_the_orchestrator_has_driven():
+    # CLAIMED_REPOS is empty in shipped configs; the ledger knows the repos.
+    from types import SimpleNamespace
+
+    from factory_orchestrator.graph import Engine
+    fake = SimpleNamespace(cfg=SimpleNamespace(claimed_repos=("acme/extra",)),
+                           ledger=SimpleNamespace(known_repos=lambda: ["acme/api", "acme/web"]))
+    assert Engine.estate(fake) == ("acme/api", "acme/extra", "acme/web")
+    broken = SimpleNamespace(cfg=SimpleNamespace(claimed_repos=("acme/x",)),
+                             ledger=SimpleNamespace(known_repos=lambda: (_ for _ in ()).throw(RuntimeError("db"))))
+    assert Engine.estate(broken) == ("acme/x",)

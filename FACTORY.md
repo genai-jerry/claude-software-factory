@@ -630,8 +630,10 @@ Create them with `scripts/setup-labels.sh`.
 - **G2 — Design approval:** review the design PR(s) — one per affected repo;
   in the epic's repo it carries both `tasks.md` and `design.md` — then either
   merge and apply `factory:design-approved`, or comment `Approved` on the epic.
-  Note: comment approval merges the design PR in the epic's repo; sibling-repo
-  design PRs still need their own merge.
+  Approval — the comment, or an expedited epic approving itself — merges the
+  design PR in every affected repo: the epic's own, and each sibling repo's
+  `factory/<n>-design` PR whose description names the epic (`owner/repo#n`).
+  A PR that will not merge keeps the gate open and is named on the epic.
 - **GS — Release to staging:** the epic is at `factory:epic-ready` — every task
   implemented, reviewed, tested and assembled, and nothing of it on staging yet
   (§6b). Where system tests are on in `gate` mode (§4b) and run on the epic
