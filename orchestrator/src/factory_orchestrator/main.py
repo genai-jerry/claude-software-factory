@@ -86,7 +86,8 @@ def build_service():
                         console_origin=app.console.console_origin if app.console else None,
                         # Compass → Tools: the org's MCP servers, read from the same
                         # Compass database as the agent secrets.
-                        mcp=store_from_env(env))
+                        mcp=store_from_env(env, dispatch_token=cfg.dispatch_token.reveal(),
+                                           origin_of=app.console.console_origin if app.console else None))
     engine = Engine(cfg, ledger, app, runner, default_probe(cfg),
                     transcript_dir=os.environ.get("TRANSCRIPT_DIR"))
     graph = build_graph(engine, checkpointer=make_checkpointer(cfg.database_url))

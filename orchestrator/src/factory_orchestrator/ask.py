@@ -47,7 +47,7 @@ from typing import Any
 from .claude_stream import TOKEN_KEYS
 from .config import agent_path
 from .github_app import TokenUnavailableError
-from .mcp_tools import McpWiring, wire
+from .mcp_tools import McpWiring, from_payload, wire
 from .models import ModelResolutionError, load_models_config, resolve_model
 from .reconcile import usage_limit_error
 
@@ -420,7 +420,8 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                     mode: str = "ask",
                     repos: list[dict[str, Any]] | None = None,
                     conversation: str | None = None,
-                    session: str | None = None) -> dict[str, Any]:
+                    session: str | None = None,
+                    mcp_servers: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Run one read-only Claude session; the answer, model, usage and session.
 
     With `conversation` the workspace is kept between calls and brought level
@@ -500,7 +501,15 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
             on_branch = bool(branch) and on == branch
             siblings = _checkout_siblings(engine, home, wanted, tokens)
             surface = "shape" if mode == "shape" else "ask"
-            mcp = wire(home, runner.mcp.servers(surface)) if getattr(runner, "mcp", None) else McpWiring.none()
+            # Compass sends the org's servers with the question; a source the
+            # runner has (a shared Compass database) fills in for older Compasses.
+            if mcp_servers is not None:
+                chosen = from_payload(mcp_servers, surface)
+            elif getattr(runner, "mcp", None):
+                chosen = runner.mcp.servers(surface, f"{owner}/{repo}" if repo else None)
+            else:
+                chosen = []
+            mcp = wire(home, chosen) if chosen else McpWiring.none()
             tokens += mcp.secrets
             common = ["--model", model, "--max-turns", str(turns), "--output-format", "json",
                       "--allowedTools", ",".join([ASK_TOOLS, *mcp.allowed]), *mcp.argv]

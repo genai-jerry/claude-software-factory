@@ -630,7 +630,7 @@ class RoleRunner:
         """`resume` is (session id, prompt): continue that conversation, or
         start afresh with `prompt` when it cannot be continued."""
         guard = install_branch_guard(home, self.source.path() if hasattr(self.source, "path") else None)
-        mcp = wire(home, self.mcp.servers("build"))
+        mcp = wire(home, self.mcp.servers("build", f"{owner}/{repo}"))
         self._mcp_secrets.update(mcp.secrets)
         gh_token = (self.cfg.cross_repo_token.reveal()
                     if self.cfg.cross_repo_token else github_token)
