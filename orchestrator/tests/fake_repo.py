@@ -85,6 +85,10 @@ class FakeRepo:
     def create_status(self, sha, state, *, context, description, target_url=None):
         self.statuses.append((sha, state, context, description, target_url))
 
+    def pr_merge_state(self, number):
+        return dict(getattr(self, "pr_states", {}).get(
+            number, {"mergeable": True, "failing": False, "pending": False, "state": "open"}))
+
     def merge_pr(self, number, method="squash"):
         self.merged_prs.append(number)
         for prs in self.open_prs.values():

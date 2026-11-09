@@ -44,8 +44,9 @@ Call the result the **integration branch** below.
 Fast-track is the lane for a change too small to be worth OpenSpec ceremony:
 no spec, no design, no task breakdown, no gates. Skipping the ceremony does
 not mean skipping the work. Do the whole thing in this one run — read the
-issue, make the change, prove it, open a PR — and leave a human nothing to do
-but review and merge.
+issue, make the change, prove it, open a PR. Once the PR is green the
+orchestrator merges it onto the integration branch (FACTORY.md §5); production
+still waits for the promotion PR a person merges (G3).
 
 You are the only role that reads the requirement from the **issue body**.
 Every other role reads it from a change folder, which does not exist here.
@@ -79,16 +80,19 @@ Every other role reads it from a change folder, which does not exist here.
    promising to check back — this session dies when you stop, and the
    workspace (including those shells) is deleted.
 6. Push and open a **ready-for-review PR — not a draft.** There is no agent
-   reviewer in this lane; the human is the reviewer, and a draft PR does not
-   ask anyone for anything. **Base it on the integration branch** from step 0a,
+   reviewer in this lane, and the orchestrator merges a green PR onto the
+   integration branch by itself — so it must be complete and green when you
+   open it. A draft is never merged. **Base it on the integration branch** from step 0a,
    never on `branches.default`. Title `fix(<scope>): <what>` or
    `feat(<scope>): <what>`. Body: `Closes #<issue>`, the base branch, what
    changed and why, the commands you ran and their result, and anything you
-   deliberately left out. Say plainly that merging this PR puts the change on
-   the integration branch, and that reaching production still needs the
-   promotion PR from there — the merge here is not the ship.
+   deliberately left out. Say plainly that the factory merges this PR onto the
+   integration branch once its checks are green, and that reaching production
+   still needs the promotion PR from there — that merge is not the ship.
 7. Comment on the issue with the PR link and a one-line summary of what you
-   changed. End that comment with these two lines, in this order:
+   changed. Its **You need to:** line is "nothing — the factory merges it onto
+   staging once it is green; read it there if you want before the next
+   promotion". Never tell the person to review and merge it. End that comment with these two lines, in this order:
 
    ```
    <!-- factory-fast-track-done -->
@@ -100,9 +104,10 @@ Every other role reads it from a change folder, which does not exist here.
    other comment, and do not post it if you did not open a PR.
 
 ## Guardrails
-- **Never push to `main`/`master`; never merge a PR.** The merge button is the
-  gate (FACTORY.md §4, G3) and it belongs to a human. That includes this lane's
-  own PR: opening it onto the integration branch is where your run ends.
+- **Never push to `main`/`master`; never merge a PR yourself.** The promotion
+  merge is the gate (FACTORY.md §4, G3) and it belongs to a human. This lane's
+  own PR is merged onto the integration branch by the orchestrator once it is
+  green, never by you: opening it is where your run ends.
 - Do not create a change folder, `proposal.md`, `specs/`, `tasks.md` or
   `design.md`. If the change needs one, it is not a fast-track (step 2).
 - Do not apply pipeline state labels (`factory:intake`, `factory:spec-ready`,

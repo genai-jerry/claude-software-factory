@@ -84,6 +84,7 @@ class RepoPort(Protocol):
     def create_status(self, sha: str, state: str, *, context: str,
                       description: str, target_url: str | None = None) -> None: ...
     def merge_pr(self, number: int, method: str = "squash") -> None: ...
+    def pr_merge_state(self, number: int) -> dict[str, Any]: ...
     def update_pr_base(self, number: int, base: str) -> None: ...
     def branch_exists(self, name: str) -> bool: ...
     def branch_sha(self, name: str) -> str | None: ...
@@ -344,6 +345,25 @@ class RepoClient:
 
     def merge_pr(self, number, method="squash"):
         self._req("PUT", f"/pulls/{number}/merge", json={"merge_method": method})
+
+    def pr_merge_state(self, number):
+        """Whether a PR can merge now: GitHub's `mergeable` (None while it is
+        still computing), and whether any status or check on its head failed
+        or is still running."""
+        pr = self._req("GET", f"/pulls/{number}").json()
+        sha = (pr.get("head") or {}).get("sha", "")
+        combined = self._req("GET", f"/commits/{sha}/status").json() if sha else {}
+        runs = (self._req("GET", f"/commits/{sha}/check-runs", params={"per_page": 100}).json()
+                if sha else {}).get("check_runs", [])
+        statuses = combined.get("statuses") or []
+        failing = (any(s.get("state") in ("failure", "error") for s in statuses)
+                   or any((r.get("conclusion") or "") in ("failure", "timed_out", "cancelled",
+                                                          "action_required", "startup_failure")
+                          for r in runs))
+        pending = (any(s.get("state") == "pending" for s in statuses)
+                   or any(r.get("status") != "completed" for r in runs))
+        return {"mergeable": pr.get("mergeable"), "failing": failing, "pending": pending,
+                "state": pr.get("state")}
 
     def update_pr_base(self, number, base):
         self._req("PATCH", f"/pulls/{number}", json={"base": base})

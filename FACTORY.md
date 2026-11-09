@@ -191,7 +191,8 @@ existed.
 Beside these stages runs one **fast lane**: `/factory:fasttrack` takes an issue
 labelled `factory:fast-track` and produces a branch, a test and a
 ready-for-review PR in a single run — no proposal, no `tasks.md`, no `design.md`
-and no gate but G3. It is the whole pipeline for changes too small to be worth
+and no gate but G3. Once that PR is green the orchestrator merges it onto the
+integration branch itself. It is the whole pipeline for changes too small to be worth
 the ceremony (§5). It skips the ceremony, not the staging step: its PR is based
 on the integration branch (§6a) — the fast lane has no epic and so no epic
 branch (§6b).
@@ -224,7 +225,7 @@ events, so **filing a plain issue is all a requester does**:
 |---|---|
 | Any issue opened (human-authored, not `task(...)`, no factory state yet) | Auto-applies `factory:intake`, then runs the **Intake Analyst** — unless release gating is on (§2d), in which case the issue is parked in `factory:backlog` |
 | A milestone is created, or an issue is added to one (release gating on) | A `release(<milestone>)` **tracker issue** is opened if the milestone has none |
-| `factory:fast-track` applied (or an issue filed with it) | **Fast-Track** — implements the change, runs the repo's tests, and opens a PR for human review. No intake, spec, design or gates |
+| `factory:fast-track` applied (or an issue filed with it) | **Fast-Track** — implements the change, runs the repo's tests, and opens a PR onto the integration branch, which the orchestrator merges once it is green. No intake, spec, design or gates before G3 |
 | An issue filed with `factory:profile`, or that label applied | **Profiler** — drafts or corrects `.factory/profile.json` from the code in your own runner and opens a PR (§2c) |
 | A push to the default branch touching a manifest, lockfile, CI workflow or tool config | **Profiler** — re-verifies the profile against the new commit, opening a PR only where it disagrees (§2c) |
 | Owner/collaborator comments exactly `Plan release` on a release tracker | **Scrum Master** — reads the whole milestone and posts the release plan |
@@ -610,7 +611,7 @@ Create them with `scripts/setup-labels.sh`.
 | `factory:bug-verified` | *On a bug:* the repair was confirmed. The sub-issue closes | The `Test Passed` router branch | — (terminal) |
 | `factory:in-staging` | On the integration branch and verified there; promotion PR open, awaiting **gate G3** | Release | Human merges the promotion PR(s); the engine, on the last merge, → `factory:deployed` (epic and tasks) |
 | `factory:deployed` | In production, in its watch period (a day of real use under observation) | The engine, when the last promotion PR merges | Ops archives + closes, or files `factory:incident`; without an Ops run, the human closes it after a clean day |
-| `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → human review + merge |
+| `factory:fast-track` | *Kind:* small change, handled by the fast lane instead of the pipeline | Human triage, or the Scrum Master recommending it | Fast-Track opens a PR → the orchestrator merges it onto staging once green → the promotion PR (G3) ships it |
 | `factory:profile` | *Kind:* this issue is the home of `.factory/profile.json` (§2c) | Compass's profile step, or a human | Nobody: it stays, because it is how the one profile issue is found. Remove and re-apply it to re-run the Profiler |
 | `factory:expedite` | *Marker:* this epic advances itself — every stage after the spec runs without waiting for a human, up to gate GS (§4a) | Human triage, authorised against the `expedite` approvers | Human removes it; the normal gates resume from the current state |
 | `factory:in-progress` | *Marker:* a factory agent run is live on this issue right now | Pipeline, when an agent job starts | Pipeline, when that job ends (always, including failure and timeout) |
@@ -1204,7 +1205,12 @@ it waits for gate GS.
   label `factory:fast-track` and the **Fast-Track** role implements the change,
   runs the repo's test and build commands, and opens a ready-for-review PR in
   one run. No change folder, no sub-issues, no G1/G2; the human merge (G3) is
-  the only gate left. The role sizes the issue before writing any code and
+  the only gate left. Once the PR is green — GitHub says it merges cleanly and
+  no check or status failed or is still running — the orchestrator merges it
+  onto the integration branch, right after the run or on a later reconciler
+  sweep, and says so on the issue. A red or conflicting PR is held and said on
+  the issue once. A repo turns this off with `"fast_track_merge": false` in
+  `.github/factory-release.json`. The role sizes the issue before writing any code and
   hands it back to the normal pipeline — removing the label, saying why — when
   it needs a migration, a new dependency, a new public contract, or a design
   decision worth arguing separately. Its PR is based on the integration branch

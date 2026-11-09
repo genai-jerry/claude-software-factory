@@ -18,6 +18,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from .fast_track_merge import FAST_TRACK, merge_fast_track
 from .github_app import RepoPort, parse_json_or_empty
 from .ledger import Ledger
 from .router import AGENT_MARK, IN_PROGRESS, RepoConfig, expedited_next, is_expedited
@@ -293,6 +294,7 @@ def sweep_repo(port: RepoPort, ledger: Ledger,
     full = f"{port.owner}/{port.repo}"
     epics = RepoConfig(branches=parse_json_or_empty(
         port.get_file(".github/factory-branches.json"))).epics
+    release_cfg = parse_json_or_empty(port.get_file(".github/factory-release.json"))
     now = dt.datetime.now(dt.UTC)
     for issue in port.list_issues(state="open"):
         if issue.get("pull_request") is not None:
@@ -308,6 +310,15 @@ def sweep_repo(port: RepoPort, ledger: Ledger,
             log.warning("clearing a stale %s on %s#%s", IN_PROGRESS, full, n)
             port.remove_label(n, IN_PROGRESS)
             labels = [l for l in labels if l != IN_PROGRESS]
+
+        # A fast-lane fix whose checks were still running after its run
+        # (FACTORY.md §5): merge it onto the integration branch once green.
+        if (FAST_TRACK in labels and IN_PROGRESS not in labels and "factory:blocked" not in labels
+                and runs and runs[0].get("role") == "fasttrack" and runs[0].get("outcome") == "success"):
+            try:
+                merge_fast_track(port, n, release_cfg)
+            except Exception:  # noqa: BLE001 - one PR must not stop the sweep
+                log.warning("fast-track merge of %s#%s failed", full, n, exc_info=True)
 
         stalled = stalled_role(port, issue, labels, runs, epics, port_for, now)
         if stalled:
