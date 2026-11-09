@@ -23,6 +23,7 @@ from .graph import Engine, Processor, build_graph, make_checkpointer, run_link_b
 from .guards import clear_in_progress, report_failure
 from .issue_workspaces import DEFAULT_IDLE_DAYS, IssueWorkspaces
 from .ledger import Ledger
+from .mcp_tools import store_from_env
 from .models import default_probe
 from .reconcile import sweep_repo
 from .repo_cache import RepoCache
@@ -82,7 +83,10 @@ def build_service():
     runner = RoleRunner(cfg, source, repo_cache=repo_cache,
                         issue_workspaces=issue_workspaces,
                         attachments=ConsoleAttachments(cfg.dispatch_token.reveal()),
-                        console_origin=app.console.console_origin if app.console else None)
+                        console_origin=app.console.console_origin if app.console else None,
+                        # Compass → Tools: the org's MCP servers, read from the same
+                        # Compass database as the agent secrets.
+                        mcp=store_from_env(env))
     engine = Engine(cfg, ledger, app, runner, default_probe(cfg),
                     transcript_dir=os.environ.get("TRANSCRIPT_DIR"))
     graph = build_graph(engine, checkpointer=make_checkpointer(cfg.database_url))

@@ -7,8 +7,9 @@ but this server already has the CLI, the agent credential and a copy of every
 repo, so the question comes here.
 
 The session is read-only: it can read files and run `git log/show/diff/blame`
-in a throwaway checkout, and nothing else. No `gh`, no network tools, no
-writes, no GitHub token in its environment. It counts against `MAX_PARALLEL`
+in a throwaway checkout, and nothing else. No `gh`, no writes, no GitHub
+token in its environment. The only reach beyond the checkout is the MCP tools
+the org allowed for Shape or Ask in Compass → Tools (`mcp_tools`). It counts against `MAX_PARALLEL`
 like any role run, and is recorded in the run ledger as a finished `ask` run
 so `/usage` counts what it spent.
 
@@ -46,6 +47,7 @@ from typing import Any
 from .claude_stream import TOKEN_KEYS
 from .config import agent_path
 from .github_app import TokenUnavailableError
+from .mcp_tools import McpWiring, wire
 from .models import ModelResolutionError, load_models_config, resolve_model
 from .reconcile import usage_limit_error
 
@@ -474,8 +476,12 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
             dest, on = _prepare_repo(engine, home, owner, repo, token, branch)
             on_branch = bool(branch) and on == branch
             siblings = _checkout_siblings(engine, home, wanted, tokens)
+            surface = "shape" if mode == "shape" else "ask"
+            mcp = wire(home, runner.mcp.servers(surface)) if getattr(runner, "mcp", None) else McpWiring.none()
+            tokens += mcp.secrets
             common = ["--model", model, "--max-turns", str(turns), "--output-format", "json",
-                      "--allowedTools", ASK_TOOLS]
+                      "--allowedTools", ",".join([ASK_TOOLS, *mcp.allowed]), *mcp.argv]
+            tools_note = f"\n{mcp.note}\n" if mcp.note else ""
             # The tools reach only the working directory unless told
             # otherwise; each sibling is granted explicitly, nothing else.
             for sib in siblings:
@@ -499,7 +505,7 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
             if persistent and session and existed:
                 # The session remembers the repositories, the instructions
                 # and the earlier turns; it is sent the new question alone.
-                short = RESUME_PROMPT.format(attachments=_attachments_note(attached), question=question)
+                short = RESUME_PROMPT.format(attachments=tools_note + _attachments_note(attached), question=question)
                 proc = run([runner.claude_bin, "-p", "--resume", session.strip(), *common], short)
                 got = _result_of(proc.stdout or "")
                 if proc.returncode == 0 and got and not got.get("is_error") and str(got.get("result") or "").strip():
@@ -512,7 +518,7 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                                        branch_note=f", on `{branch}`" if on_branch else "",
                                        siblings=_siblings_note(siblings)),
                     instructions=(instructions or "").strip()[:MAX_INSTRUCTIONS] or DEFAULT_INSTRUCTIONS,
-                    attachments=_attachments_note(attached),
+                    attachments=tools_note + _attachments_note(attached),
                     context=context or "(no comments yet)", question=question)
                 proc = run([runner.claude_bin, "-p", *common], prompt)
         finally:

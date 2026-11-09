@@ -58,6 +58,7 @@ from .attachments import ConsoleAttachments, Fetched, attachments_note
 from .claude_stream import StreamReader, run_usage
 from .config import Config, agent_path
 from .issue_workspaces import IssueKey, IssueWorkspaces
+from .mcp_tools import McpSource, NoMcp, wire
 from .repo_cache import RepoCache
 from .router import AGENT_MARK, FAST_TRACK_DONE
 
@@ -413,8 +414,14 @@ class RoleRunner:
                  repo_cache: RepoCache | None = None,
                  issue_workspaces: IssueWorkspaces | None = None,
                  attachments: ConsoleAttachments | None = None,
-                 console_origin: Callable[[str, str], str | None] | None = None):
+                 console_origin: Callable[[str, str], str | None] | None = None,
+                 mcp: McpSource | None = None):
         self.cfg = cfg
+        # The MCP servers the org allowed in Compass → Tools: `build` for role
+        # runs here, `shape`/`ask` for answer_question. Their header values
+        # are redacted from every transcript, like the tokens.
+        self.mcp: McpSource = mcp or NoMcp()
+        self._mcp_secrets: set[str] = set()
         self.source = source
         self.workspace_root = Path(workspace_root or tempfile.gettempdir())
         self.repo_cache = repo_cache or RepoCache()
@@ -623,6 +630,8 @@ class RoleRunner:
         """`resume` is (session id, prompt): continue that conversation, or
         start afresh with `prompt` when it cannot be continued."""
         guard = install_branch_guard(home, self.source.path() if hasattr(self.source, "path") else None)
+        mcp = wire(home, self.mcp.servers("build"))
+        self._mcp_secrets.update(mcp.secrets)
         gh_token = (self.cfg.cross_repo_token.reveal()
                     if self.cfg.cross_repo_token else github_token)
         env = {
@@ -635,6 +644,8 @@ class RoleRunner:
             "FACTORY_STAGING_GUARD": "open" if staging_open else "closed",
             "FACTORY_INTEGRATION_BRANCH": integration_branch or "staging",
             **({"FACTORY_GUARD_SETTINGS": str(guard)} if guard else {}),
+            **({"FACTORY_MCP_CONFIG": mcp.argv[-1], "FACTORY_MCP_TOOLS": ",".join(mcp.allowed)}
+               if mcp.argv else {}),
             **self.cfg.agent_credential_env(),
         }
         readers: list[StreamReader] = []
@@ -693,7 +704,9 @@ class RoleRunner:
                 "--output-format", "stream-json",
                 "--verbose",
                 "--permission-mode", "acceptEdits",
-                "--allowedTools", ALLOWED_TOOLS]
+                "--allowedTools", ",".join(filter(None, [ALLOWED_TOOLS, env.get("FACTORY_MCP_TOOLS")]))]
+        if env.get("FACTORY_MCP_CONFIG"):
+            argv += ["--strict-mcp-config", "--mcp-config", env["FACTORY_MCP_CONFIG"]]
         if env.get("FACTORY_GUARD_SETTINGS"):
             argv += ["--settings", env["FACTORY_GUARD_SETTINGS"]]
         if resume:
@@ -934,7 +947,7 @@ class RoleRunner:
                        self.cfg.cross_repo_token):
             if secret:
                 text = text.replace(secret.reveal(), "***")
-        for value in extra:
+        for value in (*extra, *self._mcp_secrets):
             if value:
                 text = text.replace(value, "***")
         return text
