@@ -38,6 +38,7 @@ from . import claim
 from .attachments import attachment_targets
 from .config import Config
 from .factory_ci import post_qa_status
+from .fast_track_merge import merge_fast_track
 from .github_app import GitHubApp, RepoPort, parse_json_or_empty
 from .guards import (
     clear_in_progress,
@@ -290,6 +291,19 @@ def build_graph(engine: Engine, checkpointer=None):
                     pending.append({"role": "testplanner", "issue": c["issue"], "repo": c_repo})
                 else:
                     pending.append({"role": "architect", "issue": c["issue"], "repo": c_repo})
+
+        # fasttrack → staging (FACTORY.md §5). The fast lane's PR is merged
+        # onto the integration branch once it is green; production still
+        # waits for the promotion PR (G3). Checks that are still running are
+        # picked up by the reconciler sweep.
+        for c in this_round:
+            if c["role"] == "fasttrack" and c["status"] == "success":
+                c_port, _ = port_of(c)
+                try:
+                    outcome = merge_fast_track(c_port, c["issue"], engine.repo_config(c_port).release)
+                    log.info("Fast-track #%s after its run: %s", c["issue"], outcome)
+                except Exception:  # noqa: BLE001 - never fail the chain over a merge attempt
+                    log.warning("Fast-track merge of #%s failed", c["issue"], exc_info=True)
 
         # release → dispatch. A Release phase-1 run lands a task on the epic
         # branch, and that merge closes no issue, so the task-closed
