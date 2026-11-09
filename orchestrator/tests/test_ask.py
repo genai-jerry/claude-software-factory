@@ -434,3 +434,48 @@ async def test_an_unexpected_failure_says_what_kind_instead_of_a_bare_500(tmp_pa
                          headers={"authorization": "Bearer op-token"})
     assert r.status_code == 500
     assert r.json()["detail"] == "The orchestrator failed while answering (KeyError). Its log has the details."
+
+
+def test_shape_about_a_new_product_runs_without_a_repository(tmp_path):
+    engine, out = engine_for(tmp_path)
+
+    def no_token(*a, **k):
+        raise AssertionError("a new product needs no GitHub token")
+    engine.app.installation_token = no_token
+    engine.port = lambda o, r: (_ for _ in ()).throw(AssertionError("no repo to read config from"))
+    got = answer_question(engine, owner="", repo="", question="A translator app for Malayalam?",
+                          context="", mode="shape", conversation="c-new")
+    assert got["answer"]
+    cwd = Path(next(out.glob("cwd-*.txt")).read_text().strip())
+    assert cwd.name == "idea" and not (cwd / ".git").exists()
+    prompt = next(out.glob("prompt-*.txt")).read_text()
+    assert "There is no repository" in prompt and "Repository:" not in prompt
+    assert "except\nthrough the organisation's tools" in prompt
+
+
+def test_only_shape_may_run_without_a_repository(tmp_path):
+    engine, _ = engine_for(tmp_path)
+    with pytest.raises(AskError) as e:
+        answer_question(engine, owner="", repo="", question="why?", context="")
+    assert e.value.status == 400
+    with pytest.raises(AskError):
+        answer_question(engine, owner="", repo="", question="x", context="", mode="shape",
+                        repos=[{"owner": "o", "repo": "web"}])
+
+
+async def test_the_endpoint_takes_owner_and_repo_together_or_neither(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db", "DISPATCH_TOKEN": "op-token"})
+    app = create_app(cfg, Ledger(cfg.database_url), lambda *_: None, poll_interval=0.05)
+    seen = {}
+
+    def asker(**kw):
+        seen.update(kw)
+        return {"answer": "ok", "model": "m", "usage": {}}
+    app.state.asker = asker
+    h = {"authorization": "Bearer op-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        ok = await c.post("/ask", json={"question": "new idea", "mode": "shape"}, headers=h)
+        assert ok.status_code == 200, ok.text
+        assert seen["owner"] == "" and seen["repo"] == ""
+        half = await c.post("/ask", json={"owner": "o", "question": "x"}, headers=h)
+        assert half.status_code == 400

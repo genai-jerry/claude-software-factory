@@ -123,7 +123,19 @@ INTRO = """You answer a question from a person using the Compass.
 
 Repository: {repo}. Your working directory is a read-only checkout of it{branch_note}.
 You can read files and run `git log`, `git show`, `git diff` and `git blame`.
-You cannot change anything, and you cannot reach GitHub or any other service.{siblings}"""
+You cannot change anything. You cannot reach GitHub or any other service, except
+through the organisation's tools named below, when there are any.{siblings}"""
+
+#: Shape about a new product: no repository yet, so nothing to read but what
+#: the person says (and their images). Reading the org's other products would
+#: only pull the idea toward them.
+INTRO_NO_REPO = """You answer a person using the Compass, who is shaping an idea for a new product.
+
+There is no repository: the product has no code yet. Your working directory is
+empty apart from any images the person attached. Do not look for code, and do not
+relate the idea to the organisation's other products unless the person asks.
+You cannot change anything. You cannot reach GitHub or any other service, except
+through the organisation's tools named below, when there are any."""
 
 #: How to write the answer, unless the caller (the Console, which sends the
 #: same standard plus its citation rules) brings its own.
@@ -391,7 +403,8 @@ def _record_usage(engine, *, owner: str, repo: str, mode: str, model: str,
         return
     usage = result.get("usage") or {}
     try:
-        run_id = ledger.start_run(repo=f"{owner}/{repo}", issue=0, role="ask", trigger=mode)
+        run_id = ledger.start_run(repo=f"{owner}/{repo}" if repo else "(new product)", issue=0,
+                                  role="ask", trigger=mode)
         ledger.finish_run(run_id, outcome="success", model=model, guards={"usage": {
             **{k: int(usage.get(k) or 0) for k in TOKEN_KEYS},
             "turns": int(result.get("num_turns") or 0),
@@ -422,6 +435,11 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
     if session is not None and (not isinstance(session, str) or not session.strip()
                                 or len(session) > 128):
         raise AskError("session must be a short string.", 400)
+    blank = not repo
+    if blank and mode != "shape":
+        raise AskError("A question needs a repository; only Shape can run without one.", 400)
+    if blank and repos:
+        raise AskError("Other repositories need a primary repository.", 400)
     max_question, max_context, turns, timeout = MODES[mode]
     question = (question or "").strip()
     if not question:
@@ -435,14 +453,15 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
         raise AskError("The factory has no Claude credential to answer with. Store "
                        "CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in the Console's "
                        "settings.", 503)
-    port = engine.port(owner, repo)
     try:
-        model = resolve_model("ask", load_models_config(port), engine.probe).model
+        # A new product has no repo to carry a models file: the defaults apply.
+        models = {} if blank else load_models_config(engine.port(owner, repo))
+        model = resolve_model("ask", models, engine.probe).model
     except ModelResolutionError as e:
         raise AskError(str(e), 503) from e
 
     try:
-        token = engine.app.installation_token(owner, repo, min_remaining=600)
+        token = "" if blank else engine.app.installation_token(owner, repo, min_remaining=600)
     except TokenUnavailableError as e:
         # Not a crash: this orchestrator has no GitHub access to the repo. It
         # mints tokens only where its App is installed, or for repos the
@@ -454,7 +473,7 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
             "repository. It answers questions only about repositories whose factory runs on it — "
             "this one is probably run by GitHub Actions instead, or the factory's GitHub App is not "
             "installed there.", 503) from e
-    tokens = [token]  # every token that touched this home, for redaction
+    tokens = [token] if token else []  # every token that touched this home, for redaction
     context = (context or "")[-max_context:]
     persistent = conversation is not None
     root = Path(runner.workspace_root)
@@ -473,7 +492,11 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
             existed = False
         try:
             attached = _write_images(home, files)
-            dest, on = _prepare_repo(engine, home, owner, repo, token, branch)
+            if blank:
+                dest, on = home / "idea", ""
+                dest.mkdir(exist_ok=True)
+            else:
+                dest, on = _prepare_repo(engine, home, owner, repo, token, branch)
             on_branch = bool(branch) and on == branch
             siblings = _checkout_siblings(engine, home, wanted, tokens)
             surface = "shape" if mode == "shape" else "ask"
@@ -514,9 +537,10 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                     log.info("ask: resume of %s failed (exit=%s) - starting fresh", session[:12], proc.returncode)
             if not resumed:
                 prompt = PROMPT.format(
-                    intro=INTRO.format(repo=f"{owner}/{repo}",
-                                       branch_note=f", on `{branch}`" if on_branch else "",
-                                       siblings=_siblings_note(siblings)),
+                    intro=INTRO_NO_REPO if blank else INTRO.format(
+                        repo=f"{owner}/{repo}",
+                        branch_note=f", on `{branch}`" if on_branch else "",
+                        siblings=_siblings_note(siblings)),
                     instructions=(instructions or "").strip()[:MAX_INSTRUCTIONS] or DEFAULT_INSTRUCTIONS,
                     attachments=tools_note + _attachments_note(attached),
                     context=context or "(no comments yet)", question=question)
