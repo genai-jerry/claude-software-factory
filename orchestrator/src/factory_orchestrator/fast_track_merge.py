@@ -29,6 +29,7 @@ log = logging.getLogger("factory-orchestrator.fast-track-merge")
 FAST_TRACK = "factory:fast-track"
 MERGED_MARK = "<!-- factory-fast-track-merged -->"
 HELD_MARK = "<!-- factory-fast-track-held -->"
+CLOSED_MARK = "<!-- factory-fast-track-closed -->"
 
 
 def enabled(release_cfg: dict[str, Any]) -> bool:
@@ -45,6 +46,41 @@ def fast_track_pr(port: RepoPort, number: int) -> dict[str, Any] | None:
     return None
 
 
+def merged_fast_track_pr(port: RepoPort, number: int) -> dict[str, Any] | None:
+    """The fast lane's PR for this issue, once it has been merged (by the factory or a person)."""
+    closes = re.compile(rf"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#{number}\b", re.IGNORECASE)
+    try:
+        closed = port.list_closed_pulls()
+    except Exception:  # noqa: BLE001 - not finding it is "not yet", never a failed sweep
+        return None
+    for pr in closed:
+        head = (pr.get("head") or {}).get("ref", "")
+        if pr.get("merged_at") and head.startswith(f"factory/{number}-") and closes.search(pr.get("body") or ""):
+            return pr
+    return None
+
+
+def close_if_merged(port: RepoPort, number: int) -> bool:
+    """Close a fast-lane issue whose fix is on the integration branch.
+
+    GitHub closes an issue only when its PR merges into the DEFAULT branch, and this
+    lane's PR goes onto the integration branch, so without this the issue stayed open
+    until some promotion happened to name it — and Compass listed it as work in
+    progress long after the fix was on staging (beacon-web#56, #74).
+    """
+    pr = merged_fast_track_pr(port, number)
+    if pr is None:
+        return False
+    base = (pr.get("base") or {}).get("ref", "the integration branch")
+    port.update_issue_state(number, "closed")  # type: ignore[attr-defined]
+    port.create_comment(number, (
+        f"**Done: the fix is on `{base}`** (#{pr['number']}). Closing this issue.\n\n"
+        "**You need to:** nothing. It reaches production with the next promotion PR, "
+        "which a person merges (gate G3).\n\n"
+        f"{CLOSED_MARK}\n<!-- factory-agent -->"))
+    return True
+
+
 def _said(port: RepoPort, number: int, mark: str) -> bool:
     try:
         return any(mark in (c.get("body") or "") for c in port.list_comments(number))
@@ -54,13 +90,16 @@ def _said(port: RepoPort, number: int, mark: str) -> bool:
 
 def merge_fast_track(port: RepoPort, number: int, release_cfg: dict[str, Any]) -> str:
     """Try to merge this fast-lane issue's PR. Returns what happened, in a word:
-    `merged`, `waiting` (checks running / GitHub still computing), `held`
+    `merged` (the issue is closed too), `closed` (it was already merged: the issue
+    is closed now), `waiting` (checks running / GitHub still computing), `held`
     (conflict or failure, said on the issue), `off`, or `none` (no PR)."""
-    if not enabled(release_cfg):
-        return "off"
     pr = fast_track_pr(port, number)
     if pr is None:
-        return "none"
+        # No open PR: its fix may already be on the integration branch (merged by the
+        # factory earlier, or by a person) with the issue still open.
+        return "closed" if close_if_merged(port, number) else "none"
+    if not enabled(release_cfg):
+        return "off"
     n_pr = pr["number"]
     base = (pr.get("base") or {}).get("ref", "")
     if not base or base == port.default_branch():
@@ -83,10 +122,12 @@ def merge_fast_track(port: RepoPort, number: int, release_cfg: dict[str, Any]) -
             log.info("merged fast-track PR #%s onto %s in %s/%s", n_pr, base, port.owner, port.repo)
             if not _said(port, number, MERGED_MARK):
                 port.create_comment(number, (
-                    f"**The fix is on `{base}`.** The factory merged #{n_pr} there once it was green.\n\n"
-                    "**You need to:** nothing now. It reaches production with the next promotion PR, "
+                    f"**Done: the fix is on `{base}`.** The factory merged #{n_pr} there once it was green, "
+                    "and is closing this issue.\n\n"
+                    "**You need to:** nothing. It reaches production with the next promotion PR, "
                     "which a person merges (gate G3).\n\n"
                     f"{MERGED_MARK}\n<!-- factory-agent -->"))
+            port.update_issue_state(number, "closed")  # type: ignore[attr-defined]
             return "merged"
     if not _said(port, number, HELD_MARK):
         port.create_comment(number, (
