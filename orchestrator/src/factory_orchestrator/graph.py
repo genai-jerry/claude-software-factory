@@ -54,7 +54,14 @@ from .guards import (
 from .issue_workspaces import MODES, STAGING, IssueKey, workspace_key
 from .ledger import Ledger
 from .live_log import LiveRunLog
-from .models import ModelResolutionError, Probe, load_models_config, resolve_model
+from .models import (
+    ModelResolutionError,
+    Probe,
+    load_models_config,
+    merged_models,
+    no_compass_models,
+    resolve_model,
+)
 from .reconcile import usage_limit_error
 from .role_runner import RoleRunner
 from .router import (
@@ -128,8 +135,10 @@ class Engine:
     def __init__(self, cfg: Config, ledger: Ledger, app: GitHubApp,
                  runner: RoleRunner, probe: Probe,
                  transcript_dir: str | None = None,
-                 port_factory=None):
+                 port_factory=None, compass_models=None):
         self.cfg = cfg
+        #: Compass → Models: (owner, repo) -> {role: [models]}, over the repo's file.
+        self.compass_models = compass_models or no_compass_models
         self.ledger = ledger
         self.app = app
         self.runner = runner
@@ -615,7 +624,9 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
                     "CLAUDE_CODE_OAUTH_TOKEN in the Compass so it is forwarded "
                     "on POST /events, or set one on the orchestrator.")
             note("resolving model")
-            resolved = resolve_model(role, load_models_config(port), engine.probe)
+            resolved = resolve_model(
+                role, merged_models(load_models_config(port), engine.compass_models(owner, repo)),
+                engine.probe)
         except ModelResolutionError as e:
             live.event("error", str(e))
             engine.ledger.finish_run(run_id, outcome="error", error=str(e),

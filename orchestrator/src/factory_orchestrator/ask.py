@@ -436,7 +436,8 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                     repos: list[dict[str, Any]] | None = None,
                     conversation: str | None = None,
                     session: str | None = None,
-                    mcp_servers: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                    mcp_servers: list[dict[str, Any]] | None = None,
+                    models: list[str] | None = None) -> dict[str, Any]:
     """Run one read-only Claude session; the answer, model, usage and session.
 
     With `conversation` the workspace is kept between calls and brought level
@@ -470,9 +471,13 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                        "CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in the Console's "
                        "settings.", 503)
     try:
-        # A new product has no repo to carry a models file: the defaults apply.
-        models = {} if blank else load_models_config(engine.port(owner, repo))
-        model = resolve_model("ask", models, engine.probe).model
+        # Compass → Models sends the chain for this kind of conversation; without
+        # one the repo's file decides (a new product has none: the default).
+        if models:
+            config: dict[str, Any] = {"ask": models}
+        else:
+            config = {} if blank else load_models_config(engine.port(owner, repo))
+        model = resolve_model("ask", config, engine.probe).model
     except ModelResolutionError as e:
         raise AskError(str(e), 503) from e
 

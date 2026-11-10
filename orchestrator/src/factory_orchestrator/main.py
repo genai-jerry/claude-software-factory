@@ -12,6 +12,7 @@ import threading
 import time
 
 from .ask import answer_question
+from .attachments import ConsoleAttachments
 from .config import load_config
 from .console_secrets import (
     ConsoleSecretStore,
@@ -24,11 +25,10 @@ from .guards import clear_in_progress, report_failure
 from .issue_workspaces import DEFAULT_IDLE_DAYS, IssueWorkspaces
 from .ledger import Ledger
 from .mcp_tools import store_from_env
-from .models import default_probe
+from .models import CompassModels, default_probe
 from .reconcile import sweep_repo
 from .repo_cache import RepoCache
 from .role_runner import FactorySource, RoleRunner
-from .attachments import ConsoleAttachments
 from .token_refresh import ConsoleTokenSource
 from .webhook import create_app
 
@@ -89,7 +89,10 @@ def build_service():
                         mcp=store_from_env(env, dispatch_token=cfg.dispatch_token.reveal(),
                                            origin_of=app.console.console_origin if app.console else None))
     engine = Engine(cfg, ledger, app, runner, default_probe(cfg),
-                    transcript_dir=os.environ.get("TRANSCRIPT_DIR"))
+                    transcript_dir=os.environ.get("TRANSCRIPT_DIR"),
+                    # Compass → Models: the chains set in the Compass that dispatched the repo.
+                    compass_models=CompassModels(cfg.dispatch_token.reveal(),
+                                                 app.console.console_origin if app.console else None))
     graph = build_graph(engine, checkpointer=make_checkpointer(cfg.database_url))
     processor = Processor(engine, graph)
     web = create_app(cfg, ledger, processor, concurrency=cfg.worker_concurrency)

@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+import httpx
 
 from .config import Config, agent_path
 from .github_app import RepoPort, parse_json_or_empty
@@ -72,6 +75,66 @@ def resolve_model(role: str, models_config: dict[str, Any], probe: Probe) -> Res
 
 def load_models_config(port: RepoPort, ref: str | None = None) -> dict[str, Any]:
     return parse_json_or_empty(port.get_file(MODELS_PATH, ref=ref))
+
+
+def merged_models(repo_file: dict[str, Any], compass: dict[str, Any]) -> dict[str, Any]:
+    """Compass → Models wins phase by phase; the repo's file fills the rest."""
+    out = dict(repo_file)
+    for role, chain in compass.items():
+        if isinstance(chain, list) and chain and all(isinstance(x, str) and x for x in chain):
+            out[role] = chain
+    return out
+
+
+PULL_PATH = "/api/orchestrator/models"
+
+
+class CompassModels:
+    """The chains Compass → Models sets for a repo, from the Compass that dispatched it.
+
+    Read before each run and cached per repo for a minute. A Compass that is
+    unknown, down or too old (404 on this path) sets nothing, and the repo's
+    file and the default decide, as before; it never fails a run.
+    """
+
+    def __init__(self, dispatch_token: str, origin_of, *, client: httpx.Client | None = None,
+                 ttl_seconds: float = 60.0, timeout: float = 10.0):
+        self.dispatch_token = dispatch_token
+        self.origin_of = origin_of
+        self.ttl = ttl_seconds
+        self.timeout = timeout
+        self._client = client
+        self._cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+    def __call__(self, owner: str, repo: str) -> dict[str, Any]:
+        key = f"{owner}/{repo}"
+        hit = self._cache.get(key)
+        if hit and time.monotonic() - hit[0] < self.ttl:
+            return hit[1]
+        origin = self.origin_of(owner, repo) if self.origin_of else None
+        got: dict[str, Any] = {}
+        if origin and self.dispatch_token:
+            client = self._client or httpx.Client(timeout=self.timeout)
+            try:
+                r = client.get(f"{origin.rstrip('/')}{PULL_PATH}", params={"repo": key},
+                               headers={"Authorization": f"Bearer {self.dispatch_token}"})
+                if r.status_code < 400:
+                    body = r.json() or {}
+                    got = body.get("models") if isinstance(body.get("models"), dict) else {}
+                elif r.status_code != 404:
+                    log.warning("models: Compass %s returned %s for %s", PULL_PATH, r.status_code, key)
+            except (httpx.HTTPError, ValueError) as e:
+                log.warning("models: could not read Compass → Models for %s: %s", key, e)
+                got = hit[1] if hit else {}
+            finally:
+                if self._client is None:
+                    client.close()
+        self._cache[key] = (time.monotonic(), got)
+        return got
+
+
+def no_compass_models(owner: str, repo: str) -> dict[str, Any]:
+    return {}
 
 
 def default_probe(cfg: Config) -> Probe:

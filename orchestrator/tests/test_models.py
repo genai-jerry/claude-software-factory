@@ -55,3 +55,49 @@ def test_string_chain_and_junk_config():
 def test_exhausted_chain_raises():
     with pytest.raises(ModelResolutionError, match="factory-models.json"):
         resolve_model("intake", {"intake": ["a", "b"]}, probe_allowing())
+
+
+# --- Compass → Models -------------------------------------------------------
+
+import httpx  # noqa: E402
+
+from factory_orchestrator.models import CompassModels, merged_models  # noqa: E402
+
+
+def test_compass_wins_phase_by_phase_and_the_repo_file_fills_the_rest():
+    repo_file = {"implementer": ["claude-opus-5"], "reviewer": ["claude-sonnet-5"]}
+    got = merged_models(repo_file, {"implementer": ["claude-opus-5-5", "claude-sonnet-5-5"], "qa": [], "bad": [3]})
+    assert got == {"implementer": ["claude-opus-5-5", "claude-sonnet-5-5"], "reviewer": ["claude-sonnet-5"]}
+    assert resolve_model("implementer", got, probe_allowing("claude-sonnet-5-5")).model == "claude-sonnet-5-5"
+
+
+def _compass(handler):
+    seen = []
+
+    def wrapped(request):
+        seen.append(request)
+        return handler(request)
+    client = httpx.Client(transport=httpx.MockTransport(wrapped))
+    return seen, client
+
+
+def test_compass_models_are_read_with_the_dispatch_token_and_cached():
+    seen, client = _compass(lambda r: httpx.Response(200, json={"models": {"implementer": ["claude-opus-5-5"]}}))
+    pull = CompassModels("tok", lambda o, r: "https://compass.test/", client=client)
+    assert pull("genai", "beacon-api") == {"implementer": ["claude-opus-5-5"]}
+    assert pull("genai", "beacon-api") == {"implementer": ["claude-opus-5-5"]}
+    assert len(seen) == 1
+    assert str(seen[0].url) == "https://compass.test/api/orchestrator/models?repo=genai%2Fbeacon-api"
+    assert seen[0].headers["authorization"] == "Bearer tok"
+
+
+def test_a_compass_that_is_unknown_old_or_down_sets_nothing():
+    _, old = _compass(lambda r: httpx.Response(404, json={"error": "Not Found"}))
+    assert CompassModels("tok", lambda o, r: "https://compass.test", client=old)("o", "r") == {}
+
+    def down(r):
+        raise httpx.ConnectError("refused")
+    _, broken = _compass(down)
+    assert CompassModels("tok", lambda o, r: "https://compass.test", client=broken)("o", "r") == {}
+    assert CompassModels("tok", lambda o, r: None)("o", "r") == {}
+    assert CompassModels("", lambda o, r: "https://compass.test")("o", "r") == {}

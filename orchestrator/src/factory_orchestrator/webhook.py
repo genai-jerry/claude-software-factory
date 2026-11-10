@@ -78,6 +78,14 @@ def _public_ask(row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _models(raw: Any) -> list[str] | None:
+    """Compass → Models' chain for an ask: a short list of model ids, or nothing."""
+    if not isinstance(raw, list):
+        return None
+    chain = [m.strip() for m in raw if isinstance(m, str) and m.strip() and len(m) <= 80][:4]
+    return chain or None
+
+
 def thread_key(payload: dict[str, Any]) -> str:
     """The issue a delivery belongs to — the same key as the graph's thread."""
     repo = (payload.get("repository") or {}).get("full_name", "unknown/unknown")
@@ -314,7 +322,8 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
             images=images if isinstance(images, list) else None, mode=mode,
             repos=repos if isinstance(repos, list) else None,
             conversation=conversation, session=session,
-            mcp_servers=body.get("mcp_servers") if isinstance(body.get("mcp_servers"), list) else None)
+            mcp_servers=body.get("mcp_servers") if isinstance(body.get("mcp_servers"), list) else None,
+            models=_models(body.get("models")))
 
     def _ask_failure(e: Exception, kwargs: dict[str, Any]) -> tuple[str, int]:
         """The reason and status an ask failed with, safe to hand the caller."""
