@@ -19,10 +19,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - name: Test
         run: |
-          python3 -m pip install --quiet pytest
-          python3 -m pytest orchestrator/tests/test_log_reader.py -q
+          python -m pip install --quiet pytest
+          python -m pytest orchestrator/tests/test_log_reader.py -q
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Build and push
