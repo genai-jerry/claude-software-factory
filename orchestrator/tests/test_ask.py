@@ -481,3 +481,43 @@ async def test_the_endpoint_takes_owner_and_repo_together_or_neither(tmp_path):
         assert seen["mcp_servers"] == [{"name": "s", "url": "https://s", "tools": ["t"]}]
         half = await c.post("/ask", json={"owner": "o", "question": "x"}, headers=h)
         assert half.status_code == 400
+
+
+OUT_OF_TURNS = '{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":61,"session_id":"sess-deep"}'
+
+
+def _cli_that_runs_out(tmp_path, out, then: str):
+    """A fake CLI that uses every step on a fresh prompt, and prints `then` when resumed."""
+    (tmp_path / "claude-hook.sh").write_text(
+        f'last=$(ls -t "{out}"/argv-*.txt | head -1)\n'
+        f'if grep -qx -- --resume "$last"; then echo \'{then}\'; else echo \'{OUT_OF_TURNS}\'; fi\n')
+
+
+def test_investigate_mode_has_the_widest_budget_and_the_conversation_tools(tmp_path):
+    engine, out = engine_for(tmp_path)
+    assert MODES["investigate"][2] > MODES["shape"][2] and MODES["investigate"][3] > MODES["shape"][3]
+    answer_question(engine, owner="", repo="", question="What broke?", context="", mode="investigate")
+    argv = next(out.glob("argv-*.txt")).read_text().split("\n")
+    assert argv[argv.index("--max-turns") + 1] == str(MODES["investigate"][2])
+
+
+def test_a_session_that_uses_every_step_is_resumed_for_the_answer(tmp_path):
+    engine, out = engine_for(tmp_path)
+    _cli_that_runs_out(tmp_path, out, then=RESULT)
+    got = answer_question(engine, owner="o", repo="r", question="Why three reschedules?", context="",
+                          mode="investigate")
+    assert got["answer"].startswith("It stopped after two rework rounds.")
+    argvs = sorted(out.glob("argv-*.txt"))
+    assert len(argvs) == 2
+    last = argvs[-1].read_text().split("\n")
+    assert last[last.index("--resume") + 1] == "sess-deep"
+    assert last[last.index("--max-turns") + 1] == "3"
+    assert "must stop investigating" in sorted(out.glob("prompt-*.txt"))[-1].read_text()
+
+
+def test_running_out_of_steps_twice_says_so(tmp_path):
+    engine, out = engine_for(tmp_path)
+    _cli_that_runs_out(tmp_path, out, then=OUT_OF_TURNS)
+    with pytest.raises(AskError) as e:
+        answer_question(engine, owner="o", repo="r", question="Why?", context="", mode="shape")
+    assert "used all 24 steps" in str(e.value)
