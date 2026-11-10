@@ -1,0 +1,23 @@
+# Add to the production stack's compose file (beside beacon-api and the rest).
+# Needs LOG_READER_TOKEN in the stack's .env:  openssl rand -hex 24
+#
+# Put it behind the stack's TLS reverse proxy (Traefik) on its own host name,
+# e.g. logs.example.com → this service, port 8099. Compass will not call it
+# without https.
+  log-reader:
+    build: ./tools/log-reader          # or: image: ghcr.io/<you>/log-reader
+    restart: unless-stopped
+    environment:
+      LOG_READER_TOKEN: ${LOG_READER_TOKEN:?set a 48-character token}
+      LOG_SERVICES: beacon-api,beacon-worker,beacon-session-manager,beacon-voice   # only these are readable
+    volumes:
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro                  # logs, read-only
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.logreader.rule=Host(`logs.example.com`)
+      - traefik.http.routers.logreader.entrypoints=websecure
+      - traefik.http.routers.logreader.tls.certresolver=letsencrypt
+      - traefik.http.services.logreader.loadbalancer.server.port=8099
