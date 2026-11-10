@@ -62,6 +62,22 @@ def _carry_refresh(inputs: dict[str, Any], console_url: Any, installation_id: An
     inputs["console_url"] = str(console_url)
 
 
+#: What a caller is told about an ask that was running when the process stopped.
+ASK_INTERRUPTED = "The orchestrator restarted while answering. Ask again."
+
+
+def _public_ask(row: dict[str, Any]) -> dict[str, Any]:
+    """An asks row as GET /asks/{id} returns it: the answer's fields at the top."""
+    out: dict[str, Any] = json.loads(row["result"]) if row.get("result") else {}
+    out.update(id=row["id"], status=row["status"])
+    if row.get("error"):
+        out["error"] = row["error"]
+        out["error_status"] = row.get("error_status")
+    for key in ("created_at", "finished_at"):
+        out[key] = str(row[key]) if row.get(key) is not None else None
+    return out
+
+
 def thread_key(payload: dict[str, Any]) -> str:
     """The issue a delivery belongs to — the same key as the graph's thread."""
     repo = (payload.get("repository") or {}).get("full_name", "unknown/unknown")
@@ -103,6 +119,9 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         requeued = ledger.requeue_processing()
         if requeued:
             log.info("requeued %d deliveries stuck in processing from a prior run", requeued)
+        lost = ledger.interrupt_asks(ASK_INTERRUPTED)
+        if lost:
+            log.info("failed %d asks a prior run left unanswered", lost)
         while not stop.is_set():
             batch = ledger.claim_pending()
             if not batch:
@@ -249,11 +268,11 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         )
         return {"queued": fresh, "delivery_guid": guid}
 
-    @app.post("/ask")
-    async def ask(request: Request) -> dict[str, Any]:
-        """A person's question about a thread, answered by the Claude CLI (ask.py)."""
-        _require_dispatch_token(request)
-        body = await request.json()
+    def _ask_kwargs(body: dict[str, Any]) -> dict[str, Any]:
+        """Check an ask request and turn it into the asker's arguments.
+
+        Done before a slot or a clone is spent, for /ask and /asks alike.
+        """
         if not isinstance(body.get("question"), str) or not body["question"].strip():
             raise HTTPException(status_code=400, detail="missing question")
         for key in ("owner", "repo"):
@@ -280,7 +299,6 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         session = body.get("session")
         if session is not None and (not isinstance(session, str) or not session.strip() or len(session) > 128):
             raise HTTPException(status_code=400, detail="session must be a short string")
-        # Checked here, before a slot or a clone is spent on a bad upload.
         try:
             if images is not None:
                 check_images(images)
@@ -288,26 +306,87 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
                 check_repos(repos, owner, repo)
         except AskError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
+        return dict(
+            owner=owner, repo=repo,
+            question=body["question"], context=str(body.get("context") or ""),
+            branch=body.get("branch") if isinstance(body.get("branch"), str) else None,
+            instructions=body.get("instructions") if isinstance(body.get("instructions"), str) else None,
+            images=images if isinstance(images, list) else None, mode=mode,
+            repos=repos if isinstance(repos, list) else None,
+            conversation=conversation, session=session,
+            mcp_servers=body.get("mcp_servers") if isinstance(body.get("mcp_servers"), list) else None)
+
+    def _ask_failure(e: Exception, kwargs: dict[str, Any]) -> tuple[str, int]:
+        """The reason and status an ask failed with, safe to hand the caller."""
+        from .ask import AskError
+        if isinstance(e, AskError):
+            return str(e), e.status
+        # The message can carry a token or a path; the kind of failure is
+        # what the person needs, and the log has the rest.
+        log.error("ask: unexpected failure for %s/%s", kwargs["owner"], kwargs["repo"], exc_info=e)
+        return (f"The orchestrator failed while answering ({type(e).__name__}). "
+                "Its log has the details.", 500)
+
+    @app.post("/ask")
+    async def ask(request: Request) -> dict[str, Any]:
+        """A person's question, answered while the caller waits (ask.py).
+
+        Kept for callers that have not moved to POST /asks. An answer can take
+        minutes and nothing is sent until it is done, so a caller's HTTP
+        client may give up first; /asks does not hold a request open.
+        """
+        _require_dispatch_token(request)
+        kwargs = _ask_kwargs(await request.json())
         try:
-            return await asyncio.to_thread(
-                app.state.asker, owner=owner, repo=repo,
-                question=body["question"], context=str(body.get("context") or ""),
-                branch=body.get("branch") if isinstance(body.get("branch"), str) else None,
-                instructions=body.get("instructions") if isinstance(body.get("instructions"), str) else None,
-                images=images if isinstance(images, list) else None, mode=mode,
-                repos=repos if isinstance(repos, list) else None,
-                conversation=conversation, session=session,
-                mcp_servers=body.get("mcp_servers") if isinstance(body.get("mcp_servers"), list) else None)
-        except AskError as e:
-            raise HTTPException(status_code=e.status, detail=str(e)) from e
+            return await asyncio.to_thread(app.state.asker, **kwargs)
         except Exception as e:  # noqa: BLE001 - the asker deserves a reason, not a bare 500
-            # The message can carry a token or a path; the kind of failure is
-            # what the person needs, and the log has the rest.
-            log.exception("ask: unexpected failure for %s/%s", owner, repo)
-            raise HTTPException(
-                status_code=500,
-                detail=f"The orchestrator failed while answering ({type(e).__name__}). "
-                       "Its log has the details.") from e
+            detail, status = _ask_failure(e, kwargs)
+            raise HTTPException(status_code=status, detail=detail) from e
+
+    ask_jobs: set[asyncio.Task] = set()  # held so a running ask is not collected
+
+    async def _answer_in_background(ask_id: str, kwargs: dict[str, Any]) -> None:
+        try:
+            result = await asyncio.to_thread(app.state.asker, **kwargs)
+        except Exception as e:  # noqa: BLE001 - stamped on the ask, for its caller
+            detail, status = _ask_failure(e, kwargs)
+            ledger.finish_ask(ask_id, error=detail, error_status=status)
+            return
+        ledger.finish_ask(ask_id, result=result)
+
+    @app.post("/asks", status_code=202)
+    async def submit_ask(request: Request, response: Response) -> dict[str, Any]:
+        """Start answering a question in the background; poll GET /asks/{id}.
+
+        The caller picks `id`. Sending an id that was seen before starts
+        nothing and returns that ask as it stands (200), so a retried submit
+        never runs Claude twice. A bad request is refused here, before any
+        work, with the same checks and statuses as /ask.
+        """
+        _require_dispatch_token(request)
+        body = await request.json()
+        from .ask import CONVERSATION_KEY
+        ask_id = body.get("id")
+        if not isinstance(ask_id, str) or not CONVERSATION_KEY.match(ask_id):
+            raise HTTPException(status_code=400, detail="id must match [A-Za-z0-9_-]{1,64}")
+        kwargs = _ask_kwargs(body)
+        seen = ledger.start_ask(ask_id)
+        if seen is not None:
+            response.status_code = 200
+            return _public_ask(seen)
+        job = asyncio.create_task(_answer_in_background(ask_id, kwargs))
+        ask_jobs.add(job)
+        job.add_done_callback(ask_jobs.discard)
+        return {"id": ask_id, "status": "running"}
+
+    @app.get("/asks/{ask_id}")
+    async def get_ask(ask_id: str, request: Request) -> dict[str, Any]:
+        """An ask's status, and its answer or the reason it failed once finished."""
+        _require_dispatch_token(request)
+        row = ledger.get_ask(ask_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="no such ask")
+        return _public_ask(row)
 
     @app.post("/dispatch")
     async def dispatch(request: Request) -> dict[str, Any]:
