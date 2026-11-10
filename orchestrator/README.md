@@ -247,8 +247,12 @@ GitHub carries all of it.
   the run ledger as a finished `ask` run so `GET /usage` counts it. The
   Console's thread view calls it. The body takes `owner`, `repo`, `question`,
   `context`, and optionally `branch`, `instructions`, `mode` (`ask`, the
-  default, or `shape` — the Compass's Shape page, with wider budgets: a 12 000
-  character question, 60 000 of context, 24 turns, 480 seconds) and `images`
+  default, `shape` — the Compass's Shape page, with wider budgets: a 12 000
+  character question, 60 000 of context, 24 turns, 480 seconds — or
+  `investigate`, Compass → Investigate, with 60 turns and 1 200 seconds; send
+  that one through `POST /asks`. A session that uses every turn without
+  answering is resumed once with three turns and told to answer from what it
+  found) and `images`
   (at most 6 of `{name, mime, data_b64}`, PNG/JPEG/GIF/WebP, 5 MB each,
   written beside the checkout and named in the prompt for the Read tool) and
   `repos` (at most 8 of `{owner, repo, branch}`: the project's other

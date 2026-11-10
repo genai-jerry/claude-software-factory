@@ -284,7 +284,7 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         from .ask import CONVERSATION_KEY, MODES, AskError, check_images, check_repos
         mode = body.get("mode") or "ask"
         if mode not in MODES:
-            raise HTTPException(status_code=400, detail="mode must be ask or shape")
+            raise HTTPException(status_code=400, detail=f"mode must be one of {', '.join(MODES)}")
         # Shape about a new product sends neither: no repository yet.
         owner, repo = str(body.get("owner") or ""), str(body.get("repo") or "")
         if bool(owner) != bool(repo):

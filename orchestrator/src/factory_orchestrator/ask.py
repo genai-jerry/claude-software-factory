@@ -66,7 +66,22 @@ ASK_TURNS = 14
 MODES: dict[str, tuple[int, int, int, int]] = {
     "ask": (MAX_QUESTION, MAX_CONTEXT, ASK_TURNS, ASK_TIMEOUT),
     "shape": (12_000, 60_000, 24, 480),
+    # Compass → Investigate: a production problem read across every repo of a
+    # product and its logs takes far more steps than shaping an idea. Asked
+    # through POST /asks, so no caller waits on the open request.
+    "investigate": (12_000, 60_000, 60, 1_200),
 }
+
+#: Modes that are Compass conversations: they may run without a repository and
+#: are offered the Shape tools (the log readers among them).
+CONVERSATION_MODES = ("shape", "investigate")
+
+#: What a session that used every step is told when it is resumed for the answer.
+OUT_OF_STEPS = """You have used every step you were given and must stop investigating.
+Answer the question now from what you have already found. Say plainly what
+you could not check, and what you would look at next."""
+#: Steps the out-of-steps resume may take: enough to write, not to keep reading.
+OUT_OF_STEPS_TURNS = 3
 
 #: Image attachments: what the Read tool can view, how many, how large.
 IMAGE_MIMES = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
@@ -430,14 +445,14 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
     to a fresh prompt with whatever `context` the caller sent.
     """
     if mode not in MODES:
-        raise AskError(f"Unknown mode {mode!r}; use ask or shape.", 400)
+        raise AskError(f"Unknown mode {mode!r}; use one of {', '.join(MODES)}.", 400)
     if conversation is not None and not CONVERSATION_KEY.match(conversation):
         raise AskError("conversation must match [A-Za-z0-9_-]{1,64}.", 400)
     if session is not None and (not isinstance(session, str) or not session.strip()
                                 or len(session) > 128):
         raise AskError("session must be a short string.", 400)
     blank = not repo
-    if blank and mode != "shape":
+    if blank and mode not in CONVERSATION_MODES:
         raise AskError("A question needs a repository; only Shape can run without one.", 400)
     if blank and repos:
         raise AskError("Other repositories need a primary repository.", 400)
@@ -500,7 +515,7 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                 dest, on = _prepare_repo(engine, home, owner, repo, token, branch)
             on_branch = bool(branch) and on == branch
             siblings = _checkout_siblings(engine, home, wanted, tokens)
-            surface = "shape" if mode == "shape" else "ask"
+            surface = "shape" if mode in CONVERSATION_MODES else "ask"
             # Compass sends the org's servers with the question; a source the
             # runner has (a shared Compass database) fills in for older Compasses.
             if mcp_servers is not None:
@@ -554,6 +569,18 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
                     attachments=tools_note + _attachments_note(attached),
                     context=context or "(no comments yet)", question=question)
                 proc = run([runner.claude_bin, "-p", *common], prompt)
+            # Every step used before an answer: the CLI reports error_max_turns
+            # and no result. Resume that session once, with only a few steps,
+            # for the answer from what it found, rather than lose the work.
+            spent = _result_of(proc.stdout or "")
+            if spent and spent.get("subtype") == "error_max_turns" and spent.get("session_id"):
+                log.info("ask: %s used all %s steps - resuming for the answer", mode, turns)
+                last = [*common]
+                last[last.index("--max-turns") + 1] = str(OUT_OF_STEPS_TURNS)
+                proc = run([runner.claude_bin, "-p", "--resume", str(spent["session_id"]), *last], OUT_OF_STEPS)
+                if not str((_result_of(proc.stdout or "") or {}).get("result") or "").strip():
+                    raise AskError(f"Claude used all {turns} steps without reaching an answer. "
+                                   "Ask a narrower question, or name where to look.", 502)
         finally:
             if persistent:
                 try:
@@ -577,7 +604,10 @@ def answer_question(engine, *, owner: str, repo: str, question: str, context: st
     for t in tokens:
         answer = runner._redact(answer, t)  # noqa: SLF001
     if proc.returncode != 0 or result.get("is_error") or not answer:
-        raise AskError(answer or "Claude did not return an answer.")
+        if not answer:
+            log.warning("ask: no answer exit=%s subtype=%s turns=%s", proc.returncode,
+                        result.get("subtype"), result.get("num_turns"))
+        raise AskError(answer or f"Claude did not return an answer ({result.get('subtype') or 'no reason given'}).")
     usage = result.get("usage") or {}
     log.info("ask repo=%s/%s mode=%s model=%s images=%s siblings=%s secs=%.0f turns=%s", owner,
              repo, mode, model, len(files), sum(1 for x in siblings if x["ok"]),
