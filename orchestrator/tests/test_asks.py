@@ -145,3 +145,32 @@ async def test_a_restart_fails_the_asks_it_interrupted_and_drops_old_ones(tmp_pa
     assert ledger.get_ask("cut-off")["status"] == "failed"
     with ledger.engine.begin() as cx:
         assert cx.execute(sa.select(sa.func.count()).select_from(asks)).scalar() == 2
+
+
+async def test_long_asks_do_not_take_the_threads_quick_reads_need(tmp_path):
+    """A busy factory filled the loop's default executor with asks and runs,
+    and GET /environments queued behind them until Compass gave up. Asks and
+    deliveries now have pools of their own."""
+    from concurrent.futures import ThreadPoolExecutor
+    app, _ = _app(tmp_path)
+    release = threading.Event()
+
+    def asker(**kw):
+        release.wait(5)
+        return {"answer": "ok", "model": "m", "usage": {}}
+    app.state.asker = asker
+    app.state.environments = lambda: {"sessions": None, "environments": []}
+    small = ThreadPoolExecutor(max_workers=1)  # a host with one spare thread
+    asyncio.get_running_loop().set_default_executor(small)
+    try:
+        async with _client(app) as c:
+            for i in range(3):
+                assert (await c.post("/asks", json={**BODY, "id": f"busy-{i}"}, headers=H)).status_code == 202
+            await asyncio.sleep(0.05)
+            got = await asyncio.wait_for(c.get("/environments"), timeout=2)
+            assert got.status_code == 200 and got.json() == {"sessions": None, "environments": []}
+            release.set()
+            await _until_finished(c, "busy-0")
+    finally:
+        release.set()
+        small.shutdown(wait=False)

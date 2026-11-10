@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import functools
 import html
 import json
 import logging
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -95,6 +97,10 @@ def thread_key(payload: dict[str, Any]) -> str:
     return f"{repo}#{issue}"
 
 
+#: Asks answered at once. Each holds a thread while Claude writes (minutes).
+ASK_THREADS = 8
+
+
 def create_app(cfg: Config, ledger: Ledger, processor: Processor,
                *, poll_interval: float = 0.5, concurrency: int = 8) -> FastAPI:
     stop = asyncio.Event()
@@ -108,12 +114,26 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
     issue_locks: dict[str, asyncio.Lock] = {}
     waiting: dict[str, int] = {}  # deliveries holding or queued on each lock
     inflight: set[asyncio.Task] = set()
+    # Deliveries and asks block a thread for minutes to hours each. On the
+    # event loop's default executor (min(32, CPUs + 4) threads: six on a
+    # two-CPU host) a busy factory took every thread, and the quick reads
+    # that share it — GET /environments — queued behind the runs until
+    # Compass gave up ("does not list its environments yet"). Each now has a
+    # pool of its own, sized to what it may run at once; the default
+    # executor is left for the quick reads.
+    run_pool = ThreadPoolExecutor(max_workers=max(1, concurrency), thread_name_prefix="delivery")
+    ask_pool = ThreadPoolExecutor(max_workers=ASK_THREADS, thread_name_prefix="ask")
+
+    async def in_pool(pool: ThreadPoolExecutor, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        return await asyncio.get_running_loop().run_in_executor(pool, functools.partial(fn, *args, **kwargs))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await app.state.start_worker()
         yield
         await app.state.stop_worker()
+        run_pool.shutdown(wait=False, cancel_futures=True)
+        ask_pool.shutdown(wait=False, cancel_futures=True)
 
     app = FastAPI(title="factory-orchestrator", docs_url=None, redoc_url=None,
                   lifespan=lifespan)
@@ -161,7 +181,7 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
             try:
                 # Processing runs in a thread: role runs block for minutes
                 # and must not stall the event loop or the intake endpoint.
-                await asyncio.to_thread(app.state.processor, item["event"], item["payload"])
+                await in_pool(run_pool, app.state.processor, item["event"], item["payload"])
                 ledger.finish_delivery(item["guid"])
             except Exception as exc:  # noqa: BLE001 - stamped on the ledger
                 log.exception("delivery %s failed", item["guid"])
@@ -347,7 +367,7 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
         _require_dispatch_token(request)
         kwargs = _ask_kwargs(await request.json())
         try:
-            return await asyncio.to_thread(app.state.asker, **kwargs)
+            return await in_pool(ask_pool, app.state.asker, **kwargs)
         except Exception as e:  # noqa: BLE001 - the asker deserves a reason, not a bare 500
             detail, status = _ask_failure(e, kwargs)
             raise HTTPException(status_code=status, detail=detail) from e
@@ -356,7 +376,7 @@ def create_app(cfg: Config, ledger: Ledger, processor: Processor,
 
     async def _answer_in_background(ask_id: str, kwargs: dict[str, Any]) -> None:
         try:
-            result = await asyncio.to_thread(app.state.asker, **kwargs)
+            result = await in_pool(ask_pool, app.state.asker, **kwargs)
         except Exception as e:  # noqa: BLE001 - stamped on the ask, for its caller
             detail, status = _ask_failure(e, kwargs)
             ledger.finish_ask(ask_id, error=detail, error_status=status)
