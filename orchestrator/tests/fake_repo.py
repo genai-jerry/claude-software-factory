@@ -82,6 +82,9 @@ class FakeRepo:
     def list_pulls(self):
         return [pr for prs in self.open_prs.values() for pr in prs]
 
+    def list_closed_pulls(self):
+        return list(getattr(self, "closed_prs", []))
+
     def create_status(self, sha, state, *, context, description, target_url=None):
         self.statuses.append((sha, state, context, description, target_url))
 

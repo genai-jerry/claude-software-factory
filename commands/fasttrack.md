@@ -111,8 +111,10 @@ Every other role reads it from a change folder, which does not exist here.
 - Do not create a change folder, `proposal.md`, `specs/`, `tasks.md` or
   `design.md`. If the change needs one, it is not a fast-track (step 2).
 - Do not apply pipeline state labels (`factory:intake`, `factory:spec-ready`,
-  …). This issue is not in the pipeline. `factory:fast-track` stays on it, and
-  the PR closing the issue is what ends its life.
+  …). This issue is not in the pipeline. `factory:fast-track` stays on it. The
+  orchestrator closes the issue once your PR is on the integration branch
+  (GitHub would only close it on a merge into the default branch), so never
+  close it yourself.
 - If the tests or build fail for a reason you cannot fix inside the size
   budget from step 2: push nothing, comment with what failed and what you
   tried, apply `factory:blocked`, and stop. A red PR is worse than no PR.

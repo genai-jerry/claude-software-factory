@@ -1210,7 +1210,10 @@ it waits for gate GS.
   onto the integration branch, right after the run or on a later reconciler
   sweep, and says so on the issue. A red or conflicting PR is held and said on
   the issue once. A repo turns this off with `"fast_track_merge": false` in
-  `.github/factory-release.json`. The role sizes the issue before writing any code and
+  `.github/factory-release.json`. The issue is **closed** once its PR is on the
+  integration branch, whoever merged it (GitHub would close it only on a merge
+  into the default branch, which this lane's PR is not), with a note that it
+  reaches production with the next promotion PR. The role sizes the issue before writing any code and
   hands it back to the normal pipeline — removing the label, saying why — when
   it needs a migration, a new dependency, a new public contract, or a design
   decision worth arguing separately. Its PR is based on the integration branch

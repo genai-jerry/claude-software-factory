@@ -314,7 +314,7 @@ def sweep_repo(port: RepoPort, ledger: Ledger,
         # A fast-lane fix whose checks were still running after its run
         # (FACTORY.md §5): merge it onto the integration branch once green.
         if (FAST_TRACK in labels and IN_PROGRESS not in labels and "factory:blocked" not in labels
-                and runs and runs[0].get("role") == "fasttrack" and runs[0].get("outcome") == "success"):
+                and any(x.get("role") == "fasttrack" and x.get("outcome") == "success" for x in runs)):
             try:
                 merge_fast_track(port, n, release_cfg)
             except Exception:  # noqa: BLE001 - one PR must not stop the sweep
