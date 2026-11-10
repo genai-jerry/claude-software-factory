@@ -337,6 +337,14 @@ Current profile:
 | dispatch, ops | `claude-haiku-4-5-20251001` → `claude-sonnet-5` | Mechanical label routing and health-check verification |
 | profiler | `claude-opus-5` → `claude-sonnet-5` | Reads a whole unfamiliar codebase and writes what every other role then treats as true |
 
+**Compass → Models** sets the same chains from the Compass, for the whole org
+and per project, and wins phase by phase over this file (project → org → the
+repo's file → the default above). The orchestrator reads them from the
+dispatching Compass (`GET /api/orchestrator/models?repo=`, cached a minute)
+before each run; Shape, Investigate and thread questions send theirs with the
+ask (`models` on `/ask`), still resolved as the `ask` role. A Compass that is
+down or older sets nothing, and this file decides as before.
+
 To retune: edit the JSON, merge — next runs pick it up. A `::warning::` line
 in the run log shows every fallback taken; if the whole chain is inaccessible
 the run fails with a clear error.

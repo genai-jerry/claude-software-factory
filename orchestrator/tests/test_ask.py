@@ -521,3 +521,33 @@ def test_running_out_of_steps_twice_says_so(tmp_path):
     with pytest.raises(AskError) as e:
         answer_question(engine, owner="o", repo="r", question="Why?", context="", mode="shape")
     assert "used all 24 steps" in str(e.value)
+
+
+def test_compass_models_choose_the_ask_model_over_the_repo_file(tmp_path):
+    engine, out = engine_for(tmp_path)
+    tried = []
+    engine.probe = lambda m: tried.append(m) or m == "claude-sonnet-5-5"
+    got = answer_question(engine, owner="o", repo="r", question="Why?", context="",
+                          models=["claude-opus-5-5", "claude-sonnet-5-5"])
+    assert tried == ["claude-opus-5-5", "claude-sonnet-5-5"]
+    argv = next(out.glob("argv-*.txt")).read_text().split("\n")
+    assert argv[argv.index("--model") + 1] == "claude-sonnet-5-5"
+    assert got["answer"]
+
+
+async def test_the_endpoint_passes_compass_models_and_drops_junk(tmp_path):
+    cfg = load_config({**BASE, "DATABASE_URL": f"sqlite:///{tmp_path}/o.db", "DISPATCH_TOKEN": "op-token"})
+    app = create_app(cfg, Ledger(cfg.database_url), lambda *_: None, poll_interval=0.05)
+    seen = {}
+
+    def asker(**kw):
+        seen.update(kw)
+        return {"answer": "ok", "model": "m", "usage": {}}
+    app.state.asker = asker
+    auth = {"authorization": "Bearer op-token"}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        body = {"owner": "o", "repo": "r", "question": "q", "context": "", "models": ["claude-opus-5-5", 3, " "]}
+        assert (await c.post("/ask", json=body, headers=auth)).status_code == 200
+        assert seen["models"] == ["claude-opus-5-5"]
+        assert (await c.post("/ask", json={**body, "models": "nope"}, headers=auth)).status_code == 200
+        assert seen["models"] is None
