@@ -268,6 +268,21 @@ GitHub carries all of it.
   fresh prompt with the `context` sent (`"resumed": false`). Every response
   carries `"session"`. Two messages on one conversation serialise; idle
   conversation homes are deleted after 24 hours.
+- **Questions in the background**: `POST /asks` (operator token) takes the
+  same body as `POST /ask` plus an `id` the caller picks (matching
+  `[A-Za-z0-9_-]{1,64}`), runs the checks `/ask` runs, and returns `202
+  {"id", "status": "running"}` at once; the answer is written in the
+  background. `GET /asks/<id>` returns the status (`running`, `done` or
+  `failed`) and, once finished, the fields `/ask` would have returned, or
+  `error` with the `error_status` `/ask` would have sent. Sending an id
+  again starts nothing and returns that ask as it stands (200), so a
+  repeated submit never runs Claude twice. The request is not stored (it
+  carries the Claude credential and the tools' secrets): an ask running when
+  the process stops is failed on the next start with "The orchestrator
+  restarted while answering", never re-run. Finished asks are kept seven
+  days. Prefer this to `/ask`, which holds the request open until the answer
+  is written; an HTTP client can give up first (Node's fetch waits 300 s for
+  headers by default).
 - **Writing scores**: every run's new agent comments are scored against
   FACTORY.md §1a with `scripts/comment-lint.js` from the factory checkout,
   and stored under `guards.writing` on the run (`GET /runs/<id>`). Report

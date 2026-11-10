@@ -68,6 +68,25 @@ runs = sa.Table(
     sa.Column("error", sa.Text),
 )
 
+#: A person's question answered in the background (POST /asks). The caller
+#: names the job, so sending the same id twice never runs Claude twice; it
+#: polls GET /asks/{id} for the outcome. The request itself is not kept: it
+#: carries the Claude credential and the tools' secrets, and a job a restart
+#: interrupted is failed, never re-run.
+asks = sa.Table(
+    "asks", metadata,
+    sa.Column("id", sa.String(64), primary_key=True),
+    sa.Column("status", sa.String(16), nullable=False),  # running | done | failed
+    sa.Column("result", sa.Text),                        # JSON: answer, model, usage, session, resumed
+    sa.Column("error", sa.Text),
+    sa.Column("error_status", sa.Integer),               # the HTTP status the sync /ask would have sent
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    sa.Column("finished_at", sa.DateTime(timezone=True)),
+)
+
+#: How long a finished ask is kept for its caller to collect.
+ASK_KEEP = dt.timedelta(days=7)
+
 
 def _now() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
@@ -157,6 +176,43 @@ class Ledger:
             return cx.execute(deliveries.update()
                               .where(deliveries.c.status == "processing")
                               .values(status="pending")).rowcount
+
+    # -- asks -------------------------------------------------------------
+    def start_ask(self, ask_id: str) -> dict[str, Any] | None:
+        """Record a new running ask; the existing row if the id was seen before."""
+        with self.engine.begin() as cx:
+            try:
+                cx.execute(asks.insert().values(id=ask_id, status="running", created_at=_now()))
+                return None
+            except sa.exc.IntegrityError:
+                pass
+        return self.get_ask(ask_id)
+
+    def finish_ask(self, ask_id: str, *, result: dict[str, Any] | None = None,
+                   error: str | None = None, error_status: int | None = None) -> None:
+        with self.engine.begin() as cx:
+            cx.execute(asks.update().where(asks.c.id == ask_id, asks.c.status == "running").values(
+                status="failed" if error else "done",
+                result=json.dumps(result) if result is not None else None,
+                error=error, error_status=error_status if error else None,
+                finished_at=_now()))
+
+    def get_ask(self, ask_id: str) -> dict[str, Any] | None:
+        with self.engine.begin() as cx:
+            row = cx.execute(sa.select(asks).where(asks.c.id == ask_id)).mappings().first()
+            return dict(row) if row else None
+
+    def interrupt_asks(self, error: str) -> int:
+        """On startup: fail every ask a prior process left running, and drop old ones.
+
+        The thread answering it died with that process, and the request was
+        never stored, so it cannot be resumed; the caller is told to ask again.
+        """
+        with self.engine.begin() as cx:
+            n = cx.execute(asks.update().where(asks.c.status == "running").values(
+                status="failed", error=error, error_status=503, finished_at=_now())).rowcount
+            cx.execute(asks.delete().where(asks.c.created_at < _now() - ASK_KEEP))
+        return n
 
     # -- runs -------------------------------------------------------------
     def start_run(self, *, repo: str, issue: int, role: str, trigger: str) -> str:
