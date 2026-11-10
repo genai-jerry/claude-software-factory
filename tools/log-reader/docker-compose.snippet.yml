@@ -1,23 +1,27 @@
-# Add to the production stack's compose file (beside beacon-api and the rest).
-# Needs LOG_READER_TOKEN in the stack's .env:  openssl rand -hex 24
+# For Beacon's production stack: this is exactly what beacon-infra's
+# compose/docker-compose.prod.yml now carries (it is opt-in; see its README note).
+# Kept here as the reference for any other Docker host.
 #
-# Put it behind the stack's TLS reverse proxy (Traefik) on its own host name,
-# e.g. logs.example.com → this service, port 8099. Compass will not call it
-# without https.
+# Needs LOG_READER_TOKEN (openssl rand -hex 24) and a DNS name for it.
   log-reader:
-    build: ./tools/log-reader          # or: image: ghcr.io/<you>/log-reader
-    restart: unless-stopped
+    <<: [*restart, *logging]
+    profiles: [logs]                    # off until COMPOSE_PROFILES=logs
+    image: ghcr.io/${GHCR_OWNER:-genai-jerry}/log-reader:${TAG_LOG_READER:-main}
     environment:
-      LOG_READER_TOKEN: ${LOG_READER_TOKEN:?set a 48-character token}
-      LOG_SERVICES: beacon-api,beacon-worker,beacon-session-manager,beacon-voice   # only these are readable
+      LOG_READER_TOKEN: ${LOG_READER_TOKEN:-}
+      # Only these are readable. The databases and Traefik are left out on purpose.
+      LOG_SERVICES: beacon-api,beacon-worker,beacon-worker-slow,beacon-beat,beacon-voice,connectors,connectors-jobs,gateway,session-manager
     volumes:
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro                  # logs, read-only
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro     # logs, read-only
     read_only: true
     cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
+    security_opt: ['no-new-privileges:true']
+    healthcheck:
+      test: ['CMD', 'python', '-c', 'import urllib.request; urllib.request.urlopen("http://localhost:8099/healthz", timeout=5)']
+      interval: 30s
     labels:
       - traefik.enable=true
-      - traefik.http.routers.logreader.rule=Host(`logs.example.com`)
-      - traefik.http.routers.logreader.entrypoints=websecure
-      - traefik.http.routers.logreader.tls.certresolver=letsencrypt
-      - traefik.http.services.logreader.loadbalancer.server.port=8099
+      - traefik.http.routers.logs.rule=Host(`logs.${BEACON_DOMAIN}`)
+      - traefik.http.routers.logs.entrypoints=websecure
+      - traefik.http.routers.logs.tls.certresolver=le
+      - traefik.http.services.logs.loadbalancer.server.port=8099

@@ -1,4 +1,6 @@
 FROM python:3.12-slim
+# Links the published image to this repository on GHCR.
+LABEL org.opencontainers.image.source="https://github.com/genai-jerry/claude-software-factory"
 COPY log_reader.py /app/log_reader.py
 # Docker's log files are root-owned, so this runs as root, with every
 # capability dropped in the compose file, a read-only root filesystem, a

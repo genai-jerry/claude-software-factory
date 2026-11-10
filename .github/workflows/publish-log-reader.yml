@@ -1,0 +1,34 @@
+name: Publish the log-reader image
+
+# tools/log-reader as a ready-made image, so a production stack pulls it like its
+# other services: ghcr.io/<owner>/log-reader:<sha> and :main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/log-reader/**"
+      - ".github/workflows/publish-log-reader.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test
+        run: |
+          python3 -m pip install --quiet pytest
+          python3 -m pytest orchestrator/tests/test_log_reader.py -q
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and push
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner}/log-reader"
+          docker build -t "${image}:${GITHUB_SHA::12}" -t "${image}:main" tools/log-reader
+          docker push "${image}:${GITHUB_SHA::12}"
+          docker push "${image}:main"
