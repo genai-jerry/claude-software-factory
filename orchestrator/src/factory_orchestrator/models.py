@@ -14,6 +14,7 @@ CLI for OAuth-token credentials, which the Anthropic SDK cannot use.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import time
 from collections.abc import Callable
@@ -45,6 +46,22 @@ class ModelResolutionError(RuntimeError):
 class ResolvedModel:
     model: str
     fallbacks: list[str] = field(default_factory=list)  # models probed and skipped
+    #: Why each skipped model was skipped, as the probe saw it (shown on the run in Compass).
+    reasons: dict[str, str] = field(default_factory=dict)
+
+
+_SECRET = re.compile(r"(sk-ant-[A-Za-z0-9_\-]+|gh[pousr]_[A-Za-z0-9]+|Bearer\s+\S+)")
+
+
+def probe_reason(text: str) -> str:
+    """A probe failure as one short line a person can read, with anything secret-shaped masked."""
+    line = next((l.strip() for l in reversed((text or "").splitlines()) if l.strip()), "")
+    return _SECRET.sub("[secret]", line)[:300] or "no output"
+
+
+def why_skipped(probe: Probe, model: str) -> str:
+    """The probe's reason for a model, when the probe keeps one."""
+    return (getattr(probe, "reasons", None) or {}).get(model) or "no reason recorded"
 
 
 def chain_for(role: str, models_config: dict[str, Any]) -> list[str]:
@@ -65,7 +82,8 @@ def resolve_model(role: str, models_config: dict[str, Any], probe: Probe) -> Res
             if skipped:
                 log.warning("Model fallback for %s: %s inaccessible, using %s",
                             role, ", ".join(skipped), model)
-            return ResolvedModel(model=model, fallbacks=skipped)
+            return ResolvedModel(model=model, fallbacks=skipped,
+                                 reasons={m: why_skipped(probe, m) for m in skipped})
         log.warning("Model %s is not accessible with this credential - trying next in chain", model)
         skipped.append(model)
     raise ModelResolutionError(
@@ -145,12 +163,14 @@ def default_probe(cfg: Config) -> Probe:
     does, not through the Anthropic Messages API (different ids).
     """
     cache: dict[str, bool] = {}
+    reasons: dict[str, str] = {}
 
     def probe(model: str) -> bool:
         if model in cache:
             return cache[model]
         creds = cfg.agent_credential_env()
         if not creds:
+            reasons[model] = "no Claude credential is stored for the factory"
             return False
         try:
             r = subprocess.run(
@@ -160,15 +180,24 @@ def default_probe(cfg: Config) -> Probe:
                 capture_output=True, timeout=120, text=True)
             ok = r.returncode == 0
             if not ok:
-                err = ((r.stderr or r.stdout or "").strip().splitlines() or [""])[-1]
-                log.warning("probe %s failed code=%s: %s", model, r.returncode, err or "(no output)")
-        except (OSError, subprocess.TimeoutExpired) as e:
+                # The CLI prints an API error on stdout and its own on stderr: the last line of either.
+                err = probe_reason((r.stderr or '') + '\n' + (r.stdout or ''))
+                reasons[model] = f"Claude refused it (exit {r.returncode}): {err}"
+                log.warning("probe %s failed code=%s: %s", model, r.returncode, err)
+        except subprocess.TimeoutExpired:
+            reasons[model] = "Claude did not answer the check within 120 seconds"
+            log.warning("probe %s timed out", model)
+            ok = False
+        except OSError as e:
+            reasons[model] = f"the Claude CLI could not run: {probe_reason(str(e))}"
             log.warning("probe %s could not run: %s", model, e)
             ok = False
         # Success only: a later /dispatch or Console refresh must be allowed
         # to retry after a placeholder key failed the first probe.
         if ok:
             cache[model] = True
+            reasons.pop(model, None)
         return ok
 
+    probe.reasons = reasons  # type: ignore[attr-defined]  # read by why_skipped
     return probe
