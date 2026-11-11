@@ -42,10 +42,13 @@ from .fast_track_merge import merge_fast_track
 from .github_app import GitHubApp, RepoPort, parse_json_or_empty
 from .guards import (
     clear_in_progress,
+    factory_state,
     mark_in_progress,
     no_op_reason,
+    repeating,
     report_failure,
     report_next_step,
+    report_repeat_stop,
     report_staging_moved,
     report_start,
     snapshot,
@@ -412,6 +415,11 @@ def build_graph(engine: Engine, checkpointer=None):
             k = (i["role"], int(i["issue"]), i.get("repo") or "")
             if k not in seen:
                 seen.add(k)
+                # A follow-up the chain chose (never the event's own role, which a
+                # person or a label asked for) does not restart a role that keeps
+                # ending where it began.
+                if state["round"] > 0 and _stuck(engine, state, i):
+                    continue
                 items.append(i)
         if items:
             def target(i: dict[str, Any]) -> tuple[str, str]:
@@ -439,6 +447,22 @@ def build_graph(engine: Engine, checkpointer=None):
     builder.add_edge("run_role", "chain")
     builder.add_conditional_edges("chain", fan, ["run_role", "chain", END])
     return builder.compile(checkpointer=checkpointer)
+
+
+def _stuck(engine: Engine, state: PipelineState, item: dict[str, Any]) -> bool:
+    """True (and said once on the issue) when this follow-up would repeat a role
+    whose last runs on the issue changed nothing."""
+    full = item.get("repo") or f"{state['owner']}/{state['repo']}"
+    try:
+        runs = engine.ledger.list_runs(repo=full, issue=int(item["issue"]), limit=20)
+    except Exception:  # noqa: BLE001 - a ledger hiccup must not stop the chain
+        return False
+    if not repeating(runs, item["role"]):
+        return False
+    owner, name = full.split("/", 1)
+    report_repeat_stop(engine.port(owner, name), int(item["issue"]), item["role"])
+    log.warning("not chaining %s on %s#%s: its last runs changed nothing", item["role"], full, item["issue"])
+    return True
 
 
 def run_link_base(engine: Engine, owner: str, repo: str) -> str:
@@ -692,6 +716,12 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         live.event("phase", "finished")
         guards = {"before": before.__dict__, "trace": traced, "phase": "finished",
                   "model": resolved.model, "fallbacks": resolved.fallbacks}
+        try:
+            # What the run left the issue at, beside what it found: two runs in a
+            # row that moved nothing stop the automatic re-runs (guards.repeating).
+            guards["after_state"] = factory_state(port, issue)
+        except Exception:  # noqa: BLE001 - a missing reading only weakens the loop guard
+            log.warning("could not read the state #%s ended in", issue, exc_info=True)
         # The hook stops the usual ways onto the integration branch; this
         # catches the rest, by looking at the branch itself.
         if not staging_open and staging_moved(engine, port, staging, staging_before, run_id):

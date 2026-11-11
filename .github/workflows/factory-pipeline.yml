@@ -2568,8 +2568,10 @@ jobs:
 
             Operating rules:
             - Use the gh CLI for GitHub operations (labels, comments, PRs); GH_TOKEN is set.
-            - HARD RULES: never push to main or master; never merge a pull request;
-              perform exactly one factory role in this run.
+            - HARD RULES: never push to main or master; merge a pull request only
+              where your role instructions tell you to (the Release Manager merges
+              task PRs into the epic branch itself); perform exactly one factory
+              role in this run.
             - End EVERY comment you post on an issue or PR with a line containing
               exactly: <!-- factory-agent -->
               (it stops your own comments from re-triggering the pipeline).
@@ -2647,8 +2649,10 @@ jobs:
 
           Operating rules:
           - Use the gh CLI for GitHub operations (labels, comments, PRs); GH_TOKEN is set.
-          - HARD RULES: never push to main or master; never merge a pull request;
-            perform exactly one factory role in this run.
+          - HARD RULES: never push to main or master; merge a pull request only
+            where your role instructions tell you to (the Release Manager merges
+            task PRs into the epic branch itself); perform exactly one factory
+            role in this run.
           - End EVERY comment you post on an issue or PR with a line containing
             exactly: <!-- factory-agent -->
             (it stops your own comments from re-triggering the pipeline).
@@ -3022,8 +3026,10 @@ jobs:
 
             Operating rules:
             - Use the gh CLI for GitHub operations (labels, comments, PRs); GH_TOKEN is set.
-            - HARD RULES: never push to main or master; never merge a pull request;
-              perform exactly one factory role in this run.
+            - HARD RULES: never push to main or master; merge a pull request only
+              where your role instructions tell you to (the Release Manager merges
+              task PRs into the epic branch itself); perform exactly one factory
+              role in this run.
             - End EVERY comment you post on an issue or PR with a line containing
               exactly: <!-- factory-agent -->
             - `factory:in-progress` is the pipeline's own "a run is live" marker

@@ -20,6 +20,7 @@ from typing import Any
 
 from .fast_track_merge import FAST_TRACK, merge_fast_track
 from .github_app import RepoPort, parse_json_or_empty
+from .guards import repeating, report_repeat_stop
 from .ledger import Ledger
 from .router import AGENT_MARK, IN_PROGRESS, RepoConfig, expedited_next, is_expedited
 
@@ -150,6 +151,11 @@ def stalled_role(port: RepoPort, issue: dict[str, Any], labels: list[str],
     nxt = expedited_next(state, epics)
     if (nxt and not nxt.startswith("gate:") and now - finished >= STALL_AFTER
             and is_expedited(port, issue, port_for)):
+        if repeating(runs, nxt):
+            # Its last runs here ended where they began: running it again
+            # would only say the same thing (guards.repeating).
+            report_repeat_stop(port, issue["number"], nxt)
+            return None
         return nxt, state
     return None
 
