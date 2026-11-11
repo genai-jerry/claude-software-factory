@@ -249,3 +249,48 @@ def test_adopting_a_filed_bug_on_an_expedited_epic_starts_its_fix():
     assert fix["title"].startswith("task(5): fix bug #6")
     assert r.role == "implementer"
     assert r.issues == [str(fix["number"])]
+
+
+def _intake_labelled_bug(title="Fix: staging app build fails", labels=("factory:bug",)):
+    world = FakeRepo({
+        5: {"number": 5, "title": "Epic",
+            "labels": [{"name": EPIC_READY}, {"name": EXPEDITE}]},
+        6: {"number": 6, "title": title,
+            "body": "Epic: #5\n\n**What happened:** SDK setup fails.",
+            "labels": [{"name": l} for l in labels], "user": {"login": "jerry"}},
+    }, {}, owner="o", repo="r")
+    return world, Router(world, RepoConfig(testing={"system_tests": True}))
+
+
+APP = {"login": "factory-console[bot]", "type": "Bot"}
+
+
+def test_a_bug_label_the_intake_analyst_applied_is_adopted():
+    """mirror#93, 11 Nov 2026: the Intake Analyst — running as this App —
+    turned an idea into a bug on its epic by applying `factory:bug` and
+    removing `factory:intake`. The router took the App's label for the one
+    `raise_bug` writes and skipped it, so the issue was left with no state."""
+    world, router = _intake_labelled_bug()
+    r = router.route("issues", {
+        "action": "labeled", "issue": world.issues[6],
+        "label": {"name": "factory:bug"}, "sender": APP,
+    })
+    labels = [l["name"] for l in world.issues[6]["labels"]]
+    assert "factory:bug-open" in labels
+    assert world.issues[6]["title"].startswith("bug(5): ")
+    fix = world.created[-1]
+    assert fix["title"].startswith("task(5): fix bug #6")
+    assert r.role == "implementer" and r.issues == [str(fix["number"])]
+
+
+@pytest.mark.parametrize("title,labels", [
+    ("bug(5): SDK setup fails", ("factory:bug",)),               # raise_bug retitled it
+    ("Fix: staging app build fails", ("factory:bug", "factory:bug-open")),  # retitle failed
+])
+def test_the_label_raise_bug_writes_is_not_adopted_twice(title, labels):
+    world, router = _intake_labelled_bug(title, labels)
+    router.route("issues", {
+        "action": "labeled", "issue": world.issues[6],
+        "label": {"name": "factory:bug"}, "sender": APP,
+    })
+    assert not world.created

@@ -2045,12 +2045,13 @@ jobs:
                 }
                 // factory:bug applied afterwards (§4c). Applying a label needs
                 // write access, so this path is privileged by definition. The
-                // factory's own write is skipped: raiseBug labels the report it
-                // just adopted.
+                // report raiseBug already made is skipped below.
                 if (name === BUG_KIND) {
-                  if (senderIsApp) {
-                    core.info(`${BUG_KIND} applied by this engine - the run that applied it raised the bug`);
-                  } else if (isBugTitle(i.title)) {
+                  // A report raiseBug already made is retitled and carries a
+                  // bug state; an issue the Intake Analyst labelled (as this
+                  // App) has neither and must still be adopted.
+                  const bugLabels = (i.labels || []).map(l => l.name);
+                  if (isBugTitle(i.title) || [BUG_OPEN, BUG_RETEST, BUG_VERIFIED].some(x => bugLabels.includes(x))) {
                     core.info(`#${i.number} is already a bug report - nothing to adopt`);
                   } else {
                     await adoptBug(i, true);
