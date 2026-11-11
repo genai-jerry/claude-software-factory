@@ -3,11 +3,20 @@
 # git, both installed here.
 FROM python:3.11-slim
 
+# Node 22: Claude Code 2.1.198 and later declare engines node >=22, and on
+# Node 20 npm quietly installed the last version that allowed it (2.1.197),
+# which cannot run newer models — every run fell back from claude-opus-5-5
+# with "version 2.1.280 or newer is required" (11 Nov 2026). The build prints
+# the version it got, and fails if it is older than MIN_CLAUDE_CODE.
+ARG MIN_CLAUDE_CODE=2.1.280
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git curl ca-certificates gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g @anthropic-ai/claude-code \
+    && npm install -g @anthropic-ai/claude-code@latest \
+    && got="$(claude --version | cut -d' ' -f1)" \
+    && echo "Claude Code $got (need $MIN_CLAUDE_CODE or newer)" \
+    && [ "$(printf '%s\n%s\n' "$MIN_CLAUDE_CODE" "$got" | sort -V | head -1)" = "$MIN_CLAUDE_CODE" ] \
     && apt-get purge -y gnupg && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
