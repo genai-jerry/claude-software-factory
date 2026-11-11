@@ -761,6 +761,21 @@ Under `epics: true` phase 1 merges onto the epic branch, which is the factory's
 own scratch space, so the chain runs it. Either way the epic ends at
 `factory:epic-ready` and a human opens GS.
 
+### A role that changes nothing is not re-run
+
+Expedite, the release → dispatch re-dispatch and the reconciler all read the
+state an issue is in *after* a run, so a run that only comments ("a person
+must merge this") leaves the same state and would start the same role again.
+After **two runs in a row** of one role on one issue that each ended
+`success` with the issue's `factory:*` state exactly as they found it (the
+engine records it on the run as `after_state`), nothing starts that role on
+that issue by itself again: the chain skips it, the sweep skips it, and the
+issue gets one comment saying so and what a person must do. A person starting
+the role (Compass, a label) is never blocked. The Dispatcher is exempt: its
+work lands on the tasks it releases, so its epic's state not moving is normal.
+On 10-11 Nov 2026, before this rule, two expedited epics' Release Manager runs
+repeated every two minutes for five hours (560 runs).
+
 ### Scope, inheritance and refusals
 
 The marker lives on the **epic**. Task sub-issues are expedited exactly when

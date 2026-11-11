@@ -9,6 +9,7 @@ comments carry the agent marker so they can never self-trigger.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,8 +20,8 @@ from .next_step import (
     already_said,
     approvers_for,
     extract_questions,
-    newest_agent_question_body,
     load_table,
+    newest_agent_question_body,
     render,
     state_of,
 )
@@ -51,16 +52,83 @@ class Snapshot:
     state: str  # sorted factory:* labels minus the in-progress marker
 
 
-def snapshot(port: RepoPort, issue: int) -> Snapshot:
-    """Comment count + factory state, the same shape the Actions no-op guard hashes."""
+def factory_state(port: RepoPort, issue: int) -> str:
+    """The issue's factory state: its sorted factory:* labels minus the in-progress marker."""
     iss = port.get_issue(issue) or {}
     labels = sorted(
         (l if isinstance(l, str) else l.get("name"))
         for l in iss.get("labels", [])
         if (l if isinstance(l, str) else l.get("name", "")).startswith("factory:")
     )
-    labels = [x for x in labels if x != IN_PROGRESS]
-    return Snapshot(comments=len(port.list_comments(issue)), state=",".join(labels))
+    return ",".join(x for x in labels if x != IN_PROGRESS)
+
+
+def snapshot(port: RepoPort, issue: int) -> Snapshot:
+    """Comment count + factory state, the same shape the Actions no-op guard hashes."""
+    return Snapshot(comments=len(port.list_comments(issue)), state=factory_state(port, issue))
+
+
+# --- runs that change nothing ------------------------------------------------
+#
+# A run that only comments is a success to the no-op guard, and the chain and
+# the reconciler then start the same role again on the same unchanged state.
+# On 10-11 Nov 2026 the Release Manager on four beacon-api tasks and two
+# beacon-whatsapp tasks did that for five hours — each run said "a person must
+# merge this", each was re-run two minutes later — 560 runs, $377. After this
+# many such runs in a row, nothing starts that role on that issue by itself
+# again; a person starting it (Compass, a label) still does.
+
+REPEAT_LIMIT = 2
+REPEAT_MARK = "<!-- factory-repeat-stop -->"
+#: Roles whose work lands on other issues, so an unchanged state of their own is normal.
+REPEAT_EXEMPT = frozenset({"dispatch"})
+
+
+def _guards_of(run: dict) -> dict:
+    g = run.get("guards")
+    if isinstance(g, str):
+        try:
+            g = json.loads(g)
+        except ValueError:
+            return {}
+    return g if isinstance(g, dict) else {}
+
+
+def repeating(runs: list[dict], role: str) -> bool:
+    """True when `role`'s last REPEAT_LIMIT finished runs here all succeeded and left the
+    issue's state as they found it. `runs` is the issue's ledger rows, newest first."""
+    if role in REPEAT_EXEMPT:
+        return False
+    mine = [r for r in runs if r.get("role") == role and r.get("finished_at") is not None][:REPEAT_LIMIT]
+    if len(mine) < REPEAT_LIMIT:
+        return False
+    for r in mine:
+        g = _guards_of(r)
+        before = (g.get("before") or {}).get("state")
+        after = g.get("after_state")
+        if r.get("outcome") != "success" or before is None or after is None or before != after:
+            return False
+    return True
+
+
+def report_repeat_stop(port: RepoPort, issue: int, role: str) -> bool:
+    """Say once, on the issue, that the factory stopped re-running this role. True if posted."""
+    try:
+        recent = port.list_comments(issue)[-10:]
+        if any(REPEAT_MARK in (c.get("body") or "") and f"**{role}**" in (c.get("body") or "") for c in recent):
+            return False
+        port.create_comment(issue, (
+            f"**The factory stopped re-running the **{role}** here: its last {REPEAT_LIMIT} runs "
+            "changed nothing.** Each one ended with the same state it started from.\n\n"
+            "**You need to:** do what its last comment asks, then start it again from Compass. "
+            "Nothing starts it on this issue by itself until then.\n\n"
+            f"{REPEAT_MARK}\n{AGENT_MARK}"))
+        log.warning("stopped re-running %s on %s/%s#%s: %d runs changed nothing",
+                    role, port.owner, port.repo, issue, REPEAT_LIMIT)
+        return True
+    except Exception:  # noqa: BLE001 - a missing notice must not fail the chain
+        log.warning("could not report the repeat stop on #%s", issue, exc_info=True)
+        return False
 
 
 def no_op_reason(role: str, issue: int) -> str:
