@@ -138,7 +138,8 @@ def test_images_land_beside_the_checkout_and_are_named_in_the_prompt(tmp_path):
     assert "/attachments/1-leads-page.png" in prompt and "/attachments/2-passwd.jpg" in prompt
     assert sorted(listing.read_text().split()) == ["1-leads-page.png", "2-passwd.jpg"]
     # The checkout itself carries no attachment, and everything is gone afterwards.
-    assert "r/attachments" not in prompt
+    # Anchored on "/": the random work dir (ask-xxxxxxxr) may itself end in "r".
+    assert "/r/attachments" not in prompt
     assert not list((tmp_path / "ws").iterdir())
 
 
