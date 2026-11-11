@@ -2223,12 +2223,14 @@ class Router:
                 return
             if name == BUG_KIND:
                 # Applying a label needs write access, so this path is
-                # privileged by definition. The factory's own write is skipped:
-                # `raise_bug` labels the report it just adopted.
-                if _sender_is_app(payload):
-                    log.info("%s applied by this App - the run that applied it raised the bug",
-                             BUG_KIND)
-                elif _is_bug_title(i.get("title")):
+                # privileged by definition. A report `raise_bug` already made
+                # is skipped: it is retitled `bug(<epic>)` and carries a bug
+                # state. The App applying the label is not enough to skip on —
+                # the Intake Analyst turns an issue into a bug by labelling it,
+                # as the App, and mirror#93 (11 Nov 2026) was left with no
+                # state at all because this branch assumed `raise_bug` had.
+                if _is_bug_title(i.get("title")) or any(
+                        x in BUG_STATES for x in _names(i.get("labels"))):
                     log.info("#%s is already a bug report - nothing to adopt", i["number"])
                 else:
                     self.adopt_bug(i, True)
