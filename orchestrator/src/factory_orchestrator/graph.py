@@ -660,7 +660,8 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
             log.info("role finish role=%s repo=%s/%s#%s run=%s status=error reason=model",
                      role, owner, repo, issue, run_id)
             return summary
-        extra = {"model": resolved.model, "fallbacks": resolved.fallbacks}
+        extra = {"model": resolved.model, "fallbacks": resolved.fallbacks,
+                 **({"fallback_reasons": resolved.reasons} if resolved.reasons else {})}
         engine.ledger.update_run(run_id, model=resolved.model,
                                  model_fallbacks=json.dumps(resolved.fallbacks))
         note("starting", **extra)
@@ -715,7 +716,8 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         live.replace_transcript(body)
         live.event("phase", "finished")
         guards = {"before": before.__dict__, "trace": traced, "phase": "finished",
-                  "model": resolved.model, "fallbacks": resolved.fallbacks}
+                  "model": resolved.model, "fallbacks": resolved.fallbacks,
+                  **({"fallback_reasons": resolved.reasons} if resolved.reasons else {})}
         try:
             # What the run left the issue at, beside what it found: two runs in a
             # row that moved nothing stop the automatic re-runs (guards.repeating).

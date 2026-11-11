@@ -101,3 +101,51 @@ def test_a_compass_that_is_unknown_old_or_down_sets_nothing():
     assert CompassModels("tok", lambda o, r: "https://compass.test", client=broken)("o", "r") == {}
     assert CompassModels("tok", lambda o, r: None)("o", "r") == {}
     assert CompassModels("", lambda o, r: "https://compass.test")("o", "r") == {}
+
+
+# --- why a model was skipped -------------------------------------------------
+
+import subprocess  # noqa: E402
+
+from factory_orchestrator.models import default_probe, probe_reason  # noqa: E402
+
+
+def test_a_skipped_model_carries_the_probes_reason():
+    def probe(m):
+        return m == "claude-sonnet-5-5"
+    probe.reasons = {"claude-opus-5-5": "Claude refused it (exit 1): model not available on your plan"}
+    got = resolve_model("release", {"release": ["claude-opus-5-5", "claude-sonnet-5-5"]}, probe)
+    assert got.model == "claude-sonnet-5-5"
+    assert got.reasons == {"claude-opus-5-5": "Claude refused it (exit 1): model not available on your plan"}
+    # A probe that keeps no reasons still resolves, and says so.
+    assert resolve_model("release", {"release": ["a", "b"]}, probe_allowing("b")).reasons == {"a": "no reason recorded"}
+
+
+def test_the_reason_is_one_line_with_secrets_masked():
+    assert probe_reason("warming up\nAPI Error: 404 model claude-opus-5-5 not found\n\n") == \
+        "API Error: 404 model claude-opus-5-5 not found"
+    assert "sk-ant" not in probe_reason("bad token sk-ant-oat01-abcDEF_123")
+    assert probe_reason("") == "no output"
+
+
+def test_the_default_probe_records_why_it_failed(monkeypatch):
+    cfg = type("Cfg", (), {"agent_credential_env": lambda self: {"CLAUDE_CODE_OAUTH_TOKEN": "t"}})()
+    outcomes = {
+        "refused": subprocess.CompletedProcess([], 1, stdout="API Error: model not available\n", stderr=""),
+        "ok": subprocess.CompletedProcess([], 0, stdout="OK", stderr=""),
+    }
+
+    def fake_run(argv, **_):
+        model = argv[argv.index("--model") + 1]
+        if model == "slow":
+            raise subprocess.TimeoutExpired(argv, 120)
+        return outcomes[model]
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    probe = default_probe(cfg)
+    assert probe("refused") is False and probe("slow") is False and probe("ok") is True
+    assert probe.reasons["refused"] == "Claude refused it (exit 1): API Error: model not available"
+    assert "120 seconds" in probe.reasons["slow"]
+    assert "ok" not in probe.reasons
+
+    none = default_probe(type("Cfg", (), {"agent_credential_env": lambda self: {}})())
+    assert none("x") is False and "no Claude credential" in none.reasons["x"]
