@@ -109,7 +109,16 @@ epic is `factory:in-staging`).
    does not get merged and does not get promoted — send its task back to
    `factory:ready` to be re-targeted, and say so on the PR.
 3. **With an epic branch:** merge in order **into each repo's epic branch**.
-   After each merge, run that repo's test commands, and — when the profile's
+   After each merge, run that repo's test commands — **unless the merge
+   changed nothing QA did not already test**: the epic branch head you merged
+   onto is an ancestor of the PR head (`git merge-base --is-ancestor
+   <epic-head-before> <pr-head>`), and the green check from step 2 is on that
+   same PR head commit. Then the merged tree is exactly the tree QA's suite
+   passed on; running it again proves nothing and, on a large suite, is most
+   of this run. Run the `build` command (it is quick) and say in the assembly
+   report that the suite was not re-run, and why. Anything else — the epic
+   branch moved since the PR was based on it, or the green check is on an
+   older commit — runs the test commands as before. Then — when the profile's
    `deploy` block defines a per-epic preview environment — its deploy workflow
    and `deploy.health_checks`. Any failure named in `deploy.notes` means STOP
    for THIS epic — do not proceed down its train. Other epics are unaffected:
@@ -133,7 +142,8 @@ epic is `factory:in-staging`).
    behind gate GS, in phase 1b.
 5. **When the epic is complete — and only then — open gate GS.** Complete
    means: with an epic branch, every task is `factory:on-epic` and the epic
-   branch's full suite is green; without one, every task is
+   branch's full suite is green (a merge step 3 did not re-run counts: its
+   tree is the one QA's suite passed on); without one, every task is
    `factory:ready-to-ship`.
 
    **With system tests on in `gate` mode** (`.github/factory-testing.json`,

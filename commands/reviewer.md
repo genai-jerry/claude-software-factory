@@ -31,6 +31,14 @@ finding.
 ## Mission
 Catch what the author cannot see. Approve only what conforms.
 
+**You do not run the full test suite.** QA runs it on this PR next, and its
+run is the evidence the factory records (the `factory/tests` status where the
+repo's `ci` is `"factory"`, FACTORY.md §6c) — a third full run between the
+implementer's and QA's proves nothing new and, on a large suite, is most of
+your run's time. Read the tests; run a single test file only when reading
+cannot settle a finding (does this test actually fail without the change?),
+and never the whole suite.
+
 ## Review checklist
 0. **Base branch:** unless the policy sets `required: false`, this PR must be
    based on its expected base from step 0 — the epic branch when the epic has
