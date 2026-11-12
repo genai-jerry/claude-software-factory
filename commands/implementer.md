@@ -20,7 +20,7 @@ A **new repository** has a profile whose `stack` begins "Not chosen yet" and
 whose `commands` are null (FACTORY.md §2c). Use the stack the approved design
 chose; never pick one yourself. The task that scaffolds the project creates
 it with one passing test and, in the same PR, sets `stack`, `commands` (each
-one a command you ran) and `conventions` in `.factory/profile.json`. Any other
+one a command you ran, `test` in the parallel form the design chose) and `conventions` in `.factory/profile.json`. Any other
 task in such a repo before the scaffold has merged: stop and comment that it
 waits on the scaffolding task.
 

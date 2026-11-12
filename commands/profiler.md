@@ -69,6 +69,33 @@ enforce conventions this repo does not follow. Everything below serves that.
    - A command that runs and **fails**: keep it, and record the failure in
      `gotchas` with the specific test or rule that is red, so later roles judge
      their delta rather than the baseline.
+   - **`test` runs the suite in parallel** (FACTORY.md §2c, "Tests run in
+     parallel"). Every task runs it at least twice, so its wall-clock time is
+     paid on every task. Time the suite as you first ran it, then:
+     - **The runner is already parallel, or the repo already has what it
+       needs:** Jest and Vitest run files in parallel by default, so keep any
+       `--runInBand` / `--no-file-parallelism` only if you saw it is needed.
+       `go test` is parallel across packages. With `pytest-xdist` already in
+       the dependencies, add `-n auto`. For Gradle, add `--parallel`. Record
+       that form.
+     - **Prove it before you record it:** run the parallel form twice. Both
+       runs must pass with the same passed/skipped counts as the run one test
+       at a time. If a test fails only in parallel, record the one-at-a-time
+       command and name that test in `gotchas`. A parallel command that is red
+       one time in five costs more than the minutes it saves.
+     - **Parallel would need a new dependency or config change** (pytest
+       without `pytest-xdist`, a Gradle `maxParallelForks` setting) **and the
+       suite one test at a time took 3 minutes or more:** you commit nothing
+       but the profile, so record the command one test at a time and file it.
+       Open one issue labelled `factory:fast-track`, titled "Run the test
+       suite in parallel". Its body names the change, the measured times and
+       the bar: the same counts as a run one test at a time, and no test that
+       fails only in parallel. Before filing, check for an open issue with
+       that title (`gh issue list --label factory:fast-track --search "Run the
+       test suite in parallel in:title"`) and link it instead if there is one.
+       Under 3 minutes, file nothing.
+     - Put the numbers in `qa_notes`: the number of tests, minutes one test at
+       a time, and minutes in parallel when you ran it.
 4. **Conventions — sample, then generalise.** Read enough real code to see the
    patterns: where data access lives, how modules are named, how errors and
    configuration are handled, what the tests look like. Write conventions a
@@ -167,7 +194,8 @@ enforce conventions this repo does not follow. Everything below serves that.
   true from then on.
 - Never push to `main`/`master`, and never commit anything but
   `.factory/profile.json` — no fixes, no formatting, no "while I was here".
-  If you noticed a real problem, say so on the issue.
+  If you noticed a real problem, say so on the issue. The one issue you may
+  file is the "Run the test suite in parallel" fast-track from step 3.
 - Do not invent to fill the file. An omitted optional field costs a later role
   one question; a wrong one costs it a wasted round and teaches it the wrong
   thing.
