@@ -410,6 +410,32 @@ repo — and how that changed — reads in one thread. A run that finds nothing 
 change says so in one comment and opens no PR: a maintenance check that PRs on
 every push gets muted, and then it protects nothing.
 
+### Tests run in parallel
+
+Every task runs the repo's `commands.test` at least twice: the Implementer
+runs it once near the end, and QA runs it again as the check. A suite run one
+test at a time is paid on every task. On beacon-api in November 2026, a
+10-minute suite was most of every task's 45–70 minutes. So the factory's
+default is that `commands.test` runs the suite in parallel:
+
+- **The Profiler records the parallel form** when the runner already has it
+  (Jest, Vitest, `go test`, pytest with `pytest-xdist` installed, Gradle
+  `--parallel`). It proves the form first: two parallel runs must pass with
+  the same counts as a run one test at a time. A test that fails only in
+  parallel keeps the command one test at a time and is named in `gotchas`.
+- **When parallel needs a code change** (a new dependency, a runner setting)
+  and the suite takes 3 minutes or more one test at a time, the Profiler
+  files one `factory:fast-track` issue, "Run the test suite in parallel", to
+  make the change and update `commands.test` with it. The Profiler only ever
+  commits the profile, so it doesn't make the change itself. Under 3
+  minutes, the setup cost isn't worth it.
+- **A new repository chooses a parallel test command** with its stack (below),
+  so the case never arises.
+
+Repos profiled before this rule pick it up the next time the Profiler runs: on
+a push touching a manifest or tool config, or when `factory:profile` is
+re-applied to the profile issue.
+
 ### A new repository
 
 Compass can create a repository for a new product (Shape → a new product →
@@ -419,7 +445,8 @@ factory's files, and a profile that says the stack is **not chosen yet**:
 "Not chosen yet". There is no code, so the Profiler has nothing to read.
 
 - **Architect:** the first epic's design chooses the stack — language,
-  framework, package manager, test runner, and the test/build/lint commands —
+  framework, package manager, test runner, and the test/build/lint commands,
+  with the test command running the suite in parallel (above) —
   as an explicit decision with its reasons, so the G2 approver approves the
   stack along with the design. The first task in tasks.md scaffolds it.
 - **Implementer, the scaffolding task:** creates the project the design

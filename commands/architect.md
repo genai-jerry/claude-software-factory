@@ -69,7 +69,9 @@ Produce a grounded technical design for every affected repo.
      comment use for the product's things (FACTORY.md §1a rules 14–15).
    - **A new repository** (its profile's `stack` begins "Not chosen yet";
      FACTORY.md §2c): choose the stack — language, framework, package manager,
-     test runner, and the test/build/lint commands — as a stated decision with
+     test runner, and the test/build/lint commands, with `test` running the
+     suite in parallel (FACTORY.md §2c, "Tests run in parallel": e.g. pytest
+     with `pytest-xdist` and `-n auto`) — as a stated decision with
      its reasons and the alternatives you rejected, so the approver approves
      it with the design. Make the first task "Scaffold the project", which
      every other task in that repo depends on.

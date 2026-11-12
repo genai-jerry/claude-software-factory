@@ -39,7 +39,7 @@
       "description": "Shell commands, run from the repo root. null means the repo has no such step — roles skip nulls rather than inventing a command.",
       "type": "object",
       "properties": {
-        "test": { "type": ["string", "null"] },
+        "test": { "type": ["string", "null"], "description": "Runs the whole suite, in parallel where the runner allows it (FACTORY.md §2c, 'Tests run in parallel')." },
         "build": { "type": ["string", "null"] },
         "lint": { "type": ["string", "null"] }
       }
