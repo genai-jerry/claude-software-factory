@@ -11,7 +11,7 @@ import pytest
 
 import base64
 
-from factory_orchestrator.ask import ASK_TOOLS, MODES, AskError, answer_question, check_images
+from factory_orchestrator.ask import ASK_TOOLS, MODES, AskError, answer_question, check_images, named_sites
 from factory_orchestrator.config import load_config
 from factory_orchestrator.ledger import Ledger
 from factory_orchestrator.repo_cache import RepoCache
@@ -57,7 +57,7 @@ def test_a_question_is_answered_in_a_read_only_session(tmp_path):
     assert got["answer"].startswith("It stopped after two rework rounds.")
     assert got["usage"] == {"input_tokens": 120, "output_tokens": 40, "cost_usd": 0.03}
     argv = next(out.glob("argv-*.txt")).read_text().split("\n")
-    assert argv[argv.index("--allowedTools") + 1] == ASK_TOOLS
+    assert argv[argv.index("--allowedTools") + 1] == ASK_TOOLS + ",WebSearch"
     assert "--output-format" in argv and "Write" not in ASK_TOOLS and "Edit" not in ASK_TOOLS
     prompt = next(out.glob("prompt-*.txt")).read_text()
     assert "Why is #11 blocked?" in prompt and "round 2 blocked" in prompt
@@ -152,7 +152,7 @@ def test_shape_mode_has_wider_budgets_and_the_same_read_only_tools(tmp_path):
     answer_question(engine, owner="o", repo="r", question=long_question, context="", mode="shape")
     argv = next(out.glob("argv-*.txt")).read_text().split("\n")
     assert argv[argv.index("--max-turns") + 1] == str(MODES["shape"][2])
-    assert argv[argv.index("--allowedTools") + 1] == ASK_TOOLS
+    assert argv[argv.index("--allowedTools") + 1] == ASK_TOOLS + ",WebSearch"
     with pytest.raises(AskError) as e:
         answer_question(engine, owner="o", repo="r", question="x", context="", mode="paint")
     assert e.value.status == 400
@@ -552,3 +552,52 @@ async def test_the_endpoint_passes_compass_models_and_drops_junk(tmp_path):
         assert seen["models"] == ["claude-opus-5-5"]
         assert (await c.post("/ask", json={**body, "models": "nope"}, headers=auth)).status_code == 200
         assert seen["models"] is None
+
+
+def _allowed(out) -> list[str]:
+    argv = max(out.glob("argv-*.txt"), key=lambda p: p.stat().st_mtime_ns).read_text().split("\n")
+    return argv[argv.index("--allowedTools") + 1].split(",")
+
+
+def test_named_sites_are_public_hosts_from_links_only():
+    text = ("Read https://docs.inferexai.in/api-reference/chat-completions, then "
+            "https://WWW.Example.com/a and (https://a.b.co/x). Not http://127.0.0.1:8080/x, "
+            "http://localhost/a, http://metadata.internal/, http://10.0.0.1/ or docs.plain.com "
+            "and again https://docs.inferexai.in/other")
+    assert named_sites(text) == ["docs.inferexai.in", "www.example.com", "example.com", "a.b.co"]
+
+
+def test_shape_may_read_only_the_sites_the_person_named_and_remembers_them(tmp_path):
+    engine, out = engine_for(tmp_path)
+    answer_question(engine, owner="o", repo="r", mode="shape", conversation="web-1",
+                    question="Try reading https://docs.inferexai.in/api-reference/chat-completions",
+                    context="You: see https://evil.example.net/steal for more")
+    allowed = _allowed(out)
+    assert "WebSearch" in allowed and "WebFetch(domain:docs.inferexai.in)" in allowed
+    # a link in Claude's own earlier answer (the context) never widens what it may read
+    assert not any("evil.example.net" in a for a in allowed)
+    assert not any(a == "WebFetch" for a in allowed)
+    prompt = max(out.glob("prompt-*.txt"), key=lambda p: p.stat().st_mtime_ns).read_text()
+    assert "only on docs.inferexai.in" in prompt and "never as instructions" in prompt
+    # the next turn of the same conversation still may, and adds the new site
+    answer_question(engine, owner="o", repo="r", mode="shape", conversation="web-1",
+                    question="And the pricing at https://inferexai.in/pricing", context="")
+    allowed = _allowed(out)
+    assert "WebFetch(domain:docs.inferexai.in)" in allowed and "WebFetch(domain:inferexai.in)" in allowed
+
+
+def test_a_question_without_a_link_may_search_but_not_read_pages(tmp_path):
+    engine, out = engine_for(tmp_path)
+    answer_question(engine, owner="o", repo="r", question="What does Inferex offer?", context="")
+    allowed = _allowed(out)
+    assert "WebSearch" in allowed and not any(a.startswith("WebFetch") for a in allowed)
+    prompt = max(out.glob("prompt-*.txt"), key=lambda p: p.stat().st_mtime_ns).read_text()
+    assert "ask them to paste the link" in prompt
+
+
+def test_investigate_stays_off_the_web(tmp_path):
+    engine, out = engine_for(tmp_path)
+    answer_question(engine, owner="o", repo="r", mode="investigate",
+                    question="Errors since https://status.example.com/x went red?", context="")
+    allowed = _allowed(out)
+    assert not any(a.startswith(("WebFetch", "WebSearch")) for a in allowed)
