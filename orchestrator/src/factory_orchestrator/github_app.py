@@ -92,6 +92,11 @@ class RepoPort(Protocol):
     def create_branch(self, name: str, from_branch: str) -> None: ...
     def get_file(self, path: str, ref: str | None = None) -> str | None: ...
     def default_branch(self) -> str: ...
+    # Simulated cases (FACTORY.md §4b): reading a simulated run's result.
+    def commit_statuses(self, sha: str) -> list[dict[str, Any]]: ...
+    def contains_commit(self, sha: str, ancestor: str) -> bool: ...
+    def merged_pr(self, head: str, base: str) -> dict[str, Any] | None: ...
+    def run_artifact(self, run_id: int, name: str) -> bytes | None: ...
 
 
 class GitHubApp:
@@ -348,6 +353,38 @@ class RepoClient:
         if target_url:
             payload["target_url"] = target_url
         self._req("POST", f"/statuses/{sha}", json=payload)
+
+    def commit_statuses(self, sha):
+        """Every status posted on `sha`, newest first (GitHub's order)."""
+        r = self._req("GET", f"/commits/{sha}/statuses", params={"per_page": 100})
+        return r.json()
+
+    def contains_commit(self, sha, ancestor):
+        """True when `ancestor` is in `sha`'s history (or is `sha`)."""
+        r = self._req("GET", f"/compare/{ancestor}...{sha}", ok404=True)
+        return r is not None and r.json().get("status") in ("ahead", "identical")
+
+    def merged_pr(self, head, base):
+        """The merged pull request from branch `head` into `base`, or None."""
+        r = self._req("GET", "/pulls", params={"state": "closed", "head": f"{self.owner}:{head}",
+                                               "base": base, "per_page": 30})
+        merged = [p for p in r.json() if p.get("merged_at")]
+        return max(merged, key=lambda p: p["merged_at"]) if merged else None
+
+    def run_artifact(self, run_id, name):
+        """The zip of the artifact called `name` on Actions run `run_id` of this repo, or None.
+
+        GitHub answers the download with a redirect to blob storage, which httpx follows without
+        carrying the Authorization header to the other host."""
+        r = self._req("GET", f"/actions/runs/{run_id}/artifacts", ok404=True,
+                      params={"per_page": 100})
+        if r is None:
+            return None
+        found = [a for a in r.json().get("artifacts") or [] if a.get("name") == name and not a.get("expired")]
+        if not found:
+            return None
+        z = self._req("GET", f"/actions/artifacts/{found[0]['id']}/zip", follow_redirects=True)
+        return z.content
 
     def merge_pr(self, number, method="squash"):
         self._req("PUT", f"/pulls/{number}/merge", json={"merge_method": method})

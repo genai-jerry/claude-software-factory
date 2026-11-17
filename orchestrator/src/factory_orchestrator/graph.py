@@ -34,7 +34,7 @@ from typing import Annotated, Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-from . import claim
+from . import claim, sim_results
 from .attachments import attachment_targets
 from .config import Config
 from .factory_ci import post_qa_status
@@ -845,6 +845,16 @@ class Processor:
                 self.engine.discard_workspaces(owner, repo, number)
         port = self.engine.port(owner, repo)
         if not claim.claim_check(port, self.engine.cfg.engine_name):
+            return
+        if event_name == "status":
+            # A simulated run finished (FACTORY.md §4b, Simulated cases): its verdicts go on the
+            # cases. No role runs for a status, so the graph is not entered.
+            if payload.get("state") in sim_results.FINAL and payload.get("sha"):
+                try:
+                    sim_results.record(port, sha=payload["sha"], context=payload.get("context"),
+                                       port_for=self.engine.port)
+                except Exception:  # noqa: BLE001 - the sweep reads the same result later
+                    log.exception("Could not record the simulated run on %s/%s", owner, repo)
             return
         issue_n = (payload.get("issue") or {}).get("number")
         if issue_n is None:

@@ -621,3 +621,18 @@ def test_a_run_is_told_whose_images_to_fetch(tmp_path):
     Processor(engine, graph)("workflow_dispatch", payload)
     assert [c["role"] for c in runner.calls] == ["implementer"]
     assert runner.calls[0]["attachments"] == [("o/r", 62), ("o/r", 5)]
+
+
+def test_a_status_event_records_the_simulated_run_and_runs_no_role(tmp_path, monkeypatch):
+    from factory_orchestrator import sim_results
+
+    world = ConfiguredRepo({5: issue(5, "Epic", ["factory:in-staging"])})
+    graph, engine, ledger, runner = graph_with(tmp_path, world, {})
+    seen = []
+    monkeypatch.setattr(sim_results, "record",
+                        lambda port, **kw: seen.append((f"{port.owner}/{port.repo}", kw["sha"], kw["context"])) or 1)
+    for state in ("pending", "success"):
+        Processor(engine, graph)("status", {"state": state, "sha": "c" * 40, "context": "beacon/sim-scenarios",
+                                            "repository": {"full_name": "o/r"}})
+    assert seen == [("o/r", "c" * 40, "beacon/sim-scenarios")]  # only the finished one
+    assert runner.calls == []

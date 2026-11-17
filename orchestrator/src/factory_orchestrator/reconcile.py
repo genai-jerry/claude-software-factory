@@ -18,6 +18,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from . import sim_results
 from .fast_track_merge import FAST_TRACK, merge_fast_track
 from .github_app import RepoPort, parse_json_or_empty
 from .guards import repeating, report_repeat_stop
@@ -356,6 +357,12 @@ def sweep_repo(port: RepoPort, ledger: Ledger,
                 queued += _queue_labeled(ledger, port, issue, RELEASE_APPROVED)
     if queued:
         log.info("reconcile %s: queued %d missed step(s)", full, queued)
+    # Simulated cases (FACTORY.md §4b): the simulated run's verdicts for the integration branch's
+    # head, in case its status event was missed or never subscribed. Recorded once per run.
+    try:
+        sim_results.record(port, port_for=port_for)
+    except Exception:  # noqa: BLE001 - one repo's result must not stop the sweep
+        log.warning("recording the simulated run of %s failed", full, exc_info=True)
     return queued
 
 

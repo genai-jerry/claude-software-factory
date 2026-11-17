@@ -42,20 +42,20 @@ Build in this order.
 
 ## 3. claude-software-factory: reading results
 
-- [ ] 3.1 Handle the `status` event: match `context` to a repository's `simulate.status_context`,
+- [x] 3.1 Handle the `status` event: match `context` to a repository's `simulate.status_context`,
       final states only.
-- [ ] 3.2 Add the reconcile sweep: every 10 minutes, for each repository with an epic at
+- [x] 3.2 Add the reconcile sweep: every 10 minutes, for each repository with an epic at
       `factory:in-staging`, read the integration branch head's status.
-- [ ] 3.3 Read the result:
+- [x] 3.3 Read the result:
       - take the run id from `target_url`;
       - download `sim-scenarios-report` from `run_repo`;
       - parse `report.json`;
       - keep only epics whose integration merge is an ancestor of the commit.
-- [ ] 3.4 Record verdicts per D6: labels and comments with the `<!-- sim-run: … -->` marker, skip a
+- [x] 3.4 Record verdicts per D6: labels and comments with the `<!-- sim-run: … -->` marker, skip a
       case with a fix in flight, a person's later verdict stands until a newer run, once per run per
       epic (ledger).
-- [ ] 3.5 Post the epic summary per D7, regressions included.
-- [ ] 3.6 Tests: pass, fail, error, a repeat run, a run on a commit without the epic, a regression,
+- [x] 3.5 Post the epic summary per D7, regressions included.
+- [x] 3.6 Tests: pass, fail, error, a repeat run, a run on a commit without the epic, a regression,
       a person's verdict in between, a failed artifact download (nothing recorded, retried by the
       sweep).
 
