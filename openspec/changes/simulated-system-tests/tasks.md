@@ -44,7 +44,7 @@ Build in this order.
 
 - [x] 3.1 Handle the `status` event: match `context` to a repository's `simulate.status_context`,
       final states only.
-- [x] 3.2 Add the reconcile sweep: every 10 minutes, for each repository with an epic at
+- [x] 3.2 Add the reconcile sweep: every reconcile sweep (15 minutes), for each repository with an epic at
       `factory:in-staging`, read the integration branch head's status.
 - [x] 3.3 Read the result:
       - take the run id from `target_url`;
@@ -61,14 +61,14 @@ Build in this order.
 
 ## 4. software-factory-view (Compass)
 
-- [ ] 4.1 Test board: the Simulated / Manual chip with its reason, and the run link on a simulated
+- [x] 4.1 Test board: the Simulated / Manual chip with its reason, and the run link on a simulated
       verdict.
-- [ ] 4.2 Production decision: simulated passed and failed counts, manual cases still open,
+- [x] 4.2 Production decision: simulated passed and failed counts, manual cases still open,
       failing cases with their step, regressions, the run link.
-- [ ] 4.2a On a failed case: **Create fix task** and **Create fix task (expedite)**, which post
+- [x] 4.2a On a failed case: **Create fix task** and **Create fix task (expedite)**, which post
       `Test Failed` / `Test Failed, expedite` as the signed-in person. Show the fix instead once one
       exists.
-- [ ] 4.3 Tests for both views.
+- [x] 4.3 Tests for both views.
 
 ## 5. First use: beacon-api#667
 

@@ -87,9 +87,9 @@ those repositories.
 
 - The orchestrator handles a `status` event whose `context` equals `simulate.status_context` and
   whose state is final. This needs the App to be subscribed to statuses.
-- The existing reconcile loop also checks, every 10 minutes, the integration branch head's status
+- The existing reconcile loop also checks, every 15 minutes (the reconcile sweep), the integration branch head's status
   for every repository with an epic at `factory:in-staging`. So results arrive even without the
-  subscription, at most 10 minutes late.
+  subscription, at most 15 minutes late.
 
 To read a result:
 1. Take the run id from the status's `target_url`.

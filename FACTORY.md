@@ -1147,7 +1147,7 @@ With it, an epic's cases split in two:
 - **The staging merge runs them.** The repo's run plays every scenario in the pack, and an epic's
   scenarios stay in it afterwards as regression checks. When the run's status finishes on an
   integration commit that carries an epic at `factory:in-staging`, the factory reads the report
-  (by a `status` event, or within 10 minutes by its own sweep) and labels each simulated case:
+  (by a `status` event, or within 15 minutes by its own sweep) and labels each simulated case:
   - `factory:test-passed`, closing it, with the run's link; or
   - `factory:test-failed`, quoting the failing step in the runner's own words.
 
