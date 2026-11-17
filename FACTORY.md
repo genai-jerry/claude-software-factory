@@ -1144,6 +1144,8 @@ With it, an epic's cases split in two:
   built code, and the repo's own suite presses Start on every scenario before it can merge.
 - **Gaps become tasks.** A behaviour no simulator has, such as a call that ends in voicemail, is a
   `task(<epic>): simulator — <what>` in the simulator's repo. The simulated-tests task waits on it.
+  A simulator repo deploys staging, and the simulated stack, on its own staging merge, and the
+  Release Manager merges it to staging before the repo that runs the scenarios, so the run sees it.
 - **The staging merge runs them.** The repo's run plays every scenario in the pack, and an epic's
   scenarios stay in it afterwards as regression checks. When the run's status finishes on an
   integration commit that carries an epic at `factory:in-staging`, the factory reads the report
