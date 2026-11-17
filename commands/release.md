@@ -226,6 +226,13 @@ staging). If it is neither, you are in phase 1 — go back.
    (a new call script, say) is then on the simulated stack when the run
    reads it. Merged after, that change misses the run and the cases that use
    it fail for no fault of the code.
+   **One staging deploy at a time.** In a train, merge the next repo's
+   integration PR only once the previous repo's staging deploy has finished
+   (step 8 watches it). The deploy queue holds one running deploy and one
+   waiting; a third request cancels the waiting one, so three merges in a row
+   drop the middle repo's deploy, and with it, when that repo has the
+   `simulate` block, the simulated run. If a deploy shows **cancelled**,
+   re-run it before moving on.
    **A repo that is not ready.** When one repo in a cross-repo train is
    not ready (a task with no pull request, a design that never merged, a
    red epic branch), stop before any integration merge. Comment on the
