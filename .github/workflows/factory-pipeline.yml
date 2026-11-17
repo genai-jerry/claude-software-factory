@@ -324,6 +324,12 @@ jobs:
             // and every decision below exactly as it was before §4b existed.
             const testingCfg = loadJson('.github/factory-testing.json');
             const systemTests = testingCfg.system_tests === true;
+            // The repo's simulated environment (§4b, Simulated cases): a block naming at least its
+            // scenario pack and the commit status its run posts, with system tests on; else none.
+            const simulateCfg = (systemTests && testingCfg.simulate && typeof testingCfg.simulate === 'object'
+              && typeof testingCfg.simulate.pack === 'string' && testingCfg.simulate.pack
+              && typeof testingCfg.simulate.status_context === 'string' && testingCfg.simulate.status_context)
+              ? testingCfg.simulate : null;
             // "gate" (the default when the file is present) holds an epic short of
             // factory:epic-ready until every open case has passed; "advisory" reports
             // instead. It decides nothing for a repo with no epic branch, where the
@@ -1090,7 +1096,12 @@ jobs:
               // a comment.
               const isPlanTests = /^\s*plan\s+tests\s*[.!]?\s*$/i.test(body);
               const isTestPassed = /^\s*test\s+passed\s*[.!]?\s*$/i.test(body);
-              const isTestFailed = /^\s*test\s+failed\s*[.!]?\s*$/i.test(body);
+              // `Test Failed, expedite` files the fix as `Test Failed` does and expedites that one
+              // fix (simulated-system-tests D8a): a Test Failed with a flag, not a control of its own.
+              const failedExpedite = /^\s*test\s+failed\s*,?\s*expedite\s*[.!]?\s*$/i.test(body);
+              const isTestFailed = failedExpedite || /^\s*test\s+failed\s*[.!]?\s*$/i.test(body);
+              // Adoption of the simulated environment (simulated-system-tests D9).
+              const isSimulateTests = /^\s*simulate\s+tests\s*[.!]?\s*$/i.test(body);
               // `Skip tests` (§4b): a staging approver closes an epic's open
               // cases as skipped - or, on a case, just that one.
               const isSkipTests = /^\s*skip\s+tests\s*[.!]?\s*$/i.test(body);
@@ -1331,6 +1342,38 @@ jobs:
                     core.info(`Re-dispatching epic #${c.epic} - a pass may have completed it`);
                   }
                 }
+              } else if (isSimulateTests) {
+                // Adoption of the simulated environment (§4b, Simulated cases): the Test Planner sorts
+                // an epic's existing cases into simulated and manual, keeping their numbers, and opens
+                // the simulated-tests task. What runs where on staging is a release decision, so the
+                // staging list owns it.
+                const st = stateOf(labels);
+                const ADOPTABLE = ['factory:planned', 'factory:design-ready',
+                                   'factory:design-approved', EPIC_READY, 'factory:in-staging'];
+                if (!simulateCfg) {
+                  await say(i.number,
+                    '`Simulate tests` has no effect — this repository has no simulated environment set up ' +
+                    'for system tests.\n\nIt needs a `simulate` block in `.github/factory-testing.json`, with ' +
+                    'system tests on (template: `templates/factory-testing.json`, FACTORY.md §4b). Nothing changed.');
+                } else if (!authorized('staging')) {
+                  await refuse('staging', "simulating an epic's system tests");
+                } else if (isTracker || labels.includes(PROFILE_KIND) || labels.includes(FAST_TRACK) ||
+                           isTaskTitle(i.title) || isTestCase || isBug) {
+                  await say(i.number,
+                    '`Simulate tests` only works on an **epic** with a system test plan. This issue is not ' +
+                    'one, so nothing was started.');
+                } else if (i.state === 'closed' || labels.includes('factory:deployed')) {
+                  await say(i.number, '`Simulate tests` has no effect here — this epic has shipped.');
+                } else if (!ADOPTABLE.includes(st)) {
+                  await say(i.number,
+                    `\`Simulate tests\` has no effect while this epic is at **${st}** — nothing was started.\n\n` +
+                    'The Test Planner sorts the cases of a plan, and the plan comes after the **Planner**, at ' +
+                    '`factory:planned`. Ask again once it has run — or wait: a plan written from now on is ' +
+                    'sorted as it is written.');
+                } else {
+                  role = 'testplanner';
+                  core.info(`Simulated tests requested on #${i.number} (${st}) - starting the Test Planner`);
+                }
               } else if (isSkipTests) {
                 // Skipping is a release decision, so the `staging` list owns it
                 // (falling back to `release`, then to any collaborator). On an
@@ -1455,10 +1498,15 @@ jobs:
                     }
                   }
                 }
-              } else if (isTestFailed && isTestCase && labels.includes(MANUAL_TEST)) {
-                // A failure only adds work, so any collaborator may report one.
+              } else if (isTestFailed && isTestCase && (labels.includes(MANUAL_TEST) ||
+                         (labels.includes(TEST_FAILED) && !/(?:^|\n)\s*blocked by\s*#(\d+)/i.test(i.body || '')))) {
+                // A failure only adds work, so any collaborator may report one. A case at
+                // `factory:test-failed` with no fix yet failed in the simulated environment: the run
+                // records the failure and opens nothing, and this is the person turning it into a
+                // fix (simulated-system-tests D6, D8a).
                 const c = caseOf(i.title);
                 const already = /(?:^|\n)\s*blocked by\s*#(\d+)/i.exec(i.body || '');
+                const simulatedFailure = labels.includes(TEST_FAILED);
                 if (!assocOk) {
                   await say(i.number,
                     `@${sender} — reporting a system test failure requires owner, member or collaborator access on this repository.`);
@@ -1472,6 +1520,8 @@ jobs:
                     owner, repo, issue_number: c.epic,
                   }).then(r => namesOf(r.data.labels)).catch(() => []) : [];
                   const expedited = epicLabels.includes(EXPEDITE);
+                  // `Test Failed, expedite`: this one fix advances itself, from an expedite approver.
+                  const expediteFix = failedExpedite && !expedited && authorized('expedite');
                   const { data: fix } = await github.rest.issues.create({
                     owner, repo,
                     title: `task(${c.epic}): fix ${c.id || 'a system test'} — ${c.title}`,
@@ -1482,7 +1532,9 @@ jobs:
                       `- Reported by: @${sender}`,
                       `- Epic: #${c.epic}`,
                       '',
-                      'What the tester saw:',
+                      simulatedFailure
+                        ? `It failed in the simulated environment; the run and the failing steps are in the case's comments (#${i.number}).`
+                        : 'What the tester saw:',
                       '',
                       (body || '').trim().split('\n').map(l => '> ' + l).join('\n'),
                       '',
@@ -1492,12 +1544,15 @@ jobs:
                       '',
                       '<!-- factory-agent -->',
                     ].join('\n'),
-                    labels: ['factory:ready'],
+                    labels: ['factory:ready', ...(expediteFix ? [EXPEDITE] : [])],
                   });
-                  if (expedited) expeditedFix = fix.number;
+                  if (expedited || expediteFix) expeditedFix = fix.number;
                   await say(fix.number, expedited
                     ? 'Filed from a failed system test — this epic is expedited, so its implementer starts ' +
                       'on its own. Nothing to approve.'
+                    : expediteFix
+                    ? `Filed from a failed system test and expedited by @${sender}: this task advances itself ` +
+                      'through implementation, review, testing and assembly, up to gate GS. Nothing to approve.'
                     : 'Filed from a failed system test. An implementer can start: comment `Approved` here, ' +
                       'run the "Factory pipeline" workflow with role=implementer and this issue number, or ' +
                       'press **Approve** in the Compass.' +
@@ -1508,12 +1563,18 @@ jobs:
                     owner, repo, issue_number: i.number,
                     body: `${(i.body || '').trimEnd()}\n\nBlocked by #${fix.number}\n`,
                   }).catch(() => {});
-                  await dropLabel(i.number, MANUAL_TEST);
-                  await addLabels(i.number, [TEST_FAILED]);
+                  if (labels.includes(MANUAL_TEST)) await dropLabel(i.number, MANUAL_TEST);
+                  if (!labels.includes(TEST_FAILED)) await addLabels(i.number, [TEST_FAILED]);
+                  const notExpedited = failedExpedite && !expedited && !expediteFix
+                    ? '\n\nThe fix was not expedited: expediting it needs an expedite approver ' +
+                      '(`.github/factory-approvers.json`, `expedite`). It waits for an implementer start as usual.'
+                    : '';
                   await say(i.number,
-                    `**${c.id || 'This case'} failed** — reported by @${sender}. Filed #${fix.number} to fix it.\n\n` +
+                    `**${c.id || 'This case'} failed** — ${simulatedFailure ? 'turned into a fix' : 'reported'} ` +
+                    `by @${sender}. Filed #${fix.number} to fix it${expediteFix ? ', expedited' : ''}.\n\n` +
                     'This case waits at `factory:test-failed` until that task is implemented, reviewed, tested ' +
-                    'and assembled; the Dispatcher then puts it back to `factory:manual-test` for a re-run.');
+                    'and assembled; the Dispatcher then puts it back to `factory:manual-test` for a re-run' +
+                    (simulatedFailure ? ', and the next simulated run records it again.' : '.') + notExpedited);
                   core.info(`System test #${i.number} failed - filed fix #${fix.number}`);
                 }
               } else if (isTestPassed && isBug && labels.includes(BUG_RETEST)) {
@@ -2191,6 +2252,10 @@ jobs:
                     await dropLabel(i.number, EXPEDITE);
                     await say(i.number, refused);
                     core.info(`Refused ${EXPEDITE} on #${i.number}`);
+                  } else if (senderIsApp && isTaskTitle(i.title)) {
+                    // A fix the factory filed expedited (`Test Failed, expedite`): the run that filed
+                    // it started its implementer, so this event starts nothing.
+                    core.info(`${EXPEDITE} on task #${i.number} came from the factory itself - already started`);
                   } else {
                     role = await expediteNow(i, labels);
                     // The epic's own state is past everything expedite

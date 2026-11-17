@@ -1,0 +1,67 @@
+{
+  "name": "simulate-tests-without-a-simulate-block",
+  "description": "Simulate tests in a repo with no simulate block changes nothing and says what is missing",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate",
+      "run_on": "staging"
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:epic-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Simulate tests",
+      "login": "boss",
+      "authorAssociation": "OWNER"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "no simulated environment",
+          "`simulate` block"
+        ]
+      }
+    }
+  }
+}

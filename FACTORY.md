@@ -246,6 +246,9 @@ events, so **filing a plain issue is all a requester does**:
 | Owner/collaborator comments exactly `Plan tests` on an epic (§4b) | **Test Planner** — writes the system test plan for an epic that has none, whatever stage it has reached. This is how an epic already in flight adopts system tests |
 | A `testers` approver comments exactly `Test Passed` on a `factory:manual-test` case | The case closes at `factory:test-passed`, and the **Dispatcher** re-runs on the epic — the last pass is what completes it (§4b) |
 | Any collaborator comments exactly `Test Failed` on a `factory:manual-test` case | A `task(<epic>): fix ST-<n>` sub-issue is filed at `factory:ready` with the failure quoted, and the case moves to `factory:test-failed` until that fix lands (§4b) |
+| `Test Failed` on a case a simulated run failed (`factory:test-failed`, no fix yet), or `Test Failed, expedite` on either kind of case (§4b, Simulated cases) | The same fix is filed. With `, expedite` from an `expedite` approver, that one fix carries `factory:expedite` and its implementer starts in the same run; from anyone else the fix is ordinary and the reply says why |
+| A `staging` approver comments exactly `Simulate tests` on an epic, in a repo with a `simulate` block (§4b, Simulated cases) | **Test Planner** — sorts the epic's cases into simulated and manual, keeping their numbers, and opens the simulated-tests task and any simulator gap tasks |
+| The repo's simulated run finishes on an integration-branch commit that carries an epic at `factory:in-staging` (§4b, Simulated cases) | Each of that epic's simulated cases is labelled `factory:test-passed` or `factory:test-failed` from the run's report, and the epic gets one summary. No fix is filed and no role runs |
 | A collaborator comments `Bug` on an epic (or one of its tasks or cases), with the report underneath (§4c) | A `bug(<epic>)` sub-issue is opened at `factory:bug-open` and a `task(<epic>): fix bug #<n>` filed at `factory:ready`. The one control that reads past its first line |
 | An issue filed with `factory:bug`, or that label applied (§4c) | The same, on the issue itself: it is retitled `bug(<epic>): ...` against the epic its body names, and the fix task is filed |
 | A Release Manager run lands a bug's fix task on the epic branch | **Dispatcher** — the bug moves to `factory:bug-retest` and its testers are asked to confirm the repair (§4c) |
@@ -1115,6 +1118,55 @@ Adoption never moves an epic backwards. On one already at
 the same posture as an epic with no epic branch — not a reason to revoke a
 state the factory has already granted; the `factory:epic-ready` notice is
 re-posted once so the staging approver knows the evidence has changed.
+
+### Simulated cases
+
+A repo can have a **simulated environment**: the whole product with every outside system replaced
+by a simulator, and a clock a test can move forward. It names it with a `simulate` block in
+`.github/factory-testing.json` (template: `templates/factory-testing.json`):
+- `pack`: the scenario directory;
+- `guide`: the repo's guide to what can be simulated;
+- `status_context`: the commit status the run posts after each staging deploy;
+- `run_repo`: the repo whose Actions run carries the report;
+- `simulators`: which repo simulates what.
+
+Without the block, nothing in this part applies.
+
+With it, an epic's cases split in two:
+
+- **The Test Planner sorts each case.** `Execution: simulated` when every expected result can be
+  read from what the simulators received or the API answers. Otherwise `Execution: manual (<the
+  guide's reason>)`: real audio, a carrier, a person judging a screen, a recording, a real model's
+  words. A case is never split.
+- **One simulated-tests task per epic**, `task(<epic>): simulated tests — ST-<a>..ST-<b>`, cap-exempt
+  like the loader task and otherwise ordinary. It writes one scenario per simulated case,
+  `<pack>/<epic>-st-<n>.json`, whose `covers` names the case. It is reviewed and QA'd against the
+  built code, and the repo's own suite presses Start on every scenario before it can merge.
+- **Gaps become tasks.** A behaviour no simulator has, such as a call that ends in voicemail, is a
+  `task(<epic>): simulator — <what>` in the simulator's repo. The simulated-tests task waits on it.
+- **The staging merge runs them.** The repo's run plays every scenario in the pack, and an epic's
+  scenarios stay in it afterwards as regression checks. When the run's status finishes on an
+  integration commit that carries an epic at `factory:in-staging`, the factory reads the report
+  (by a `status` event, or within 15 minutes by its own sweep) and labels each simulated case:
+  - `factory:test-passed`, closing it, with the run's link; or
+  - `factory:test-failed`, quoting the failing step in the runner's own words.
+
+  The epic gets one summary: simulated passed and failed, manual still open, and any other scenario
+  that failed in that run, named as a regression. A run is recorded once, and a later run records
+  its newer result.
+- **A failure opens nothing by itself.** It is evidence for gate G3, like every verdict with
+  `run_on: staging`. A person turns it into a fix:
+  - `Test Failed` on the case files the fix as for a manual case;
+  - `Test Failed, expedite`, from an `expedite` approver, files that one fix with
+    `factory:expedite`, so it builds itself up to gate GS while the epic's own pace is unchanged.
+
+  The Compass offers both as buttons on a failed case.
+- **Manual cases are unchanged.** They are released, run and given verdicts as above. A person's
+  `Test Passed` or `Test Failed` on a simulated case also stands, until a newer run records one.
+
+**Adopting it:** a `staging` approver comments exactly **`Simulate tests`** on an epic planned
+before the block existed. The Test Planner sorts its cases, keeping their numbers, and opens the
+task and its gap tasks. The epic's state does not move.
 
 ## 4c. Bugs: what testing finds that no case predicted
 

@@ -1,0 +1,99 @@
+{
+  "name": "test-failed-expedite-from-a-non-approver-files-an-ordinary-fix",
+  "description": "Test Failed, expedite from someone not on the expedite list files an ordinary fix and says why",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate",
+      "run_on": "staging",
+      "simulate": {
+        "pack": "beacon/sim/scenarios",
+        "status_context": "beacon/sim-scenarios",
+        "run_repo": "o/infra"
+      }
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ],
+      "expedite": [
+        "boss"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:epic-ready"
+        ]
+      },
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": [
+          "factory:test-failed"
+        ],
+        "body": "Part of #9\n\n**Execution:** simulated"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 30,
+    "comment": {
+      "body": "Test Failed, expedite",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "createdIssues": [
+      {
+        "titlePattern": "^task\\(9\\): fix ST-4 —",
+        "labels": [
+          "factory:ready"
+        ]
+      }
+    ],
+    "createdCount": 1,
+    "labels": {
+      "31": {
+        "not": [
+          "factory:expedite"
+        ]
+      }
+    },
+    "comments": {
+      "30": {
+        "countAtLeast": 1,
+        "contains": [
+          "was not expedited",
+          "expedite approver"
+        ]
+      }
+    }
+  }
+}

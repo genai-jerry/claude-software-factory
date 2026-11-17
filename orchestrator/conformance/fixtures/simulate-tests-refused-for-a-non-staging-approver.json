@@ -1,0 +1,72 @@
+{
+  "name": "simulate-tests-refused-for-a-non-staging-approver",
+  "description": "Simulate tests from someone not on the staging list is refused",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate",
+      "run_on": "staging",
+      "simulate": {
+        "pack": "beacon/sim/scenarios",
+        "status_context": "beacon/sim-scenarios",
+        "run_repo": "o/infra"
+      }
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:epic-ready"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 9,
+    "comment": {
+      "body": "Simulate tests",
+      "login": "dev",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "comments": {
+      "9": {
+        "countAtLeast": 1,
+        "contains": [
+          "simulating an epic's system tests requires",
+          "@boss"
+        ]
+      }
+    }
+  }
+}
