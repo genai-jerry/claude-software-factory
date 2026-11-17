@@ -1,0 +1,71 @@
+{
+  "name": "labeled-expedite-on-a-task-by-the-factory-starts-nothing",
+  "description": "factory:expedite the factory applied to a fix task it filed starts nothing: the filing run already started it",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate",
+      "run_on": "staging",
+      "simulate": {
+        "pack": "beacon/sim/scenarios",
+        "status_context": "beacon/sim-scenarios",
+        "run_repo": "o/infra"
+      }
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ],
+      "expedite": [
+        "boss"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:epic-ready"
+        ]
+      },
+      {
+        "number": 31,
+        "title": "task(9): fix ST-4 — Renewal reminder fires",
+        "labels": [
+          "factory:ready",
+          "factory:expedite"
+        ]
+      }
+    ]
+  },
+  "event": {
+    "name": "issues",
+    "action": "labeled",
+    "issue": 31,
+    "label": "factory:expedite",
+    "sender": "factory-bot[bot]"
+  },
+  "expect": {
+    "role": "none"
+  }
+}

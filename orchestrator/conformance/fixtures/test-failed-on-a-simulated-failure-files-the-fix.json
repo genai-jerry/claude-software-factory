@@ -1,0 +1,100 @@
+{
+  "name": "test-failed-on-a-simulated-failure-files-the-fix",
+  "description": "Test Failed on a case a simulated run failed (no fix yet) files the fix",
+  "config": {
+    "testing": {
+      "system_tests": true,
+      "mode": "gate",
+      "run_on": "staging",
+      "simulate": {
+        "pack": "beacon/sim/scenarios",
+        "status_context": "beacon/sim-scenarios",
+        "run_repo": "o/infra"
+      }
+    },
+    "approvers": {
+      "spec": [
+        "boss"
+      ],
+      "design": [
+        "boss"
+      ],
+      "implementation": [
+        "dev"
+      ],
+      "staging": [
+        "boss"
+      ],
+      "testers": [
+        "tess"
+      ]
+    },
+    "branches": {
+      "staging": "staging",
+      "required": true,
+      "auto_create": true,
+      "epics": true
+    }
+  },
+  "repo": {
+    "issues": [
+      {
+        "number": 9,
+        "title": "Add renewals",
+        "labels": [
+          "factory:epic-ready"
+        ]
+      },
+      {
+        "number": 30,
+        "title": "test(9): ST-4 Renewal reminder fires",
+        "labels": [
+          "factory:test-failed"
+        ],
+        "body": "Part of #9\n\n**Execution:** simulated"
+      }
+    ]
+  },
+  "event": {
+    "name": "issue_comment",
+    "action": "created",
+    "issue": 30,
+    "comment": {
+      "body": "Test Failed",
+      "login": "tess",
+      "authorAssociation": "COLLABORATOR"
+    }
+  },
+  "expect": {
+    "role": "none",
+    "createdIssues": [
+      {
+        "titlePattern": "^task\\(9\\): fix ST-4 —",
+        "labels": [
+          "factory:ready"
+        ],
+        "bodyContains": [
+          "failed in the simulated environment"
+        ]
+      }
+    ],
+    "createdCount": 1,
+    "labels": {
+      "30": {
+        "has": [
+          "factory:test-failed"
+        ]
+      }
+    },
+    "comments": {
+      "30": {
+        "countAtLeast": 1,
+        "contains": [
+          "ST-4 failed",
+          "turned into a fix",
+          "the next simulated run records it again"
+        ]
+      }
+    }
+  }
+}

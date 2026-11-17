@@ -198,6 +198,19 @@ class RepoConfig:
         return self.testing.get("system_tests") is True
 
     @property
+    def simulate(self) -> dict[str, Any] | None:
+        """The repo's simulated environment (§4b, Simulated cases), or None when it has none.
+
+        Only a block naming at least its scenario pack and the commit status its run posts counts:
+        anything less could neither be written to nor read back."""
+        block = self.testing.get("simulate")
+        if not self.system_tests or not isinstance(block, dict):
+            return None
+        if not all(isinstance(block.get(k), str) and block.get(k) for k in ("pack", "status_context")):
+            return None
+        return block
+
+    @property
     def bug_reports(self) -> bool:
         """Bug reports (§4c), which ride on the system tests policy.
 
@@ -1416,7 +1429,14 @@ class Router:
         # other factory comment control.
         is_plan_tests = bool(re.match(r"^\s*plan\s+tests\s*[.!]?\s*$", body, re.IGNORECASE))
         is_test_passed = bool(re.match(r"^\s*test\s+passed\s*[.!]?\s*$", body, re.IGNORECASE))
-        is_test_failed = bool(re.match(r"^\s*test\s+failed\s*[.!]?\s*$", body, re.IGNORECASE))
+        # `Test Failed, expedite` files the fix as `Test Failed` does and expedites that one fix
+        # (simulated-system-tests D8a), so it is a Test Failed with a flag, not a control of its own.
+        failed_expedite = bool(re.match(r"^\s*test\s+failed\s*,?\s*expedite\s*[.!]?\s*$", body,
+                                        re.IGNORECASE))
+        is_test_failed = failed_expedite or bool(
+            re.match(r"^\s*test\s+failed\s*[.!]?\s*$", body, re.IGNORECASE))
+        # Adoption of the simulated environment (simulated-system-tests D9).
+        is_simulate_tests = bool(re.match(r"^\s*simulate\s+tests\s*[.!]?\s*$", body, re.IGNORECASE))
         # A staging approver's decision not to run the cases (§4b).
         is_skip_tests = bool(re.match(r"^\s*skip\s+tests\s*[.!]?\s*$", body, re.IGNORECASE))
         # The bug control (§4c) is the one that reads past its first line: the
@@ -1535,6 +1555,38 @@ class Router:
             else:
                 r.role = "testplanner"
                 log.info("System test plan requested on #%s (%s) - starting the Test Planner",
+                         i["number"], st)
+        elif is_simulate_tests:
+            # Adoption of the simulated environment (§4b, Simulated cases): the Test Planner sorts an
+            # epic's existing cases into simulated and manual, keeping their numbers, and opens the
+            # simulated-tests task. What runs where on staging is a release decision, so the
+            # staging list owns it.
+            st = self.state_of(labels)
+            if cfg.simulate is None:
+                self.say(i["number"],
+                         "`Simulate tests` has no effect — this repository has no simulated "
+                         "environment set up for system tests.\n\nIt needs a `simulate` block in "
+                         "`.github/factory-testing.json`, with system tests on (template: "
+                         "`templates/factory-testing.json`, FACTORY.md §4b). Nothing changed.")
+            elif not authorized("staging"):
+                refuse("staging", "simulating an epic's system tests")
+            elif (is_tracker or PROFILE_KIND in labels or FAST_TRACK in labels
+                    or _is_task_title(i.get("title")) or is_test_case or is_bug):
+                self.say(i["number"],
+                         "`Simulate tests` only works on an **epic** with a system test plan. This "
+                         "issue is not one, so nothing was started.")
+            elif i.get("state") == "closed" or "factory:deployed" in labels:
+                self.say(i["number"],
+                         "`Simulate tests` has no effect here — this epic has shipped.")
+            elif st not in ADOPTABLE_STATES:
+                self.say(i["number"],
+                         f"`Simulate tests` has no effect while this epic is at **{st}** — nothing "
+                         "was started.\n\nThe Test Planner sorts the cases of a plan, and the plan "
+                         "comes after the **Planner**, at `factory:planned`. Ask again once it has run "
+                         "— or wait: a plan written from now on is sorted as it is written.")
+            else:
+                r.role = "testplanner"
+                log.info("Simulated tests requested on #%s (%s) - starting the Test Planner",
                          i["number"], st)
         elif is_skip_tests:
             # Skipping the cases (§4b): a release decision, so the staging
@@ -1711,10 +1763,16 @@ class Router:
                     r.role = "dispatch"
                     r.issue = str(epic)
                     log.info("Re-dispatching epic #%s - a pass may have completed it", epic)
-        elif is_test_failed and is_test_case and MANUAL_TEST in labels:
-            # A failure only adds work, so any collaborator may report one.
+        elif is_test_failed and is_test_case and (
+                MANUAL_TEST in labels
+                or (TEST_FAILED in labels and not _BLOCKED_BY_RE.search(i.get("body") or ""))):
+            # A failure only adds work, so any collaborator may report one. A case at
+            # `factory:test-failed` with no fix yet failed in the simulated environment: the run
+            # records the failure and opens nothing, and this is the person turning it into a fix
+            # (simulated-system-tests D6, D8a).
             epic, case_id, case_title = _case_of(i.get("title"))
             already = _BLOCKED_BY_RE.search(i.get("body") or "")
+            simulated_failure = TEST_FAILED in labels
             if not assoc_ok:
                 self.say(i["number"],
                          f"@{sender} — reporting a system test failure requires owner, member or "
@@ -1727,6 +1785,8 @@ class Router:
             else:
                 parent = self.port.get_issue(epic) if epic else None
                 expedited = bool(parent) and EXPEDITE in _names(parent.get("labels"))
+                # `Test Failed, expedite`: this one fix advances itself, from an expedite approver.
+                expedite_fix = failed_expedite and not expedited and authorized("expedite")
                 quoted = "\n".join("> " + line for line in (body or "").strip().split("\n"))
                 fix = self.port.create_issue(
                     title=f"task({epic}): fix {case_id or 'a system test'} — {case_title}",
@@ -1737,7 +1797,9 @@ class Router:
                         f"- Reported by: @{sender}",
                         f"- Epic: #{epic}",
                         "",
-                        "What the tester saw:",
+                        "What the tester saw:" if not simulated_failure else
+                        "It failed in the simulated environment; the run and the failing steps are in "
+                        f"the case's comments (#{i['number']}).",
                         "",
                         quoted,
                         "",
@@ -1747,15 +1809,19 @@ class Router:
                         "",
                         AGENT_MARK,
                     ]),
-                    labels=["factory:ready"],
+                    labels=["factory:ready"] + ([EXPEDITE] if expedite_fix else []),
                 )
-                if expedited:
+                if expedited or expedite_fix:
                     self.expedited_fix = fix["number"]
                 impl = cfg.approver_list("implementation")
                 self.say(fix["number"],
                          "Filed from a failed system test — this epic is expedited, so its implementer "
                          "starts on its own. Nothing to approve."
                          if expedited else
+                         f"Filed from a failed system test and expedited by @{sender}: this task "
+                         "advances itself through implementation, review, testing and assembly, up to "
+                         "gate GS. Nothing to approve."
+                         if expedite_fix else
                          "Filed from a failed system test. An implementer can start: comment `Approved` "
                          "here, run the \"Factory pipeline\" workflow with role=implementer and this "
                          "issue number, or press **Approve** in the Compass."
@@ -1766,13 +1832,24 @@ class Router:
                         f"{(i.get('body') or '').rstrip()}\n\nBlocked by #{fix['number']}\n")
                 except Exception:  # noqa: BLE001 - the label still records the failure
                     log.warning("Could not append the fix marker to #%s", i["number"])
-                self.drop_label(i["number"], MANUAL_TEST)
-                self.port.add_labels(i["number"], [TEST_FAILED])
+                if MANUAL_TEST in labels:
+                    self.drop_label(i["number"], MANUAL_TEST)
+                if TEST_FAILED not in labels:
+                    self.port.add_labels(i["number"], [TEST_FAILED])
+                not_expedited = (
+                    "\n\nThe fix was not expedited: expediting it needs an expedite approver "
+                    "(`.github/factory-approvers.json`, `expedite`). It waits for an implementer start "
+                    "as usual." if failed_expedite and not expedited and not expedite_fix else "")
                 self.say(i["number"],
-                         f"**{case_id or 'This case'} failed** — reported by @{sender}. Filed "
-                         f"#{fix['number']} to fix it.\n\nThis case waits at `factory:test-failed` "
-                         "until that task is implemented, reviewed, tested and assembled; the "
-                         "Dispatcher then puts it back to `factory:manual-test` for a re-run.")
+                         f"**{case_id or 'This case'} failed** — "
+                         + ("turned into a fix" if simulated_failure else "reported")
+                         + f" by @{sender}. Filed #{fix['number']} to fix it"
+                         + (", expedited" if expedite_fix else "") + ".\n\n"
+                         "This case waits at `factory:test-failed` until that task is implemented, "
+                         "reviewed, tested and assembled; the Dispatcher then puts it back to "
+                         "`factory:manual-test` for a re-run"
+                         + (", and the next simulated run records it again." if simulated_failure else ".")
+                         + not_expedited)
                 log.info("System test #%s failed - filed fix #%s", i["number"], fix["number"])
         elif is_test_passed and is_bug and BUG_RETEST in labels:
             # The re-test verdict (§4c). Same two words a case takes, because a
@@ -2378,6 +2455,11 @@ class Router:
                     self.drop_label(i["number"], EXPEDITE)
                     self.say(i["number"], refused)
                     log.info("Refused %s on #%s", EXPEDITE, i["number"])
+                elif _sender_is_app(payload) and _is_task_title(i.get("title")):
+                    # A fix the factory filed expedited (`Test Failed, expedite`): the run that
+                    # filed it started its implementer, so this event starts nothing.
+                    log.info("%s on task #%s came from the factory itself - already started",
+                             EXPEDITE, i["number"])
                 else:
                     r.role = self.expedite_now(i, labels)
                     parked: list[tuple[str, int]] = []

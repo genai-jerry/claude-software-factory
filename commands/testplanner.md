@@ -7,7 +7,9 @@ You are the **Test Planner** of the Software Factory (see FACTORY.md §4b).
 **Input:** an epic issue number: $ARGUMENTS — normally at `factory:planned`,
 chained after the Planner and before the Architect; also any epic from
 `factory:planned` through `factory:in-staging` when a human comments
-`Plan tests` on it (the adoption path below).
+`Plan tests` on it (the adoption path below), or `Simulate tests` (a staging
+approver, in a repo with a `simulate` block: sort an existing plan's cases —
+step 3a — and open the simulated-tests task, step 4b).
 
 ## Step 0 — is this run wanted at all?
 
@@ -16,6 +18,13 @@ chained after the Planner and before the Architect; also any epic from
    this repo: say so once on the issue and stop. Write nothing. Note its
    `"run_on"` — `"staging"` means the cases run on staging after gate GS;
    anything else means they run as the code assembles on the epic branch.
+   Note its `"simulate"` block: when it names a `pack` and a
+   `status_context`, the repo has a **simulated environment** (FACTORY.md
+   §4b, Simulated cases), and you read the guide at its `guide` path before
+   writing a single case — it says what the simulators can do, the call
+   scripts and controls that exist, and what cannot be simulated, in the
+   words you quote. No block: steps 3a and 4b do not apply, and nothing below
+   changes.
 2. Read `.factory/profile.json` — its `qa_notes` (how tests are written and
    run here), its `plain_names` (the product's words every case step and
    every comment are written in — FACTORY.md §1a rules 14–15), its
@@ -118,7 +127,9 @@ screens, the data shapes, the error paths as a user meets them.
      `Depends on:` the `tasks.md` task ids whose code the case exercises, or
      `none`; `Data:` the data set ids it uses, or `none`; `Execution:`
      `manual`, or `manual, automatable` where an automated equivalent would be
-     worth writing later; `Preconditions:`; numbered `Steps:`; and `Expected:`
+     worth writing later — with a `simulate` block, `simulated` or `manual
+     (<reason from the guide>)` instead (step 3a); `Preconditions:`;
+     numbered `Steps:`; and `Expected:`
      — the observable result, written so a tester can decide pass or fail
      without interpreting anything.
    - **Traceability** — a table of every WHEN/THEN scenario in `specs/`
@@ -126,6 +137,21 @@ screens, the data shapes, the error paths as a user meets them.
 
    Cover the error paths and the boundaries, not the happy path alone: every
    rejected input, every limit, every failure mode the spec describes.
+
+3a. **Sort each case — only with a `simulate` block.** A case is
+   `Execution: simulated` when **every** one of its `Expected:` results can be
+   checked from what the simulators received or what the product's API
+   answers, and its steps are things a scenario can do (load data, steer what
+   a lead does next, press Start, move the clock, a lead's reply). Otherwise
+   it is `Execution: manual (<reason>)`, with the reason quoted from the
+   guide's list of what cannot be simulated — real audio, a carrier, a person
+   judging a screen, a recording, a real model's words. Do not split a case to
+   simulate half of it: one expected result that needs a person makes the
+   whole case manual. A case is simulated even when the simulator lacks a
+   behaviour it needs, such as a call script; that is a gap (step 4b), not a
+   reason to make it manual. On `Simulate tests`, or a revision, sort the
+   cases the plan already has, keeping every identifier, and change nothing
+   else in them.
 
 4. **Build the data.** Every set is a file, not a description:
 
@@ -172,6 +198,31 @@ screens, the data shapes, the error paths as a user meets them.
    reviewed, QA'd and assembled with the rest. On a revision, update the
    task that exists rather than opening a second one.
 
+4b. **Open the simulated-tests task and its gap tasks — only with a
+   `simulate` block and at least one simulated case.**
+   - **Gaps first.** For each behaviour a simulated case needs that no
+     simulator has (the guide lists what exists — for example a call script
+     that ends in voicemail), open one task in the repo the block's
+     `simulators` names for it, `task(<epic>): simulator — <what>`, with `Part
+     of <owner>/<repo>#<epic>`, and say in its body what the simulator must
+     do and report, and which cases need it. One task per simulator repo,
+     listing every gap there. Append each to `tasks.md` as `## Task <n> —
+     Simulator: <what> (<owner>/<repo>#<task issue>)`.
+   - **Then the task**, in the epic's repo: `task(<epic>): simulated tests —
+     ST-<a>..ST-<b>`, appended to `tasks.md` as `## Task <n> — Simulated tests
+     (#<task issue>)`. Its scope: one scenario file per simulated case at
+     `<pack>/<epic>-st-<n>.json`, in the guide's format, whose `covers` is
+     `["<owner>/<repo>#<epic> ST-<n>"]`, checking every `Expected:` of the
+     case; the data sets the scenarios use, inside the pack, from this epic's
+     DS sets; nothing else. `Blocked by` the code tasks its cases depend on,
+     the loader task, and each gap task. It is exempt from the ~10-task cap,
+     and an ordinary task from here, like the loader task.
+   - On a revision or `Simulate tests`: update the tasks that exist rather
+     than opening second ones.
+   - Each simulated case's sub-issue body (step 6) carries `**Execution:**
+     simulated`, and each manual one `**Execution:** manual — <reason>`, so the
+     Compass can show which is which.
+
 5. **If the repo has adopted the `factory` OpenSpec schema** (`schema:
    factory` in `openspec/config.yaml` and `openspec/schemas/factory/`
    present), take the format from `openspec instructions test-plan --change
@@ -217,6 +268,11 @@ screens, the data shapes, the error paths as a user meets them.
      Cases keep their `ST-<n>` identifiers; a task box is the task's title
      (`[aggregation · beacon-api]` for a cross-repo epic), never a task
      number or `owner/repo#N` (FACTORY.md §1a rule 11).
+   - With a `simulate` block, one bullet: how many cases are simulated and
+     how many manual, the manual ones' reasons grouped ("ST-1 to ST-3: real
+     audio on a real phone"), the simulated-tests task and any gap tasks by
+     title. Simulated cases run by themselves after the staging merge, and
+     their results come back on each case.
    - Next: the Architect (chained run) or the Dispatcher (adopted run).
    - Links: `test-plan.md`, `test-data.md`, and the range of `test(<epic>)`
      sub-issues.
@@ -259,7 +315,11 @@ must differ.
 - Test sub-issues are not tasks: they do not go in `tasks.md`, they do not
   count against the Planner's ~10-task cap, and no implementer, reviewer or
   QA run is ever started on one. The loader task (step 4a) is the one task
-  you open: it goes in `tasks.md`, and it is also exempt from the cap.
+  you open — with a `simulate` block also the simulated-tests task and its
+  gap tasks (step 4b): they go in `tasks.md`, and they are exempt from the cap.
+- With a `simulate` block, never write a scenario file yourself: the
+  simulated-tests task writes them, against the code. You sort the cases and
+  open the tasks.
 - The records you write are the data. A set described in prose and not
   written to `system-tests/data/` is not built.
 - Every spec scenario is either covered by a case or accounted for in Scope.
