@@ -303,7 +303,14 @@ staging). If it is neither, you are in phase 1 — go back.
 
 10. Only once the full train is green on staging, open **one promotion PR per
     repo**: head = the integration branch, base = `branches.default`. Title
-    `release(<epic>): promote <integration> to <default>`. Body: what ships
+    `release(<epic>): promote <integration> to <default>`. **One may already
+    be open**: GitHub allows one open pull request per head and base, so an
+    earlier epic's promotion that nobody merged yet is the one this epic
+    rides. Then edit its title to name every epic it carries, comma-separated
+    (`release(456, 667): promote staging to main`), and rewrite its body as
+    below. The factory reads which epics a merged promotion ships from the
+    title alone: an epic named only in the body never moves to
+    `factory:deployed`. Body: what ships
     (name every epic riding this promotion), the position of this repo in the
     merge order, the staging evidence from step 9, and the rollback plan. With
     system tests on, add the **test matrix** — every case with its verdict
