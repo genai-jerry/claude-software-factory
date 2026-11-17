@@ -218,6 +218,14 @@ staging). If it is neither, you are in phase 1 — go back.
    affected repo's epic branch is green (§7); then merge them yourself in the
    contract-first order from step 1, each with a **merge commit** (never
    squash — task history and the single-revert demotion path must survive).
+   **Simulators first.** One exception to that order: when a repo in the
+   train has a `simulate` block (FACTORY.md §4b, Simulated cases), merge
+   every other repo in the train that its `simulators` names **before** it.
+   Its own staging merge starts the simulated run, and staging deploys queue
+   in the order they are asked for, so a simulator change this epic brings
+   (a new call script, say) is then on the simulated stack when the run
+   reads it. Merged after, that change misses the run and the cases that use
+   it fail for no fault of the code.
    **A repo that is not ready.** When one repo in a cross-repo train is
    not ready (a task with no pull request, a design that never merged, a
    red epic branch), stop before any integration merge. Comment on the
