@@ -1,8 +1,96 @@
 # Software Factory
 
 [![Routing conformance](https://github.com/genai-jerry/claude-software-factory/actions/workflows/conformance.yml/badge.svg)](https://github.com/genai-jerry/claude-software-factory/actions/workflows/conformance.yml)
-[![CodeQL](https://github.com/genai-jerry/claude-software-factory/actions/workflows/codeql.yml/badge.svg)](https://github.com/genai-jerry/claude-software-factory/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Software Factory is a delivery pipeline for teams that use Claude Code: it
+turns a plain GitHub issue into a specced, reviewed, tested and released
+change, with a person approving each gate and no agent able to put anything on
+`main`.
+
+⭐ Star this repo if it's useful. It helps other people find it.
+
+Prefer a browser to labels and comments?
+**[Compass](https://github.com/genai-jerry/software-factory-view)** is the
+optional web app for setup, review and gate approvals.
+
+<!-- TODO(Jerry): replace the line below with the 60-90 second demo video or GIF. -->
+> **Demo:** _TODO. A 60-90 second walkthrough goes here (issue in, gates
+> approved, promotion PR out). Not recorded yet._
+
+## Try it in 5 minutes
+
+Five minutes gets you a local look at the roles and the branch hook. Nothing is
+installed, and nothing is written to your repository. You need git, Python 3
+and [Claude Code](https://code.claude.com).
+
+1. Clone the factory:
+
+   ```bash
+   git clone https://github.com/genai-jerry/claude-software-factory.git
+   ```
+
+2. Open Claude Code in any git repository, with the plugin loaded for that
+   session only:
+
+   ```bash
+   claude --plugin-dir /path/to/claude-software-factory
+   ```
+
+3. Type `/factory:` to see the thirteen role commands. The protected-branch
+   hook is active in the same session, so an agent `git push` to `main` or
+   `master` is blocked.
+
+Running the whole pipeline on a repository takes longer than five minutes. It
+needs labels, OpenSpec, a repo profile, two workflow stubs, one secret and the
+Claude GitHub App. Follow [`docs/setup-guide.md`](docs/setup-guide.md) step by
+step, or let [Compass](https://github.com/genai-jerry/software-factory-view)
+onboarding do most of it from the browser. The short version is under
+[Install](#install).
+
+## Why not just plain Claude Code?
+
+Claude Code on its own writes good code. It does not tell you where a piece of
+work is, what it was meant to do, or who agreed to it. The factory adds four
+things:
+
+- **Gates.** A person approves the spec (G1), the design (G2), the release to
+  staging (GS) and the promotion to `main` (G3). With release gating on, a
+  fifth gate (G0) approves a whole milestone. An epic marked
+  `factory:expedite` skips the waiting before GS, but GS and G3 always need a
+  person.
+- **No agent on `main`.** A hook blocks agent pushes to `main`, a deny list
+  removes the PR-merge tools from agent sessions, and a workflow raises an
+  incident if a commit lands on `main` without a pull request.
+- **Staging first.** Every implementation PR is based on your integration
+  branch. The change is merged and checked there before the promotion PR is
+  opened.
+- **The spec is the source of truth.** What is being built lives in an
+  [OpenSpec](https://github.com/Fission-AI/openspec) change folder. Issues
+  carry state and a link, never spec content, so the two cannot drift.
+
+For a one-off change in a small repository, plain Claude Code is the simpler
+choice. The factory earns its setup when work has to pass through several
+people and several steps.
+
+## How it compares
+
+- **Plain Claude Code, or `claude-code-action` on its own:** one agent session
+  per request, and the process around it is yours to build. The factory runs
+  on both and adds the states, the roles and the gates.
+- **OpenSpec on its own:** gives you the spec format and the `/opsx:*`
+  commands. The factory depends on it and adds the pipeline that carries a
+  spec through to a release.
+- **Hosted coding agents:** quicker to start. The factory runs in your own
+  GitHub Actions, or on your own server, with your own key. Everything it does
+  is an issue, a label, a comment or a pull request you can read.
+
+Know the limits before you adopt it. It is young (plugin version 0.2.0) and
+has one maintainer. It works with GitHub and Claude Code only. Setup takes
+real effort, and every role run uses your Anthropic API key or Claude
+subscription.
+
+## What it is
 
 An agent-driven delivery pipeline for Claude Code. A plain GitHub issue goes in.
 A specced, planned, designed, implemented, reviewed, tested and released change
@@ -19,7 +107,7 @@ Two foundations and one rule:
 - **The rule:** issues carry state plus a link, never spec content. That keeps
   the two sources of truth from drifting.
 
-Ten roles move work along the main line: scrum → intake → planner → architect →
+There are thirteen roles. Ten move work along the main line: scrum → intake → planner → architect →
 dispatch → implementer → reviewer → qa → release → ops. Three more run beside
 it: the **Profiler** writes the repo profile, the **Fast-Track** role ships
 small changes end to end, and the **Test Planner** turns an approved spec into
@@ -37,6 +125,10 @@ the factory. For a step-by-step walkthrough of every install step, see
 
 ## Contents
 
+- [Try it in 5 minutes](#try-it-in-5-minutes)
+- [Why not just plain Claude Code?](#why-not-just-plain-claude-code)
+- [How it compares](#how-it-compares)
+- [What it is](#what-it-is)
 - [Install](#install)
 - [Two engines](#two-engines)
 - [Local use](#local-use)
@@ -52,6 +144,8 @@ the factory. For a step-by-step walkthrough of every install step, see
 - Node.js 20.19+ (for OpenSpec and the label script).
 - [Claude Code](https://code.claude.com) on any machine where you run roles by hand.
 - An `ANTHROPIC_API_KEY`, or a `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
+- The [Claude GitHub App](https://github.com/apps/claude) installed on that
+  repository. Agent jobs use it to comment on issues and open PRs.
 
 ### Steps
 
@@ -123,7 +217,7 @@ the same decisions.
 | **GitHub Actions** (default) | No infrastructure. Each event runs a workflow | The install above |
 | **LangGraph orchestrator** | Long-lived service. Webhook-driven, runs roles in isolated workspaces, uses a GitHub App | [`orchestrator/README.md`](orchestrator/README.md). Opt a repo in with `.github/factory-orchestrator.json` (FACTORY.md §2e) |
 
-To run the orchestrator and the Console together on a laptop, see
+To run the orchestrator and Compass together on a laptop, see
 [`docs/run-locally.md`](docs/run-locally.md).
 
 ## Local use
@@ -224,6 +318,7 @@ templates/           everything a consuming repo copies
 scripts/             setup-labels.sh, publish-wiki.sh, test-router.js
 openspec/            this repo's own specs and changes
 docs/                setup guide, local-run guide, case study
+tools/               log-reader, a read-only log tool for Compass
 wiki/                source for the GitHub wiki
 FACTORY.md           the handbook
 ```
