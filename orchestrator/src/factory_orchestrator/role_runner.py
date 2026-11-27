@@ -53,6 +53,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .attachments import ConsoleAttachments, Fetched, attachments_note
 from .claude_stream import StreamReader, run_usage
@@ -61,6 +62,7 @@ from .issue_workspaces import IssueKey, IssueWorkspaces
 from .mcp_tools import McpSource, NoMcp, wire
 from .repo_cache import RepoCache
 from .router import AGENT_MARK, FAST_TRACK_DONE
+from .sim_batch import later_env
 
 log = logging.getLogger("factory-orchestrator.runner")
 
@@ -454,15 +456,21 @@ class RoleRunner:
             integration_branch: str | None = None,
             attachment_issues: list[tuple[str, int]] | None = None,
             run_id: str | None = None,
-            pr_base: str | None = None) -> RoleOutcome:
+            pr_base: str | None = None,
+            simulate: dict[str, Any] | None = None) -> RoleOutcome:
         """One role session. `workspace` names the issue copy to work in; None
         is a throwaway copy for this run alone. `staging_open` says a person
         approved this run writing to the integration branch (gate GS).
         `attachment_issues` names the issues whose Compass images the run
-        reads (itself, and its epic for a sub-issue); None means its own."""
+        reads (itself, and its epic for a sub-issue); None means its own. `simulate` is the
+        repo's simulated environment: a release on staging with more releases waiting then holds
+        its simulated run back (sim_batch.py)."""
         who = {"run_id": run_id, "role": role, "issue": issue, "repo": f"{owner}/{repo}"}
         with self._turn(owner, repo, workspace, who, on_phase), \
                 self._session_slot(owner, repo, workspace, who, on_phase):
+            # Counted now that this run has its turn: the releases still waiting behind it.
+            sim_env = (later_env(simulate, self.issue_workspaces.waiting(owner, repo, workspace))
+                       if role == "release" and workspace is not None and workspace.staging else {})
             home = Path(tempfile.mkdtemp(prefix=f"run-{role}-{issue}-",
                                          dir=self.workspace_root))
             deadline = time.monotonic() + self.cfg.role_timeout_seconds
@@ -504,7 +512,7 @@ class RoleRunner:
                         github_token=github_token, deadline=deadline,
                         on_phase=on_phase, on_output=on_output,
                         staging_open=staging_open, integration_branch=integration_branch,
-                        resume=resume, pr_base=pr_base)
+                        resume=resume, pr_base=pr_base, extra_env=sim_env)
                     if keep:
                         resumed = bool(outcome.conversation and outcome.conversation.get("resumed"))
                         rounds = (int(kept.get("rounds") or 1) + 1) if (kept and resumed) else 1
@@ -628,7 +636,8 @@ class RoleRunner:
                  staging_open: bool = False,
                  integration_branch: str | None = None,
                  resume: tuple[str, str] | None = None,
-                 pr_base: str | None = None) -> RoleOutcome:
+                 pr_base: str | None = None,
+                 extra_env: dict[str, str] | None = None) -> RoleOutcome:
         """`resume` is (session id, prompt): continue that conversation, or
         start afresh with `prompt` when it cannot be continued."""
         guard = install_branch_guard(home, self.source.path() if hasattr(self.source, "path") else None)
@@ -648,6 +657,7 @@ class RoleRunner:
             **({"FACTORY_GUARD_SETTINGS": str(guard)} if guard else {}),
             **({"FACTORY_MCP_CONFIG": mcp.argv[-1], "FACTORY_MCP_TOOLS": ",".join(mcp.allowed)}
                if mcp.argv else {}),
+            **(extra_env or {}),
             **self.cfg.agent_credential_env(),
         }
         readers: list[StreamReader] = []

@@ -1128,6 +1128,7 @@ by a simulator, and a clock a test can move forward. It names it with a `simulat
 - `guide`: the repo's guide to what can be simulated;
 - `status_context`: the commit status the run posts after each staging deploy;
 - `run_repo`: the repo whose Actions run carries the report;
+- `workflow`: that repo's workflow file the factory may start by hand (default `sim-scenarios.yml`);
 - `simulators`: which repo simulates what.
 
 Without the block, nothing in this part applies.
@@ -1156,6 +1157,12 @@ With it, an epic's cases split in two:
   The epic gets one summary: simulated passed and failed, manual still open, and any other scenario
   that failed in that run, named as a regression. A run is recorded once, and a later run records
   its newer result.
+- **One run for a batch of releases.** While other epics' releases wait their turn on staging, the
+  Release Manager ends each integration merge's message with the line `Sim-scenarios: later`, and
+  the simulated environment only queues that deploy. When the last release of the batch ends and
+  the integration branch's head carries that line, the factory starts the `workflow` in `run_repo`
+  by hand with `after=<repo>@<head>`. That one run tests every queued commit and reports on each.
+  If it cannot be started, the epic says how to start it by hand.
 - **A failure opens nothing by itself.** It is evidence for gate G3, like every verdict with
   `run_on: staging`. A person turns it into a fix:
   - `Test Failed` on the case files the fix as for a manual case;

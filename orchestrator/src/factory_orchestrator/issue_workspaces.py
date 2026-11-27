@@ -197,6 +197,17 @@ class IssueWorkspaces:
                 self._holders.pop(env, None)
             lock.release()
 
+    def waiting(self, owner: str, repo: str, key: IssueKey) -> int:
+        """How many runs are waiting for this environment's turn right now."""
+        with self._guard:
+            return len(self._queues.get(self.env_id(owner, repo, key), []))
+
+    def busy(self, owner: str, repo: str, key: IssueKey) -> bool:
+        """A run holds this environment, or waits for it."""
+        env = self.env_id(owner, repo, key)
+        with self._guard:
+            return env in self._holders or bool(self._queues.get(env))
+
     def mark(self, owner: str, repo: str, key: IssueKey, state: str) -> None:
         """Say what the run holding this environment is doing (`waiting for a
         session`, `running`)."""
