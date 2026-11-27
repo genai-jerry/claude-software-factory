@@ -97,6 +97,9 @@ class RepoPort(Protocol):
     def contains_commit(self, sha: str, ancestor: str) -> bool: ...
     def merged_pr(self, head: str, base: str) -> dict[str, Any] | None: ...
     def run_artifact(self, run_id: int, name: str) -> bytes | None: ...
+    # Simulated runs for a batch of releases (sim_batch.py).
+    def commit_message(self, sha: str) -> str | None: ...
+    def dispatch_workflow(self, workflow: str, *, ref: str, inputs: dict[str, str]) -> None: ...
 
 
 class GitHubApp:
@@ -385,6 +388,16 @@ class RepoClient:
             return None
         z = self._req("GET", f"/actions/artifacts/{found[0]['id']}/zip", follow_redirects=True)
         return z.content
+
+    def commit_message(self, sha):
+        """The message of commit `sha`, or None when there is no such commit."""
+        r = self._req("GET", f"/commits/{sha}", ok404=True)
+        return None if r is None else (r.json().get("commit") or {}).get("message")
+
+    def dispatch_workflow(self, workflow, *, ref, inputs):
+        """Start workflow file `workflow` on `ref` by hand (Actions: write)."""
+        self._req("POST", f"/actions/workflows/{workflow}/dispatches",
+                  json={"ref": ref, "inputs": inputs})
 
     def merge_pr(self, number, method="squash"):
         self._req("PUT", f"/pulls/{number}/merge", json={"merge_method": method})

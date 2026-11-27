@@ -76,6 +76,7 @@ from .router import (
     is_expedited,
     release_chain,
 )
+from .sim_batch import BatchRunError, how_to_start, start_batch_run
 from .writing_lint import score_new_comments
 
 log = logging.getLogger("factory-orchestrator.graph")
@@ -147,6 +148,8 @@ class Engine:
         self.runner = runner
         self.probe = probe
         self.transcript_dir = Path(transcript_dir or tempfile.mkdtemp(prefix="transcripts-"))
+        # Integration-branch heads a held-back batch's simulated run was started for (sim_batch.py).
+        self.sim_batch_started: set[str] = set()
         self.transcript_dir.mkdir(parents=True, exist_ok=True)
         self._port_factory = port_factory or (lambda o, r: app.repo_client(o, r))
 
@@ -640,6 +643,7 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
                                  guards=json.dumps(payload),
                                  transcript_path=str(transcript_path))
 
+    key: IssueKey | None = None  # the build environment, once known: read by `finally`
     try:
         try:
             if not engine.cfg.agent_credential_env():
@@ -688,6 +692,7 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
                 attachment_issues=attachment_targets(port, f"{owner}/{repo}", issue),
                 run_id=run_id,
                 pr_base=pr_base_for(engine, port, issue),
+                **({"simulate": simulate_of(engine, port)} if role == "release" else {}),
                 **({"workspace": key} if key else {}))
         # The role may have run for the better part of an hour; everything from
         # here on needs a token that is good now, not one that was good then.
@@ -781,6 +786,46 @@ def execute_role(engine: Engine, item: RunItem) -> dict[str, Any]:
         return summary
     finally:
         clear_in_progress(port, issue)
+        if role == "release":
+            start_held_back_run(engine, port, issue, key)
+
+
+def simulate_of(engine: Engine, port: RepoPort) -> dict[str, Any] | None:
+    """The repo's simulated environment, or None (also when its settings cannot be read)."""
+    try:
+        return engine.repo_config(port).simulate
+    except Exception:  # noqa: BLE001 - without it a release simply does not hold back
+        log.warning("could not read the testing settings of %s/%s", port.owner, port.repo, exc_info=True)
+        return None
+
+
+def start_held_back_run(engine: Engine, port: RepoPort, issue: int, key: IssueKey | None) -> None:
+    """After a release on staging: start the simulated run a held-back batch waits for.
+
+    Only once no other release holds or waits for this staging, and only when the integration
+    branch's head was merged with `Sim-scenarios: later` (sim_batch.py). Never raises.
+    """
+    if key is None or not key.staging:
+        return
+    workspaces = getattr(engine.runner, "issue_workspaces", None)
+    if workspaces is None or workspaces.busy(port.owner, port.repo, key):
+        return
+    try:
+        cfg = engine.repo_config(port)
+        simulate = cfg.simulate
+        if simulate is None:
+            return
+        start_batch_run(port, simulate, cfg.staging_branch, engine.port,
+                        getattr(engine, "sim_batch_started", set()))
+    except BatchRunError as e:
+        log.warning("could not start the held-back simulated run on %s/%s: %s", port.owner, port.repo, e)
+        try:
+            port.create_comment(issue, how_to_start(port, simulate, e.head, e.error))
+        except Exception:  # noqa: BLE001
+            log.warning("could not say so on #%s", issue, exc_info=True)
+    except Exception:  # noqa: BLE001 - a missed batch run waits for the next deploy, never fails a run
+        log.warning("checking for a held-back simulated run on %s/%s failed", port.owner, port.repo,
+                    exc_info=True)
 
 
 # ----------------------------------------------------------------- wiring

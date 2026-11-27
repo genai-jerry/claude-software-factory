@@ -26,6 +26,9 @@ class FakeRepo:
         self.branch_shas: dict[str, str] = {}
         # Commit statuses posted: (sha, state, context, description, target_url).
         self.statuses: list[tuple[str, str, str, str, str | None]] = []
+        # Commit messages by sha, and the workflows started by hand: (workflow, ref, inputs).
+        self.commit_messages: dict[str, str] = {}
+        self.dispatched: list[tuple[str, str, dict[str, str]]] = []
 
     # -- helpers -----------------------------------------------------------
     def labels_of(self, n: int) -> list[str]:
@@ -110,6 +113,12 @@ class FakeRepo:
 
     def branch_sha(self, name):
         return self.branch_shas.get(name)
+
+    def commit_message(self, sha):
+        return self.commit_messages.get(sha)
+
+    def dispatch_workflow(self, workflow, *, ref, inputs):
+        self.dispatched.append((workflow, ref, dict(inputs)))
 
     def create_branch(self, name, from_branch):
         if name not in self.branches:

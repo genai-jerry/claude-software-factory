@@ -233,6 +233,15 @@ staging). If it is neither, you are in phase 1 — go back.
    drop the middle repo's deploy, and with it, when that repo has the
    `simulate` block, the simulated run. If a deploy shows **cancelled**,
    re-run it before moving on.
+   **More releases waiting.** When your environment has `FACTORY_SIM_LATER=1`,
+   other epics' releases are queued behind yours for this staging. End the
+   message of **every** integration merge you make in this release with the
+   line `Sim-scenarios: later`, on a line of its own:
+   `gh pr merge <n> --merge --body "<what this merge brings>"$'\n\n'"Sim-scenarios: later"`.
+   The simulated environment then only queues those deploys, and one run after
+   the last release of the batch tests them all (the factory starts it). Never
+   write the line without `FACTORY_SIM_LATER=1`: nothing would start that run
+   but the next deploy.
    **A repo that is not ready.** When one repo in a cross-repo train is
    not ready (a task with no pull request, a design that never merged, a
    red epic branch), stop before any integration merge. Comment on the
