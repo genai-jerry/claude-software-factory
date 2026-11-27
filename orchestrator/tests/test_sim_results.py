@@ -159,6 +159,29 @@ def test_a_case_whose_fix_is_in_flight_is_left_for_the_run_after_the_fix():
     assert "Waiting on their fix, not recorded: ST-25" in repo.comments[9][-1]["body"]
 
 
+def test_a_case_blocked_by_an_issue_already_on_staging_is_recorded():
+    """1042 ST-5 passed but stayed held: its `Blocked by` was the task it depends on, on staging."""
+    cases = _cases()
+    cases[31] = (cases[31][0], ["factory:test-failed"], "Blocked by #77", "open")
+    report = {"scenarios": [_row("667-st-25", "pass", "ST-25")]}
+    repo, infra = _world(report, cases=cases)
+    repo.issues[77] = {"number": 77, "title": "task(9): the fix", "body": "", "state": "open",
+                       "labels": [{"name": "factory:in-staging"}]}
+    _record(repo, infra)
+    assert _labels(repo, 31) == {"factory:test-passed"} and repo.issues[31]["state"] == "closed"
+    assert "Waiting on their fix" not in repo.comments[9][-1]["body"]
+
+
+def test_a_case_blocked_by_a_closed_issue_is_recorded_and_an_open_one_holds_it():
+    for state, labels, held in (("closed", [], False), ("open", [{"name": "factory:in-progress"}], True)):
+        cases = _cases()
+        cases[31] = (cases[31][0], ["factory:test-failed"], "Blocked by #77", "open")
+        repo, infra = _world({"scenarios": [_row("667-st-25", "fail", "ST-25")]}, cases=cases)
+        repo.issues[77] = {"number": 77, "title": "fix", "body": "", "state": state, "labels": labels}
+        _record(repo, infra)
+        assert bool(repo.comments.get(31)) is not held, state
+
+
 def test_a_newer_run_records_a_case_again_either_way():
     cases = _cases()
     cases[31] = (cases[31][0], ["factory:test-failed"], "", "open")  # failed by an earlier run, no fix

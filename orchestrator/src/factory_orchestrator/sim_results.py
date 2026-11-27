@@ -11,8 +11,8 @@ names each scenario's result and the system test cases it `covers`.
 
 * labels each covered case `factory:test-passed` (closing it) or `factory:test-failed`, with a
   comment naming the run and, for a failure, the failing steps as the runner wrote them;
-* leaves a case alone whose fix is in flight (`factory:test-failed` with a `Blocked by` fix):
-  the next run after the fix lands records it;
+* leaves a case alone whose fix is in flight (`factory:test-failed` with a `Blocked by` issue
+  that is neither on staging nor closed): the next run after the fix lands records it;
 * posts one summary on the epic: simulated passed and failed, manual still open, and any other
   failing scenario as a regression.
 
@@ -124,6 +124,25 @@ def _covers_epic(row: dict[str, Any], repo: str, epic: int) -> bool:
     return False
 
 
+def _in_flight(port: RepoPort, case: dict[str, Any]) -> bool:
+    """True while an issue the case is `Blocked by` has not reached staging. A blocker on staging
+    (`factory:in-staging`) or closed has landed, and the run is the case's to record: the case's
+    `Blocked by` line is often the task it depends on, which is on staging before the first run,
+    and holding it until that task closes at promotion would hold it past G3. A blocker that
+    cannot be read counts as in flight."""
+    for m in _FIX.finditer(case.get("body") or ""):
+        try:
+            blocker = port.get_issue(int(m.group(1)))
+        except Exception:  # noqa: BLE001 - unreadable: hold, the next sweep looks again
+            log.warning("Could not read #%s, which case #%s is blocked by", m.group(1), case.get("number"))
+            return True
+        if blocker is None:
+            return True
+        if blocker.get("state") != "closed" and IN_STAGING not in _names(blocker.get("labels")):
+            return True
+    return False
+
+
 def _failure_text(row: dict[str, Any]) -> str:
     lines = [f"- {f}" for f in row.get("failures") or []] or [f"- the scenario ended `{row.get('result')}`"]
     return "\n".join(lines)
@@ -199,7 +218,7 @@ def _record_epic(port: RepoPort, epic: dict[str, Any], report: dict[str, Any], r
         if case is None:
             continue
         labels = _names(case.get("labels"))
-        if TEST_FAILED in labels and _FIX.search(case.get("body") or ""):
+        if TEST_FAILED in labels and _in_flight(port, case):
             held.append(case_id)  # its fix is in flight: the run after it lands records it
             continue
         ok = row.get("result") == "pass"
